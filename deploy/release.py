@@ -28,6 +28,7 @@ try:
     def run(args): subprocess.run(['runuser','-u','dawnpanel','--']+args,cwd=release,env=env,check=True)
     run([str(BASE/'venv/bin/pip'),'install','-r',str(release/'requirements.lock')])
     run([str(BASE/'venv/bin/python'),'manage.py','check','--deploy','--fail-level','WARNING'])
+    subprocess.run(['/usr/local/sbin/dawnpanel-backup'],check=True)
     run([str(BASE/'venv/bin/python'),'manage.py','migrate','--noinput'])
     run([str(BASE/'venv/bin/python'),'manage.py','prepare_portal'])
     run([str(BASE/'venv/bin/python'),'manage.py','collectstatic','--noinput','--verbosity','0'])

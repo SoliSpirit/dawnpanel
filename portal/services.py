@@ -170,7 +170,7 @@ def verify_payment(authority):
         if not ref: raise BusinessError('شماره مرجع دریافت نشد.')
         cur.execute("UPDATE zarinpal_transactions SET status='verified',ref_id=%s,verified_at=NOW() WHERE id=%s",[ref,pk])
         cur.execute('UPDATE users SET balance=balance+%s,total_payments=total_payments+%s WHERE user_id=%s',[amount,amount,uid])
-        cur.execute("INSERT INTO transactions (user_id,amount,type,description,payment_tracking_code) VALUES (%s,%s,'deposit',%s,%s)",[uid,amount,'شارژ درگاه؛ مرجع '+ref,tracking])
+        Ledger.objects.create(user_id=uid,amount=amount,type='deposit',description='شارژ درگاه؛ مرجع '+ref,payment_tracking_code=tracking)
         cur.execute("UPDATE zarinpal_verification_queue SET status='completed' WHERE authority=%s",[authority])
         cur.execute('SELECT referrer_id FROM referrals WHERE referred_user_id=%s',[uid]);row=cur.fetchone()
         if row:
@@ -180,7 +180,7 @@ def verify_payment(authority):
             if 0<commission<=amount:
                 cur.execute('UPDATE users SET balance=balance+%s,income=income+%s,subsets_commission=subsets_commission+%s WHERE user_id=%s',[commission,commission,commission,row[0]])
                 cur.execute('UPDATE referrals SET total_commission=total_commission+%s WHERE referred_user_id=%s',[commission,uid])
-                cur.execute("INSERT INTO transactions (user_id,amount,type,description) VALUES (%s,%s,'commission',%s)",[row[0],commission,'پورسانت شارژ '+tracking])
+                Ledger.objects.create(user_id=row[0],amount=commission,type='commission',description='پورسانت شارژ '+tracking)
         PaymentAttempt.objects.filter(authority=authority).update(status='verified')
         return amount,ref
 
