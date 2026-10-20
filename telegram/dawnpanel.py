@@ -1463,7 +1463,7 @@ def request_phone_verification_code(user_id, phone_number, force_new=False):
                 last_sent_at = NOW(),
                 verification_attempts = 0
             """,
-            (int(user_id), str(phone_number), str(code), str(code))
+            (int(user_id), str(phone_number), integration.code_digest(str(code)), None)
         )
         connection.commit()
         log_phone_verification_event(user_id, phone_number, 'sent', True, 'new sms sent')
@@ -2225,6 +2225,7 @@ def redeem_gift_code(user_id, code):
         target_type = gift.get('target_type') or 'all'
         target_value = int(gift.get('target_value') or 0)
         eligibility = {
+            'all':'1=1',
             'verified': 'is_verified = 1',
             'unverified': 'is_verified = 0',
             'rules_pending': 'rules_accepted = 0',
@@ -2268,8 +2269,8 @@ def redeem_gift_code(user_id, code):
         elif target_type == 'high_purchases':
             condition, params = 'total_purchases > %s', [target_value]
         else:
-            condition, params = eligibility.get(target_type, '1=1'), []
-        cur.execute(f"SELECT user_id FROM users WHERE user_id=%s AND {condition} LIMIT 1", tuple([user_id] + params))
+            condition, params = eligibility.get(target_type, '0=1'), []
+        cur.execute(f"SELECT user_id FROM users WHERE user_id=%s AND is_banned=0 AND ({condition}) LIMIT 1", tuple([user_id] + params))
         if not cur.fetchone():
             connection.rollback(); return (False, "❌ شما در گروه مجاز استفاده از این کد هدیه نیستید.")
         cur.execute("SELECT id FROM gift_code_uses WHERE gift_code_id=%s AND user_id=%s LIMIT 1", (gift['id'], user_id))
@@ -2280,6 +2281,7 @@ def redeem_gift_code(user_id, code):
         cur.execute("INSERT INTO gift_code_uses (gift_code_id,user_id,amount) VALUES (%s,%s,%s)", (gift['id'], user_id, int(gift['amount'] or 0)))
         cur.execute("UPDATE gift_codes SET used_count=used_count+1 WHERE id=%s", (gift['id'],))
         cur.execute("UPDATE users SET balance=balance+%s, consumed_gift=consumed_gift+%s WHERE user_id=%s", (gift['amount'], gift['amount'], user_id))
+        cur.execute("INSERT INTO transactions (user_id,amount,type,description) VALUES (%s,%s,'gift',%s)",(user_id,gift['amount'],'کد هدیه '+gift['code']))
         connection.commit()
         logger.info("gift redeemed code=%s user=%s amount=%s", code, user_id, gift['amount'])
         return (True, f"🎉 کد هدیه با موفقیت مصرف شد.\n\n💰 مبلغ هدیه: <b>{format_amount(int(gift['amount']))}</b> تومان")
@@ -2383,7 +2385,7 @@ def get_referrer_info_by_code(referral_code):
     if not connection: return None
     try:
         cursor = connection.cursor(dictionary=True)
-        cursor.execute("SELECT user_id, full_name FROM users WHERE referral_code = %s OR user_id = %s", (referral_code, referral_code))
+        cursor.execute("SELECT user_id, full_name FROM users WHERE referral_code = %s OR user_id IN (SELECT legacy_id FROM portal_referralalias WHERE code = %s) OR user_id = %s", (referral_code, referral_code, referral_code))
         result = cursor.fetchone()
         cursor.close()
         connection.close()
@@ -5582,9 +5584,16 @@ def create_charge_handler():
             )
             return ConversationHandler.END
 
-        if text.strip() == active_code:
-            verify_user(update.effective_user.id)
-            consume_phone_verification_code(update.effective_user.id)
+        if integration.code_matches(text.strip(),active_code):
+            try:
+                verified=await asyncio.to_thread(integration.verify_identity,update.effective_user.id,text.strip())
+            except Exception:
+                logger.exception('verified phone account linking failed user=%s',update.effective_user.id)
+                await update.message.reply_text('اتصال حساب نیازمند بررسی است؛ با پشتیبانی تماس بگیرید.')
+                return ConversationHandler.END
+            if not verified:
+                await update.message.reply_text('کد منقضی یا قبلاً مصرف شده است.')
+                return ConversationHandler.END
             context.user_data.pop('verification_code', None)
             context.user_data.pop('verification_in_progress', None)
             verification_message_id = context.user_data.pop('verification_message_id', None)
@@ -7203,7 +7212,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.answer("گزارش این کاربر پیدا نشد.",show_alert=True);return
         username=str(row.get('username') or '').strip().lstrip('@'); username_text=f"@{html.escape(username)}" if username else '-'
         full_name=html.escape(str(row.get('full_name') or '-')); phone=html.escape(str(row.get('phone_number') or '-'))
-        last_code=html.escape(str(row.get('last_code') or '-')); active_code=html.escape(str(row.get('verification_code') or '-'))
+        last_code='ذخیره نمی‌شود'; active_code='مخفی'
         active_status="🟢 معتبر" if bool(row.get('is_active')) and row.get('verification_code') else "⚪️ منقضی/مصرف‌شده"
         sent_today=int(row.get('sent_count') or 0) if str(row.get('sent_date') or '')==datetime.now().strftime('%Y-%m-%d') else 0
         logs=get_sms_verification_recent_logs(user_id,8); status_names={'sent':'📨 ارسال شد','existing':'♻️ کد قبلی','limit':'⛔️ محدودیت','error':'❌ خطا','requested':'🔁 درخواست'}
@@ -11817,11 +11826,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     referrer_id = None
-    if context.args and context.args[0].strip().isdigit():
-        rid = int(context.args[0].strip())
-        if rid != user.id and get_referrer_info_by_code(str(rid)):
-            referrer_id = rid
-            context.user_data['referrer_id'] = rid
+    if context.args and re.fullmatch(r'[A-Za-z0-9_-]{1,50}',context.args[0].strip()):
+        referral=get_referrer_info_by_code(context.args[0].strip())
+        if referral and int(referral['user_id'])!=user.id:
+            referrer_id=int(referral['user_id'])
+            context.user_data['referrer_id']=referrer_id
 
     # ساخت/دریافت کاربر قبل از بررسی عضویت؛ منبع رفرال در دیتابیس ذخیره می‌شود
     # تا حتی اگر کاربر چند ماه بعد قوانین را قبول کند، رفرال از بین نرود.

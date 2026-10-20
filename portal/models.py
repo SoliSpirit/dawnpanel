@@ -187,3 +187,7 @@ class MemberRank(models.Model):
     min_spending=models.PositiveBigIntegerField('حداقل خرید تکمیل‌شده به تومان',default=0)
     class Meta: ordering=['min_spending'];verbose_name='رتبه کاربر';verbose_name_plural='رتبه‌های کاربران'
     def __str__(self): return self.name
+
+class ReferralAlias(models.Model):
+    code=models.CharField(max_length=50,unique=True)
+    legacy_id=models.BigIntegerField()

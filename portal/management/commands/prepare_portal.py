@@ -9,6 +9,12 @@ class Command(BaseCommand):
     def handle(self,*args,**options):
         if connection.vendor!='mysql': self.stdout.write('Legacy schema changes skipped on SQLite');return
         with connection.cursor() as c:
+            c.execute("SHOW COLUMNS FROM phone_verification_codes LIKE 'verification_code'")
+            info=c.fetchone()
+            if info and info[1]!='varchar(64)':
+                c.execute('ALTER TABLE phone_verification_codes MODIFY verification_code VARCHAR(64) NULL')
+            c.execute('UPDATE phone_verification_codes SET verification_code=NULL,expires_at=NULL WHERE verification_code IS NOT NULL AND CHAR_LENGTH(verification_code)<64')
+            c.execute('UPDATE phone_verification_codes SET last_code=NULL WHERE last_code IS NOT NULL')
             existing={x.name for x in connection.introspection.get_table_description(c,'products')}
             additions={'show_on_website':'TINYINT(1) NOT NULL DEFAULT 0','show_on_telegram':'TINYINT(1) NOT NULL DEFAULT 1','platform':"VARCHAR(20) NOT NULL DEFAULT 'telegram'",'seo_description':"VARCHAR(160) NOT NULL DEFAULT ''"}
             for name,ddl in additions.items():

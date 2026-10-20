@@ -180,22 +180,23 @@ class MariaDBConcurrencyTests(TransactionTestCase):
             for m in cls.legacy:e.create_model(m)
         with connection.cursor() as c:
             c.execute("CREATE TABLE zarinpal_transactions (id BIGINT AUTO_INCREMENT PRIMARY KEY,user_id BIGINT,amount BIGINT,status VARCHAR(50),authority VARCHAR(50),ref_id VARCHAR(50),payment_tracking_code VARCHAR(10),verified_at DATETIME NULL) ENGINE=InnoDB")
-            c.execute("CREATE TABLE zarinpal_verification_queue (authority VARCHAR(50),status VARCHAR(50)) ENGINE=InnoDB")
+            c.execute("CREATE TABLE zarinpal_verification_queue (user_id BIGINT,authority VARCHAR(50),status VARCHAR(50)) ENGINE=InnoDB")
             c.execute("CREATE TABLE referrals (referrer_id BIGINT,referred_user_id BIGINT,total_commission BIGINT DEFAULT 0) ENGINE=InnoDB")
             c.execute("CREATE TABLE bot_settings (setting_key VARCHAR(100),setting_value VARCHAR(100)) ENGINE=InnoDB")
+            c.execute("CREATE TABLE phone_verification_codes (user_id BIGINT PRIMARY KEY,phone_number VARCHAR(20),verification_code VARCHAR(64),last_code VARCHAR(10),expires_at DATETIME,verification_attempts INT DEFAULT 0) ENGINE=InnoDB")
     @classmethod
     def tearDownClass(cls):
         with connection.cursor() as c:
-            for t in ['zarinpal_transactions','zarinpal_verification_queue','referrals','bot_settings']:c.execute('DROP TABLE '+t)
+            for t in ['zarinpal_transactions','zarinpal_verification_queue','referrals','bot_settings','phone_verification_codes']:c.execute('DROP TABLE '+t)
         with connection.schema_editor() as e:
             for m in reversed(cls.legacy): e.delete_model(m)
         super().tearDownClass()
     def setUp(self):
         for m in [Order,Ledger,Product,Category,LegacyUser]:m.objects.all().delete()
         with connection.cursor() as c:
-            for t in ['zarinpal_transactions','zarinpal_verification_queue','referrals','bot_settings']:c.execute('DELETE FROM '+t)
+            for t in ['zarinpal_transactions','zarinpal_verification_queue','referrals','bot_settings','phone_verification_codes']:c.execute('DELETE FROM '+t)
         self.user=User.objects.create_user(username='race-user')
-        self.wallet=LegacyUser.objects.create(user_id=201,is_verified=True,balance=1500,referral_code='race')
+        self.wallet=LegacyUser.objects.create(user_id=201,phone_number='09120000003',is_verified=True,balance=1500,referral_code='race')
         self.account=Account.objects.create(user=self.user,phone='09120000003',legacy_id=201)
         cat=Category.objects.create(name='روبیکا')
         self.product=Product.objects.create(category=cat,name='race',price=1000,price_per=1,min_order=1,platform='rubika',show_on_website=True,show_on_telegram=True,need_link=False)
@@ -240,3 +241,24 @@ class MariaDBConcurrencyTests(TransactionTestCase):
         response.json.return_value={'data':{'code':101,'ref_id':123}}
         with patch('portal.services.requests.post',return_value=response): verify_payment(authority)
         self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,2500)
+
+    def otp_for_bot(self):
+        with connection.cursor() as c:c.execute("INSERT INTO phone_verification_codes (user_id,phone_number,verification_code,expires_at) VALUES (201,'09120000003',%s,DATE_ADD(NOW(),INTERVAL 5 MINUTE))",[digest('123456')])
+    def test_website_first_account_links_without_losing_money(self):
+        src=LegacyUser.objects.create(user_id=-202,phone_number='09120000003',is_verified=True,balance=10000,referral_code='website-link')
+        self.account.legacy_id=src.pk;self.account.save()
+        order=place_order(self.account,self.product.pk,1,'',uuid.uuid4(),1000)
+        self.otp_for_bot();self.assertTrue(verify_bot_phone(201,'123456'))
+        self.account.refresh_from_db();self.wallet.refresh_from_db();order.refresh_from_db()
+        self.assertEqual(self.account.legacy_id,201);self.assertEqual(order.user_id,201)
+        self.assertEqual(self.wallet.balance,10500);self.assertFalse(LegacyUser.objects.filter(pk=-202).exists())
+        self.assertEqual(ReferralAlias.objects.get(code='website-link').legacy_id,201)
+        self.assertIsNone(Ledger.objects.exclude(user_id=201).first())
+        self.assertFalse(verify_bot_phone(201,'123456'))
+    def test_bot_phone_cannot_take_another_telegram_account(self):
+        self.account.legacy_id=999;self.account.save();self.otp_for_bot()
+        with self.assertRaises(BusinessError):verify_bot_phone(201,'123456')
+        self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,1500)
+    def test_bot_phone_requires_matching_code(self):
+        self.otp_for_bot();self.assertFalse(verify_bot_phone(201,'999999'))
+        self.assertTrue(verify_bot_phone(201,'123456'))

@@ -88,7 +88,7 @@ def price_for(product,quantity):
         if not row or row[0]<=0: raise BusinessError('نرخ ارز در دسترس نیست.')
         amount*=Decimal(row[0])
     # The bot rounds the pack price upward before calculating the quantity total.
-    pack=(amount*(Decimal(1)+product.product_profit_percent/100)).to_integral_value(rounding=ROUND_CEILING)
+    pack=(amount*(Decimal(1)+max(Decimal(0),product.product_profit_percent)/100)).to_integral_value(rounding=ROUND_CEILING)
     total=int((pack*quantity/Decimal(product.price_per)).to_integral_value(rounding=ROUND_CEILING))
     if total<=0 or total>100000000000: raise BusinessError('مبلغ سفارش نامعتبر است.')
     return total,int(pack)
@@ -226,3 +226,45 @@ def redeem_gift(account,code):
     gift.used_count+=1;gift.save(update_fields=['used_count'])
     Ledger.objects.create(user=wallet,amount=gift.amount,type='gift',description='کد هدیه '+gift.code)
     return gift.amount
+
+
+@transaction.atomic
+def verify_bot_phone(uid,code):
+    if uid<=0: raise BusinessError('شناسه تلگرام نامعتبر است.')
+    with connection.cursor() as cur:
+        cur.execute('SELECT phone_number,verification_code,(expires_at>NOW()),verification_attempts FROM phone_verification_codes WHERE user_id=%s FOR UPDATE',[uid])
+        state=cur.fetchone()
+        if not state or not state[2] or state[3]>=5 or not hmac.compare_digest(str(state[1] or ''),digest(code)): return False
+        phone=normalize_phone(state[0])
+        dst=LegacyUser.objects.select_for_update().get(pk=uid)
+        if dst.is_banned: raise BusinessError('حساب مسدود است.')
+        if normalize_phone(dst.phone_number)!=phone: raise BusinessError('شماره درخواست تغییر کرده است؛ کد جدید دریافت کنید.')
+        account=Account.objects.select_for_update().filter(phone=phone).first()
+        permitted=[uid]+([account.legacy_id] if account else [])
+        if LegacyUser.objects.filter(phone_number=phone,is_verified=True).exclude(pk__in=permitted).exists(): raise BusinessError('این شماره به حساب دیگری متصل است؛ با پشتیبانی تماس بگیرید.')
+        if account and account.legacy_id!=uid:
+            if account.legacy_id>0: raise BusinessError('این شماره به حساب تلگرام دیگری متصل است.')
+            src=LegacyUser.objects.select_for_update().get(pk=account.legacy_id)
+            if src.is_banned or normalize_phone(src.phone_number)!=phone: raise BusinessError('اتصال حساب نیازمند بررسی پشتیبانی است.')
+            for field in ['balance','total_payments','total_purchases','income','subsets_count','subsets_commission','consumed_gift']:
+                setattr(dst,field,getattr(dst,field)+getattr(src,field))
+            tables=set(connection.introspection.table_names())
+            refs={'orders':['user_id'],'transactions':['user_id'],'zarinpal_transactions':['user_id'],'zarinpal_verification_queue':['user_id'],'star_payments':['user_id'],'receipts':['user_id'],'support_messages':['user_id'],'referrals':['referrer_id','referred_user_id'],'gift_code_uses':['user_id'],'lottery_runs':['winner_id'],'phone_verification_request_logs':['user_id'],'phone_verification_codes':['user_id'],'user_verification':['user_id']}
+            for table,columns in refs.items():
+                if table in tables:
+                    for column in columns: cur.execute('UPDATE `'+table+'` SET `'+column+'`=%s WHERE `'+column+'`=%s',[uid,src.pk])
+            user_columns={c.name for c in connection.introspection.get_table_description(cur,'users')}
+            for column in ['referrer_id','pending_referrer_id']:
+                if column in user_columns:
+                    cur.execute('UPDATE users SET `'+column+'`=%s WHERE `'+column+'`=%s',[uid,src.pk])
+                    cur.execute('UPDATE users SET `'+column+'`=NULL WHERE user_id=%s AND `'+column+'`=%s',[uid,uid])
+            if 'referrals' in tables:
+                cur.execute('DELETE FROM referrals WHERE referrer_id=%s AND referred_user_id=%s',[uid,uid])
+                cur.execute('SELECT COUNT(*) FROM referrals WHERE referrer_id=%s',[uid]);dst.subsets_count=cur.fetchone()[0]
+            if src.referral_code: ReferralAlias.objects.update_or_create(code=src.referral_code,defaults={'legacy_id':uid})
+            ReferralAlias.objects.filter(legacy_id=src.pk).update(legacy_id=uid)
+            account.legacy_id=uid;account.save(update_fields=['legacy_id'])
+            cur.execute('DELETE FROM users WHERE user_id=%s',[src.pk])
+        dst.is_verified=True;dst.phone_number=phone;dst.save()
+        cur.execute('UPDATE phone_verification_codes SET verification_code=NULL,last_code=NULL,expires_at=NULL,verification_attempts=0 WHERE user_id=%s',[uid])
+        return True

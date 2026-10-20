@@ -46,3 +46,17 @@ def channel_toggle(product_id,channel):
                 if channel=='telegram': p.show_on_website=False
                 p.save(update_fields=['platform','show_on_website'])
     finally: close_old_connections()
+
+
+def code_digest(code):
+    from portal.services import digest
+    return digest(code)
+
+def code_matches(code,hashed):
+    import hmac
+    return hmac.compare_digest(code_digest(code),hashed)
+
+def verify_identity(uid,code):
+    from portal.services import verify_bot_phone
+    try: return verify_bot_phone(uid,code)
+    finally: close_old_connections()
