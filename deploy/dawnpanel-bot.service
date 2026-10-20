@@ -1,0 +1,26 @@
+[Unit]
+Description=DawnPanel Telegram bot
+After=network-online.target mariadb.service dawnpanel-web.service
+Wants=network-online.target
+[Service]
+User=dawnpanel
+Group=dawnpanel
+WorkingDirectory=/opt/dawnpanel/current/telegram
+EnvironmentFile=/etc/dawnpanel/web.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/dawnpanel/venv/bin/python dawnpanel.py
+Restart=on-failure
+RestartSec=8
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dawnpanel
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+[Install]
+WantedBy=multi-user.target

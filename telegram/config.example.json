@@ -1,0 +1,41 @@
+{
+  "telegram": {
+    "token": "SET_ON_SERVER",
+    "bot_username": "DawnPanelBot",
+    "admin_ids": [],
+    "support_username": "",
+    "support_user_id": 0,
+    "rules_link": "https://dawnpanel.ir/terms/",
+    "order_rules_link": "https://dawnpanel.ir/terms/",
+    "required_channel_id": "",
+    "report_channel_id": 0,
+    "required_channel_link": ""
+  },
+  "database": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "dawnpanel",
+    "password": "SET_ON_SERVER",
+    "database": "dawnpanel",
+    "charset": "utf8mb4",
+    "autocommit": true,
+    "connection_timeout": 10
+  },
+  "zarinpal": {
+    "merchant": "SET_ON_SERVER",
+    "sandbox": false,
+    "callback_url": "https://apibot.dawnpanel.ir/payment/verify"
+  },
+  "sms_ir": {
+    "api_key": "SET_ON_SERVER",
+    "verify_template_id": 0
+  },
+  "payment": {
+    "card_number": "",
+    "card_holder": ""
+  },
+  "business": {
+    "commission_percent": 10,
+    "self_profit_percent": 0
+  }
+}

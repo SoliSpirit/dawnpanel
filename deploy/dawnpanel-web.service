@@ -1,0 +1,25 @@
+[Unit]
+Description=DawnPanel website and payment verification
+After=network-online.target mariadb.service
+Wants=network-online.target
+[Service]
+User=dawnpanel
+Group=dawnpanel
+WorkingDirectory=/opt/dawnpanel/current
+EnvironmentFile=/etc/dawnpanel/web.env
+ExecStart=/opt/dawnpanel/venv/bin/gunicorn dawn.wsgi:application --bind 127.0.0.1:18145 --workers 3 --threads 2 --timeout 60 --access-logfile - --error-logfile -
+Restart=on-failure
+RestartSec=5
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dawnpanel
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+[Install]
+WantedBy=multi-user.target

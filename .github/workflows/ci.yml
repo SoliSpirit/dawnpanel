@@ -1,0 +1,74 @@
+name: Test and deploy DawnPanel
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dawnpanel-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: sudo apt-get update -qq && sudo apt-get install -y pkg-config default-libmysqlclient-dev
+      - run: pip install -r requirements.lock pip-audit
+      - run: python manage.py check
+      - run: python manage.py test portal --noinput
+      - run: python -m compileall -q dawn portal telegram
+      - run: pip-audit -r requirements.lock
+  mysql-test:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: ci-test-only
+          MARIADB_DATABASE: dawnpanel_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      DAWN_TEST_MYSQL: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: sudo apt-get update -qq && sudo apt-get install -y pkg-config default-libmysqlclient-dev
+      - run: pip install -r requirements.lock
+      - run: python manage.py test portal --noinput
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    needs: [test, mysql-test]
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Prepare SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+      - name: Upload and release
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          git archive --format=tar.gz -o "$GITHUB_SHA.tar.gz" HEAD
+          scp -P "$DEPLOY_PORT" "$GITHUB_SHA.tar.gz" "dawndeploy@$DEPLOY_HOST:/var/lib/dawnpanel-deploy/incoming/"
+          ssh -p "$DEPLOY_PORT" "dawndeploy@$DEPLOY_HOST" "sudo /usr/local/sbin/dawnpanel-deploy $GITHUB_SHA"

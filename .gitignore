@@ -1,0 +1,15 @@
+/private/
+/.venv/
+.env
+*.sqlite3
+__pycache__/
+*.py[cod]
+/staticfiles/
+/media/
+/telegram/config.json
+/telegram/logs/
+*.sql
+*.tlp
+*.pem
+*.key
+*.tar.gz
