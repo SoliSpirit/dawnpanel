@@ -1,0 +1,21 @@
+(() => {
+ const desk=document.getElementById('chat-desk');if(!desk)return;
+ const list=document.getElementById('desk-conversations'), log=document.getElementById('desk-messages'), title=document.getElementById('desk-title'), form=document.getElementById('desk-form'), input=document.getElementById('desk-body'), error=document.getElementById('desk-error'), close=document.getElementById('desk-close-thread');
+ const csrf=form.querySelector('[name=csrfmiddlewaretoken]').value, base=desk.dataset.listUrl;
+ let selected=null,after=0,busy=false,loading=false,timer,heartbeat=0,retryBody='',retryNonce='';
+ async function api(url,options={}){const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);try{const response=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{'X-CSRFToken':csrf},...options,signal:controller.signal});const data=await response.json().catch(()=>({error:'ارتباط برقرار نشد؛ دوباره تلاش کنید.'}));if(!response.ok||data.error)throw Error(data.error||'خطا در دریافت گفتگو.');return data;}finally{clearTimeout(timeout);}}
+ async function refresh(){
+  clearTimeout(timer);if(document.hidden||loading)return;loading=true;
+  try{
+   if(Date.now()-heartbeat>25000){await api(base,{method:'POST'});heartbeat=Date.now();}
+   const data=await api(base);const nodes=[];
+   for(const conversation of data.conversations){const button=document.createElement('button');button.type='button';button.className='desk-conversation'+(selected===conversation.id?' selected':'');button.dataset.waiting=String(conversation.status==='waiting');const heading=document.createElement('strong');heading.textContent=conversation.label;const preview=document.createElement('span');preview.textContent=conversation.preview;const badge=document.createElement('small');badge.textContent={waiting:'منتظر پاسخ',open:'در گفتگو',closed:'بسته'}[conversation.status];button.append(heading,preview,badge);button.addEventListener('click',()=>{if(busy)return;selected=conversation.id;after=0;log.replaceChildren();title.textContent=conversation.label;input.disabled=false;form.querySelector('button').disabled=false;close.disabled=false;retryBody='';refresh();});nodes.push(button);}
+   if(!nodes.length){const empty=document.createElement('p');empty.textContent='هنوز پیامی دریافت نشده است.';nodes.push(empty);}list.replaceChildren(...nodes);document.getElementById('desk-count').textContent=data.conversations.filter(row=>row.status==='waiting').length;
+   if(selected){const current=selected;const thread=await api(base+current+'/?after='+after);if(current===selected){const nearBottom=log.scrollHeight-log.scrollTop-log.clientHeight<80;for(const item of thread.messages){const article=document.createElement('article');article.className='chat-bubble '+(item.from_staff?'from-support':'from-customer');const name=document.createElement('strong');name.textContent=item.from_staff?'پشتیبان':'بازدیدکننده';const body=document.createElement('p');body.textContent=item.body;const time=document.createElement('time');time.textContent=new Date(item.created_at).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'});article.append(name,body,time);log.append(article);after=Math.max(after,item.id);}if(nearBottom)log.scrollTop=log.scrollHeight;}}
+   if(!busy)error.textContent='';
+  }catch(problem){error.textContent=problem.message||'ارتباط برقرار نشد.';}finally{loading=false;if(!document.hidden)timer=setTimeout(refresh,4000);}
+ }
+ form.addEventListener('submit',async event=>{event.preventDefault();const body=input.value.trim();if(!selected||busy||!body)return;busy=true;input.disabled=true;form.querySelector('button').disabled=true;if(retryBody!==body){retryBody=body;retryNonce=crypto.randomUUID();}try{await api(base+selected+'/',{method:'POST',body:new URLSearchParams({body,nonce:retryNonce})});input.value='';retryBody='';await refresh();}catch(problem){error.textContent=problem.message;}finally{busy=false;input.disabled=false;form.querySelector('button').disabled=false;}});
+ close.addEventListener('click',async()=>{if(!selected)return;try{await api(base+selected+'/',{method:'POST',body:new URLSearchParams({action:'close'})});refresh();}catch(problem){error.textContent=problem.message;}});
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();else clearTimeout(timer);});refresh();
+})();

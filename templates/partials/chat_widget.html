@@ -1,0 +1,9 @@
+{% load static %}<button class="chat-launcher" id="chat-launcher" type="button" aria-label="بازکردن گفتگوی آنلاین" aria-expanded="false" aria-controls="support-chat"><svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8H5l-3 2v-10a9 9 0 0 1 18 0Z"/><path d="M7 10h8M7 14h5"/></svg><span>چت با پشتیبانی</span></button>
+<section class="support-chat" id="support-chat" role="dialog" aria-label="گفتگو با پشتیبانی دان پنل" tabindex="-1" hidden data-chat-endpoint="/support/chat/" data-lenis-prevent>
+ <header class="chat-header"><img src="{% static 'brand/dawn-mark.svg' %}" alt="" width="36" height="36"><div><strong>پشتیبانی دان پنل</strong><span id="chat-presence">پیامت را بگذار؛ اینجا پاسخ می‌دهیم.</span></div><button type="button" class="chat-close" aria-label="بستن گفتگو">×</button></header>
+ <div class="chat-welcome"><b>سلام، خوش آمدی 👋</b><p>درباره انتخاب محصول یا سفارشت سوالی داری؟ برای ما بنویس.</p></div>
+ <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+ <p id="chat-error" class="chat-error" role="status"></p>
+ <form id="chat-form" data-async-form><label class="visually-hidden" for="chat-body">پیام شما</label><textarea id="chat-body" name="body" placeholder="پیامت را بنویس…" rows="2" maxlength="2000" required></textarea><button type="submit" aria-label="ارسال پیام">ارسال ↗</button></form>
+ <div class="chat-footnote">گفتگوی خصوصی با پشتیبانی · <a href="/account/tickets/">ثبت تیکت</a></div>
+</section>

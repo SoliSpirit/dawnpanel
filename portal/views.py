@@ -21,7 +21,7 @@ def with_product_images(products):
     return products
 
 def home(request):
-    return render(request,'home.html',{'featured':with_product_images(public_products().exclude(platform='ai').order_by('id')[:6]),'ai_products':with_product_images(public_products().filter(platform='ai').order_by('id')[:3]),'posts':Post.objects.filter(published=True)[:3],'title':'دان پنل | اشتراک هوش مصنوعی و خدمات دیجیتال','description':'فروشگاه دان پنل؛ اشتراک ChatGPT، Gemini و Claude و خدمات روبیکا، ایتا و بله با قیمت روشن، حساب یکپارچه و پشتیبانی تیکتی.'})
+    return render(request,'home.html',{'featured':with_product_images(public_products().exclude(platform='ai').order_by('id')[:8]),'newest':with_product_images(public_products().order_by('-id')[:4]),'ai_products':with_product_images(public_products().filter(platform='ai').order_by('id')[:3]),'posts':Post.objects.filter(published=True)[:3],'title':'دان پنل | اشتراک هوش مصنوعی و خدمات دیجیتال','description':'فروشگاه دان پنل؛ اشتراک ChatGPT، Gemini و Claude و خدمات روبیکا، ایتا و بله با قیمت روشن، حساب یکپارچه و پشتیبانی تیکتی.'})
 
 def ai_catalog(request):
     return catalog(request,platform_override='ai')
@@ -185,7 +185,7 @@ def staff(request):
     if not request.user.is_staff: return HttpResponseForbidden()
     can_orders=request.user.has_perm('portal.change_order')
     can_tickets=request.user.has_perm('portal.change_ticket')
-    return render(request,'staff.html',{'title':'میز مدیریت','pending_orders':Order.objects.filter(status__in=['pending','confirmed','approved'])[:30] if can_orders else [],'support_tickets':Ticket.objects.exclude(status='closed')[:30] if can_tickets else [],'can_orders':can_orders,'can_tickets':can_tickets,'revenue':Order.objects.filter(status='completed').aggregate(total=Sum('total_price'))['total'] or 0 if can_orders else None})
+    return render(request,'staff.html',{'can_chat':request.user.has_perm('portal.change_chatconversation'),'title':'میز مدیریت','pending_orders':Order.objects.filter(status__in=['pending','confirmed','approved'])[:30] if can_orders else [],'support_tickets':Ticket.objects.exclude(status='closed')[:30] if can_tickets else [],'can_orders':can_orders,'can_tickets':can_tickets,'revenue':Order.objects.filter(status='completed').aggregate(total=Sum('total_price'))['total'] or 0 if can_orders else None})
 
 @require_POST
 @permission_required('portal.change_order',raise_exception=True)

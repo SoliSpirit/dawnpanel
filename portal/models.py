@@ -205,3 +205,31 @@ class ProductVisual(models.Model):
     class Meta:
         verbose_name='تصویر محصول'
         verbose_name_plural='تصاویر محصولات'
+
+
+class ChatConversation(models.Model):
+    id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
+    visitor_key=models.CharField(max_length=64,unique=True)
+    user=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    status=models.CharField(max_length=12,choices=[('waiting','منتظر پاسخ'),('open','در گفتگو'),('closed','بسته')],default='waiting')
+    created_at=models.DateTimeField(auto_now_add=True)
+    updated_at=models.DateTimeField(auto_now=True,db_index=True)
+    class Meta:
+        ordering=['-updated_at']
+        verbose_name='گفتگوی آنلاین'
+        verbose_name_plural='گفتگوهای آنلاین'
+
+class ChatMessage(models.Model):
+    conversation=models.ForeignKey(ChatConversation,on_delete=models.CASCADE,related_name='messages')
+    author=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    from_staff=models.BooleanField(default=False)
+    body=models.CharField(max_length=2000)
+    nonce=models.UUIDField(default=uuid.uuid4)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering=['id']
+        constraints=[models.UniqueConstraint(fields=['conversation','nonce'],name='unique_chat_message_nonce')]
+
+class SupportPresence(models.Model):
+    user=models.OneToOneField(User,on_delete=models.CASCADE)
+    seen_at=models.DateTimeField(auto_now=True,db_index=True)
