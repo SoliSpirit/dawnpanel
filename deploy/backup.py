@@ -15,3 +15,19 @@ try:
     print('Backup complete:',target.name)
 finally:
     temporary.unlink(missing_ok=True)
+
+# Product media lives outside release directories and must survive deployments/restores.
+import tarfile
+media=pathlib.Path('/var/lib/dawnpanel/media')
+if media.is_dir():
+    media_target=base/name.replace('.sql.gz','.media.tar.gz')
+    media_temporary=pathlib.Path(str(media_target)+'.partial')
+    def safe_member(info):
+        return info if (info.isfile() or info.isdir()) and not info.issym() and not info.islnk() else None
+    try:
+        with tarfile.open(media_temporary,'w:gz') as archive:
+            archive.add(media,arcname='media',recursive=True,filter=safe_member)
+        media_temporary.chmod(0o600);media_temporary.replace(media_target)
+        print('Media backup complete:',media_target.name)
+    finally:
+        media_temporary.unlink(missing_ok=True)

@@ -55,3 +55,9 @@ if os.environ.get('DAWN_TEST_MYSQL')=='1':
 
 # Telegram's token is part of its API URL; never log routine HTTP client URLs.
 LOGGING['loggers'].update({'httpx':{'level':'WARNING'},'httpcore':{'level':'WARNING'}})
+
+MEDIA_URL='/media/'
+MEDIA_ROOT=Path('/var/lib/dawnpanel/media') if PRODUCTION else BASE_DIR/'media'
+FILE_UPLOAD_MAX_MEMORY_SIZE=1048576
+FILE_UPLOAD_PERMISSIONS=0o644
+FILE_UPLOAD_DIRECTORY_PERMISSIONS=0o755

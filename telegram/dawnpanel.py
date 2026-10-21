@@ -3857,7 +3857,7 @@ def get_product_detail_admin_keyboard(product_id):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(('✅' if web else '❌')+' سایت',callback_data=f'achannel_web_{product_id}'),InlineKeyboardButton(('✅' if tg else '❌')+' تلگرام',callback_data=f'achannel_tg_{product_id}')],
         [InlineKeyboardButton('روبیکا',callback_data=f'achannel_rubika_{product_id}'),InlineKeyboardButton('ایتا',callback_data=f'achannel_eitaa_{product_id}'),InlineKeyboardButton('بله',callback_data=f'achannel_bale_{product_id}')],
-        [InlineKeyboardButton('محصول تلگرام',callback_data=f'achannel_telegram_{product_id}')],
+        [InlineKeyboardButton('اشتراک هوش مصنوعی',callback_data=f'achannel_ai_{product_id}'),InlineKeyboardButton('محصول تلگرام',callback_data=f'achannel_telegram_{product_id}')],
         [InlineKeyboardButton("✏️ نام", callback_data=f"aeditprod_name_{product_id}"),
          InlineKeyboardButton("✏️ توضیحات", callback_data=f"aeditprod_desc_{product_id}")],
         [InlineKeyboardButton("💰 مبلغ قیمت", callback_data=f"aeditprod_price_{product_id}"),
@@ -11924,7 +11924,7 @@ def main():
     app.add_handler(TypeHandler(Update, track_user_activity), group=-1)
     # TypeHandler بالا همه Updateها را پوشش می‌دهد؛ بنابراین پیام‌های معمولی، /start،
     # Reply Keyboard و Inline/Callback همگی last_activity_at را به‌روزرسانی می‌کنند.
-    app.add_handler(CallbackQueryHandler(publication_callback,pattern="^achannel_(web|tg|rubika|eitaa|bale|telegram)_[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(publication_callback,pattern="^achannel_(web|tg|rubika|eitaa|bale|ai|telegram)_[0-9]+$"))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("panel", admin_panel))
     # /cancel باید یک Handler سراسری داشته باشد؛ مخصوصاً برای stateهایی که از CallbackQuery

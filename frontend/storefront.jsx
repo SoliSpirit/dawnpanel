@@ -26,7 +26,7 @@ function start() {
       host.className = 'spotlight-host';
       host.setAttribute('aria-hidden', 'true');
       card.prepend(host);
-      const color = card.querySelector('.rubika') ? '#79c8ff' : card.querySelector('.eitaa') ? '#ffbb83' : '#81eadb';
+      const color = card.querySelector('.ai') ? '#bbabff' : card.querySelector('.rubika') ? '#79c8ff' : card.querySelector('.eitaa') ? '#ffbb83' : '#81eadb';
       const root = createRoot(host);
       root.render(<SpotlightCard className="store-spotlight" spotlightColor={color} intensity={0.17} borderGlow={0.45} spotlightSize={300} flare={false} proximity={40} />);
       roots.push({ root, host });

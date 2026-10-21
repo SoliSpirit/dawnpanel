@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 
-PLATFORMS=[('rubika','روبیکا'),('eitaa','ایتا'),('bale','بله'),('telegram','تلگرام'),('other','سایر')]
+PLATFORMS=[('rubika','روبیکا'),('eitaa','ایتا'),('bale','بله'),('ai','اشتراک هوش مصنوعی'),('telegram','تلگرام'),('other','سایر')]
 class LegacyUser(models.Model):
     user_id=models.BigIntegerField(primary_key=True)
     full_name=models.CharField(max_length=255,blank=True,null=True)
@@ -49,14 +49,19 @@ class Product(models.Model):
     product_profit_percent=models.DecimalField('درصد سود',max_digits=10,decimal_places=4,default=0,validators=[MinValueValidator(0)])
     show_on_website=models.BooleanField('نمایش در سایت',default=False)
     show_on_telegram=models.BooleanField('نمایش در تلگرام',default=True)
-    platform=models.CharField('پیام‌رسان',max_length=20,choices=PLATFORMS,default='telegram')
+    platform=models.CharField('نوع محصول',max_length=20,choices=PLATFORMS,default='telegram')
     seo_description=models.CharField('توضیح سئو',max_length=160,blank=True,default='')
     class Meta: managed=False;db_table='products';verbose_name='محصول';verbose_name_plural='محصولات'
     def __str__(self): return self.name
     def clean(self):
         if self.max_order and self.max_order<self.min_order: raise ValidationError('حداکثر سفارش از حداقل کمتر است.')
-        if self.show_on_website and self.platform not in ['rubika','eitaa','bale']: raise ValidationError('سایت فعلاً فقط روبیکا، ایتا و بله را نمایش می‌دهد.')
+        if self.show_on_website and self.platform not in ['rubika','eitaa','bale','ai']: raise ValidationError('نوع محصول برای نمایش در فروشگاه پشتیبانی نمی‌شود.')
         if self.price_currency!='TOMAN' and self.price_amount is None: raise ValidationError('برای قیمت ارزی مبلغ لازم است.')
+    @property
+    def visual(self):
+        if not hasattr(self,'_visual_cache'):
+            self._visual_cache=ProductVisual.objects.filter(product_id=self.pk).first()
+        return self._visual_cache
     def get_absolute_url(self): return f'/services/{self.pk}/'
 class Order(models.Model):
     tracking_code=models.CharField(max_length=20)
@@ -191,3 +196,12 @@ class MemberRank(models.Model):
 class ReferralAlias(models.Model):
     code=models.CharField(max_length=50,unique=True)
     legacy_id=models.BigIntegerField()
+
+class ProductVisual(models.Model):
+    product_id=models.PositiveBigIntegerField('شناسه محصول',unique=True)
+    image=models.FileField('عکس محصول',upload_to='products/%Y/%m/',max_length=255)
+    alt_text=models.CharField('توضیح تصویر',max_length=160,blank=True)
+    updated_at=models.DateTimeField(auto_now=True)
+    class Meta:
+        verbose_name='تصویر محصول'
+        verbose_name_plural='تصاویر محصولات'

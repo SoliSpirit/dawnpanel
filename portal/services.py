@@ -76,7 +76,7 @@ def login_account(phone):
     user.save()
     return user
 
-def public_products(): return Product.objects.filter(is_active=True,category__is_active=True,show_on_website=True,platform__in=['rubika','eitaa','bale'])
+def public_products(): return Product.objects.filter(is_active=True,category__is_active=True,show_on_website=True,platform__in=['rubika','eitaa','bale','ai'])
 
 def price_for(product,quantity):
     if quantity<product.min_order or (product.max_order and quantity>product.max_order) or quantity>100000000: raise BusinessError('تعداد خارج از محدوده مجاز است.')

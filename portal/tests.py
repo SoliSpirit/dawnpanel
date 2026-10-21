@@ -71,6 +71,75 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.product.platform='telegram';self.product.save()
         self.assertFalse(public_products().exists())
         with self.assertRaises(BusinessError): self.buy()
+    def test_ai_product_is_visible_filterable_and_purchasable(self):
+        self.product.platform='ai';self.product.name='ChatGPT اشتراک';self.product.save()
+        self.assertTrue(public_products().filter(pk=self.product.pk).exists())
+        self.assertContains(self.client.get('/ai/'),'ChatGPT اشتراک')
+        self.assertNotContains(self.client.get('/services/?platform=bale'),'ChatGPT اشتراک')
+        self.assertContains(self.client.get('/sitemap.xml'),'/ai/')
+        self.assertEqual(self.buy().total_price,1000)
+
+    def test_ai_brand_search_matches_persian_name(self):
+        self.product.platform='ai';self.product.name='اشتراک جمینای';self.product.save()
+        self.assertContains(self.client.get('/ai/?q=Gemini'),'اشتراک جمینای')
+
+    def test_image_upload_is_reencoded_and_used_in_product_seo(self):
+        import io,tempfile,json,re
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from portal.product_media import normalize_product_image,save_product_picture
+        from portal.templatetags.storefront import product_image
+        image=io.BytesIO();Image.new('RGB',(2000,1000),'red').save(image,format='PNG')
+        upload=SimpleUploadedFile('untrusted-name.png',image.getvalue(),content_type='text/plain')
+        with tempfile.TemporaryDirectory() as directory,override_settings(MEDIA_ROOT=directory):
+            normalized=normalize_product_image(upload)
+            self.assertTrue(normalized.name.endswith('.webp'))
+            with Image.open(normalized) as result:
+                self.assertEqual(result.format,'WEBP');self.assertEqual(result.size,(1600,800))
+            normalized.seek(0)
+            form=Mock(cleaned_data={'picture':normalized,'picture_alt':'عکس واقعی محصول'})
+            save_product_picture(self.product,form)
+            self.product=Product.objects.get(pk=self.product.pk)
+            url=product_image(self.product)
+            self.assertTrue(url.startswith('/media/products/'))
+            response=self.client.get(self.product.get_absolute_url())
+            self.assertContains(response,'https://dawnpanel.ir'+url)
+            self.assertContains(response,'عکس واقعی محصول')
+
+    def test_product_admin_accepts_picture_upload(self):
+        import io,tempfile
+        from PIL import Image
+        from django.forms.models import model_to_dict
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self.user.is_staff=True;self.user.is_superuser=True;self.user.save()
+        data={key:value if value is not None else '' for key,value in model_to_dict(self.product).items()}
+        image=io.BytesIO();Image.new('RGB',(64,64),'blue').save(image,format='PNG')
+        data.update({'picture':SimpleUploadedFile('picture.png',image.getvalue(),content_type='image/png'),'picture_alt':'تصویر انتخاب‌شده مدیر','_save':'ذخیره'})
+        with tempfile.TemporaryDirectory() as directory,override_settings(MEDIA_ROOT=directory):
+            response=self.client.post('/manage/portal/product/'+str(self.product.pk)+'/change/',data)
+            self.assertEqual(response.status_code,302)
+            visual=ProductVisual.objects.get(product_id=self.product.pk)
+            self.assertEqual(visual.alt_text,'تصویر انتخاب‌شده مدیر')
+            self.assertTrue(visual.image.storage.exists(visual.image.name))
+
+    def test_image_upload_rejects_svg_and_oversized_payload(self):
+        from django import forms
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from portal.product_media import normalize_product_image,MAX_BYTES
+        for upload in [SimpleUploadedFile('fake.png',b'<svg onload="alert(1)"></svg>'),SimpleUploadedFile('large.jpg',b'x'*(MAX_BYTES+1))]:
+            with self.assertRaises(forms.ValidationError):normalize_product_image(upload)
+
+    def test_seo_ai_offer_uses_rials_and_search_is_noindex(self):
+        import json,re
+        self.product.platform='ai';self.product.save()
+        response=self.client.get(self.product.get_absolute_url())
+        data=json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>',response.content.decode()).group(1))
+        self.assertEqual(data['@type'],'Product')
+        self.assertEqual(data['offers']['priceCurrency'],'IRR')
+        self.assertEqual(data['offers']['price'],1000)
+        self.assertContains(self.client.get('/ai/?q=ChatGPT'),'noindex,follow')
+        self.assertContains(self.client.get('/ai/'),'index,follow,max-image-preview:large')
+
     def test_banned_user_cannot_order(self):
         self.wallet.is_banned=True;self.wallet.save()
         with self.assertRaises(BusinessError): self.buy()

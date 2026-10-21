@@ -14,20 +14,40 @@ from .models import *
 from .forms import *
 from .services import *
 
-def home(request):
-    return render(request,'home.html',{'featured':public_products().order_by('id')[:6],'posts':Post.objects.filter(published=True)[:3],'title':'خدمات روبیکا، ایتا و بله | دان پنل','description':'خدمات پیام‌رسان‌های ایرانی؛ سفارش آنلاین، کیف پول یکپارچه، پیگیری سفارش و پشتیبانی تیکتی در دان پنل.'})
+def with_product_images(products):
+    products=list(products)
+    images={image.product_id:image for image in ProductVisual.objects.filter(product_id__in=[p.pk for p in products])}
+    for product in products: product._visual_cache=images.get(product.pk)
+    return products
 
-def catalog(request):
+def home(request):
+    return render(request,'home.html',{'featured':with_product_images(public_products().exclude(platform='ai').order_by('id')[:6]),'ai_products':with_product_images(public_products().filter(platform='ai').order_by('id')[:3]),'posts':Post.objects.filter(published=True)[:3],'title':'دان پنل | اشتراک هوش مصنوعی و خدمات دیجیتال','description':'فروشگاه دان پنل؛ اشتراک ChatGPT، Gemini و Claude و خدمات روبیکا، ایتا و بله با قیمت روشن، حساب یکپارچه و پشتیبانی تیکتی.'})
+
+def ai_catalog(request):
+    return catalog(request,platform_override='ai')
+
+def catalog(request,platform_override=None):
     products=public_products().select_related('category')
-    platform=request.GET.get('platform','')
-    if platform in ['rubika','eitaa','bale']: products=products.filter(platform=platform)
+    platform=platform_override or request.GET.get('platform','')
+    if platform in ['rubika','eitaa','bale','ai']: products=products.filter(platform=platform)
     q=request.GET.get('q','')[:100]
-    if q: products=products.filter(Q(name__icontains=q)|Q(description__icontains=q))
-    return render(request,'catalog.html',{'page':Paginator(products.order_by('id'),12).get_page(request.GET.get('page')),'platform':platform,'q':q,'title':'خدمات روبیکا، ایتا و بله','description':'مشاهده خدمات، قیمت‌ها و شرایط سفارش روبیکا، ایتا و بله.'})
+    if q:
+        terms=[q]
+        for aliases in [('ChatGPT','چت جی پی تی','چت‌جی‌پی‌تی'),('Gemini','جمینای'),('Claude','کلاد','کلود')]:
+            if q.casefold() in [alias.casefold() for alias in aliases]: terms=list(aliases)
+        search=Q()
+        for term in terms: search |= Q(name__icontains=term)|Q(description__icontains=term)
+        products=products.filter(search)
+    page=Paginator(products.order_by('id'),12).get_page(request.GET.get('page'))
+    page.object_list=with_product_images(page.object_list)
+    return render(request,'catalog.html',{'page':page,'platform':platform,'q':q,'title':'اشتراک هوش مصنوعی؛ ChatGPT، Gemini و Claude | دان پنل' if platform=='ai' else 'خرید خدمات دیجیتال و پیام‌رسان | دان پنل','description':'خرید و بررسی اشتراک‌های هوش مصنوعی ChatGPT، Gemini و Claude؛ شرایط و مدت هر اشتراک را پیش از خرید بررسی کنید.' if platform=='ai' else 'مشاهده قیمت و شرایط خدمات روبیکا، ایتا و بله و اشتراک‌های هوش مصنوعی در فروشگاه دان پنل.'})
 
 def product(request,pk):
     p=get_object_or_404(public_products(),pk=pk)
     form=OrderForm(request.POST or None,initial={'quantity':p.min_order})
+    if p.platform=='ai':
+        form.fields['target'].label='ایمیل یا توضیحات سفارش'
+        form.fields['target'].help_text='اطلاعات لازم برای تحویل، مطابق توضیحات محصول.'
     total=None
     try: pack=price_for(p,p.price_per if p.price_per>=p.min_order and (not p.max_order or p.price_per<=p.max_order) else p.min_order)[1]
     except BusinessError: pack=None
@@ -40,7 +60,7 @@ def product(request,pk):
             request.session['checkout']=pending
             return render(request,'review.html',{'product':p,'pending':pending,'total':total,'title':'تایید سفارش'})
         except BusinessError as e: form.add_error(None,str(e))
-    return render(request,'product.html',{'product':p,'form':form,'pack_price':pack,'title':p.name,'description':p.seo_description or (p.description or '')[:160]})
+    return render(request,'product.html',{'product':p,'form':form,'pack_price':pack,'title':p.name,'description':p.seo_description or (p.name+'؛ مشاهده قیمت، شرایط سفارش و پشتیبانی در دان پنل.')[:160]})
 
 @require_POST
 @login_required
@@ -181,7 +201,7 @@ def post(request,slug):
     return render(request,'post.html',{'post':p,'title':p.title,'description':p.summary})
 
 def legal(request,page):
-    pages={'terms':('قوانین استفاده','پیش از سفارش، توضیحات، تعداد و مقصد را بررسی کنید. زمان انجام هر خدمت به شرایط همان محصول وابسته است. تضمینی درباره نتیجه تجاری یا رشد مخاطبان داده نمی‌شود. خدمات برای استفاده قانونی ارائه می‌شوند. در صورت لغو سفارش توسط پشتیبانی، وجه به کیف پول برمی‌گردد. برای اختلاف در پرداخت یا سفارش، از تیکت استفاده کنید.'),'privacy':('حریم خصوصی','شماره موبایل برای احراز هویت و اتصال حساب استفاده می‌شود. اطلاعات سفارش و پرداخت برای ارائه خدمات نگهداری می‌شوند. رمز یک‌بارمصرف سایت به‌صورت هش ذخیره می‌شود. دسترسی کارکنان براساس نقش محدود است. درخواست بررسی، اصلاح یا حذف اطلاعات را از طریق تیکت ثبت کنید.'),'about':('درباره دان پنل','دان پنل، نقطه مشترک مدیریت سفارش خدمات روبیکا، ایتا و بله است. محصولات، موجودی و وضعیت سفارش‌ها در یک حساب مدیریت می‌شوند. پیش از ثبت سفارش، راهنمای محصول را بخوانید و در صورت نیاز با پشتیبانی تیکتی در ارتباط باشید.')}
+    pages={'terms':('قوانین استفاده','پیش از سفارش، توضیحات، تعداد و مقصد را بررسی کنید. زمان انجام هر خدمت به شرایط همان محصول وابسته است. تضمینی درباره نتیجه تجاری یا رشد مخاطبان داده نمی‌شود. خدمات برای استفاده قانونی ارائه می‌شوند. در صورت لغو سفارش توسط پشتیبانی، وجه به کیف پول برمی‌گردد. برای اختلاف در پرداخت یا سفارش، از تیکت استفاده کنید.'),'privacy':('حریم خصوصی','شماره موبایل برای احراز هویت و اتصال حساب استفاده می‌شود. اطلاعات سفارش و پرداخت برای ارائه خدمات نگهداری می‌شوند. رمز یک‌بارمصرف سایت به‌صورت هش ذخیره می‌شود. دسترسی کارکنان براساس نقش محدود است. درخواست بررسی، اصلاح یا حذف اطلاعات را از طریق تیکت ثبت کنید.'),'about':('درباره دان پنل','دان پنل، فروشگاه اشتراک‌های هوش مصنوعی و خدمات روبیکا، ایتا و بله است. محصولات، موجودی و وضعیت سفارش‌ها در یک حساب مدیریت می‌شوند. پیش از ثبت سفارش، راهنمای محصول را بخوانید و در صورت نیاز با پشتیبانی تیکتی در ارتباط باشید.')}
     if page not in pages: return HttpResponse(status=404)
     title,body=pages[page];return render(request,'legal.html',{'title':title,'body':body})
 
@@ -189,8 +209,17 @@ def robots(request): return HttpResponse('User-agent: *\nDisallow: /manage/\nDis
 
 def sitemap(request):
     from xml.sax.saxutils import escape
-    paths=['/','/services/','/blog/','/about/','/terms/','/privacy/']+[p.get_absolute_url() for p in public_products()]+[p.get_absolute_url() for p in Post.objects.filter(published=True)]
-    data='<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+''.join('<url><loc>https://dawnpanel.ir'+escape(quote(path,safe='/'))+'</loc></url>' for path in paths)+'</urlset>'
+    from portal.templatetags.storefront import product_image
+    entries=[(path,None,None) for path in ['/','/ai/','/services/','/blog/','/about/','/terms/','/privacy/']]
+    entries += [(product.get_absolute_url(),None,product_image(product)) for product in with_product_images(public_products())]
+    entries += [(post.get_absolute_url(),post.updated_at.date().isoformat(),None) for post in Post.objects.filter(published=True)]
+    body=[]
+    for path,modified,image in entries:
+        entry='<url><loc>https://dawnpanel.ir'+escape(quote(path,safe='/'))+'</loc>'
+        if modified:entry+='<lastmod>'+modified+'</lastmod>'
+        if image:entry+='<image:image><image:loc>https://dawnpanel.ir'+escape(image)+'</image:loc></image:image>'
+        body.append(entry+'</url>')
+    data='<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">'+''.join(body)+'</urlset>'
     return HttpResponse(data,content_type='application/xml')
 
 def health(request):
