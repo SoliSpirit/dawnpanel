@@ -1,8 +1,13 @@
 #!/usr/bin/python3
 import os,json,pathlib,subprocess,gzip,datetime
-config=json.loads(pathlib.Path('/etc/dawnpanel/config.json').read_text())['database']
+private_config=json.loads(pathlib.Path('/etc/dawnpanel/config.json').read_text())
+config=private_config['database']
 base=pathlib.Path('/var/backups/dawnpanel');base.mkdir(mode=0o700,exist_ok=True);base.chmod(0o700)
 name='database-'+datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')+'.sql.gz'
+if private_config.get('profile_encryption_key'):
+    key_target=base/name.replace('.sql.gz','.profile-key')
+    descriptor=os.open(key_target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    with os.fdopen(descriptor,'w') as key_file:key_file.write(private_config['profile_encryption_key'])
 target=base/name;temporary=base/(name+'.partial')
 env={**os.environ,'MYSQL_PWD':config['password']}
 try:

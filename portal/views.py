@@ -8,7 +8,8 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Q,Sum
 from django.db import transaction
-from django.views.decorators.http import require_POST,require_GET
+from django.views.decorators.http import require_POST,require_GET,require_http_methods
+from django.views.decorators.debug import sensitive_post_parameters
 from django.utils import timezone
 from .models import *
 from .forms import *
@@ -116,6 +117,33 @@ def dashboard(request):
     return render(request,'dashboard.html',{'wallet':wallet,'orders':Order.objects.filter(user_id=a.legacy_id)[:5],'transactions':Ledger.objects.filter(user_id=a.legacy_id)[:8],'order_count':Order.objects.filter(user_id=a.legacy_id).count(),'ticket_count':Ticket.objects.filter(user=request.user).exclude(status='closed').count(),'rank':MemberRank.objects.filter(min_spending__lte=wallet.total_purchases).last(),'title':'حساب کاربری'})
 
 @login_required
+@sensitive_post_parameters('national_code','birth_date')
+@require_http_methods(['GET','POST'])
+def profile(request):
+    from .profile import ProfileForm,profile_cipher
+    import jdatetime
+    account=request.user.account
+    initial={name:getattr(request.user,name) for name in ['first_name','last_name','email']}
+    if initial['first_name']=='کاربر دان پنل':initial['first_name']=''
+    initial.update({'province':account.province,'city':account.city,'birth_date':jdatetime.date.fromgregorian(date=account.birth_date).strftime('%Y/%m/%d') if account.birth_date else ''})
+    form=ProfileForm(request.POST if request.method=='POST' else None,initial=initial)
+    if request.method=='POST' and form.is_valid():
+        with transaction.atomic():
+            account=Account.objects.select_for_update().get(user=request.user)
+            for field in ['first_name','last_name','email']:setattr(request.user,field,form.cleaned_data[field])
+            request.user.save(update_fields=['first_name','last_name','email'])
+            for field in ['birth_date','province','city']:setattr(account,field,form.cleaned_data[field])
+            if form.cleaned_data['clear_national_code']:account.national_code_encrypted=''
+            elif form.cleaned_data['national_code']:account.national_code_encrypted=profile_cipher().encrypt(form.cleaned_data['national_code'].encode()).decode()
+            account.save(update_fields=['national_code_encrypted','birth_date','province','city'])
+            name=request.user.get_full_name().strip()
+            LegacyUser.objects.filter(pk=account.legacy_id).update(full_name=name[:255] or 'کاربر سایت')
+            Audit.objects.create(actor=request.user,action='profile.update',object_ref=str(account.pk),details={'fields':form.changed_data})
+        messages.success(request,'اطلاعات پروفایل ذخیره شد.')
+        return redirect('profile')
+    return render(request,'profile.html',{'form':form,'has_national_code':bool(account.national_code_encrypted),'title':'اطلاعات پروفایل | دان‌پنل'})
+
+@login_required
 def orders(request):
     rows=Order.objects.filter(user_id=request.user.account.legacy_id)
     return render(request,'orders.html',{'page':Paginator(rows,20).get_page(request.GET.get('page')),'title':'سفارش‌های من'})
@@ -201,18 +229,18 @@ def post(request,slug):
     return render(request,'post.html',{'post':p,'title':p.title,'description':p.summary})
 
 def legal(request,page):
-    pages={'terms':('قوانین استفاده','پیش از سفارش، توضیحات، تعداد و مقصد را بررسی کنید. زمان انجام هر خدمت به شرایط همان محصول وابسته است. تضمینی درباره نتیجه تجاری یا رشد مخاطبان داده نمی‌شود. خدمات برای استفاده قانونی ارائه می‌شوند. در صورت لغو سفارش توسط پشتیبانی، وجه به کیف پول برمی‌گردد. برای اختلاف در پرداخت یا سفارش، از تیکت استفاده کنید.'),'privacy':('حریم خصوصی','شماره موبایل برای احراز هویت و اتصال حساب استفاده می‌شود. اطلاعات سفارش و پرداخت برای ارائه خدمات نگهداری می‌شوند. رمز یک‌بارمصرف سایت به‌صورت هش ذخیره می‌شود. دسترسی کارکنان براساس نقش محدود است. درخواست بررسی، اصلاح یا حذف اطلاعات را از طریق تیکت ثبت کنید.'),'about':('درباره دان پنل','دان پنل، فروشگاه اشتراک‌های هوش مصنوعی و خدمات روبیکا، ایتا و بله است. محصولات، موجودی و وضعیت سفارش‌ها در یک حساب مدیریت می‌شوند. پیش از ثبت سفارش، راهنمای محصول را بخوانید و در صورت نیاز با پشتیبانی تیکتی در ارتباط باشید.')}
+    pages={'terms':('قوانین استفاده','پیش از سفارش، توضیحات، تعداد و مقصد را بررسی کنید. زمان انجام هر خدمت به شرایط همان محصول وابسته است. تضمینی درباره نتیجه تجاری یا رشد مخاطبان داده نمی‌شود. خدمات برای استفاده قانونی ارائه می‌شوند. در صورت لغو سفارش توسط پشتیبانی، وجه به کیف پول برمی‌گردد. برای اختلاف در پرداخت یا سفارش، از تیکت استفاده کنید.'),'privacy':('حریم خصوصی','شماره موبایل برای ورود و اتصال حساب استفاده می‌شود. نام، نام خانوادگی، ایمیل، تاریخ تولد، استان، شهر و کد ملی فقط در صورت تکمیل اختیاری پروفایل نگهداری می‌شوند. کد ملی رمز‌شده ذخیره می‌شود و ثبت آن به معنی احراز هویت رسمی نیست. می‌توانید کد ملی را از پروفایل حذف کنید. اطلاعات سفارش و پرداخت برای ارائه خدمات نگهداری می‌شوند. رمز یک‌بارمصرف سایت به‌صورت هش ذخیره می‌شود. دسترسی کارکنان براساس نقش محدود است. درخواست بررسی، اصلاح یا حذف اطلاعات را از طریق تیکت ثبت کنید.'),'about':('درباره دان پنل','دان پنل، فروشگاه اشتراک‌های هوش مصنوعی و خدمات روبیکا، ایتا و بله است. محصولات، موجودی و وضعیت سفارش‌ها در یک حساب مدیریت می‌شوند. پیش از ثبت سفارش، راهنمای محصول را بخوانید و در صورت نیاز با پشتیبانی تیکتی در ارتباط باشید.')}
     if page not in pages: return HttpResponse(status=404)
     title,body=pages[page];return render(request,'legal.html',{'title':title,'body':body})
 
-def robots(request): return HttpResponse('User-agent: *\nDisallow: /manage/\nDisallow: /account/\nDisallow: /staff/\nDisallow: /login/\nDisallow: /payment/\nSitemap: https://dawnpanel.ir/sitemap.xml\n',content_type='text/plain')
+def robots(request): return HttpResponse('User-agent: *\nDisallow: /admin\nDisallow: /manage/\nDisallow: /account/\nDisallow: /staff/\nDisallow: /login/\nDisallow: /logout/\nDisallow: /support/chat/\nDisallow: /payment/\nDisallow: /healthz/\nSitemap: https://dawnpanel.ir/sitemap.xml\n',content_type='text/plain')
 
 def sitemap(request):
     from xml.sax.saxutils import escape
-    from portal.templatetags.storefront import product_image
+    from portal.templatetags.storefront import product_image,post_image
     entries=[(path,None,None) for path in ['/','/ai/','/services/','/blog/','/about/','/terms/','/privacy/']]
     entries += [(product.get_absolute_url(),None,product_image(product)) for product in with_product_images(public_products())]
-    entries += [(post.get_absolute_url(),post.updated_at.date().isoformat(),None) for post in Post.objects.filter(published=True)]
+    entries += [(post.get_absolute_url(),post.updated_at.date().isoformat(),post_image(post)) for post in Post.objects.filter(published=True)]
     body=[]
     for path,modified,image in entries:
         entry='<url><loc>https://dawnpanel.ir'+escape(quote(path,safe='/'))+'</loc>'

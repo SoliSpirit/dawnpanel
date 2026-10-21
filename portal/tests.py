@@ -153,7 +153,7 @@ class SecurityAndCommerceTests(TransactionTestCase):
         night=io.BytesIO();Image.new('RGB',(64,64),'black').save(night,format='PNG')
         data['night_picture']=SimpleUploadedFile('night.png',night.getvalue(),content_type='image/png')
         with tempfile.TemporaryDirectory() as directory,override_settings(MEDIA_ROOT=directory):
-            response=self.client.post('/manage/portal/product/'+str(self.product.pk)+'/change/',data)
+            response=self.client.post('/admin/portal/product/'+str(self.product.pk)+'/change/',data)
             self.assertEqual(response.status_code,302)
             visual=ProductVisual.objects.get(product_id=self.product.pk)
             self.assertEqual(visual.alt_text,'تصویر انتخاب‌شده مدیر')
@@ -206,7 +206,65 @@ class SecurityAndCommerceTests(TransactionTestCase):
     def test_support_cannot_change_products(self):
         self.user.is_staff=True;self.user.save()
         self.user.user_permissions.add(Permission.objects.get(content_type__app_label='portal',codename='change_ticket'))
-        self.assertEqual(self.client.get('/manage/portal/product/').status_code,403)
+        self.assertEqual(self.client.get('/admin/portal/product/').status_code,404)
+
+    def test_admin_routes_hide_from_unauthorized_users(self):
+        for client in [Client(),self.client]:
+            for path in ['/admin','/admin/','/admin/login/','/admin/portal/product/','/admin/jsi18n/','/manage/']:
+                self.assertEqual(client.get(path).status_code,404,path)
+            self.assertEqual(client.post('/admin/login/',{}).status_code,404)
+        self.user.is_staff=True;self.user.save()
+        self.assertEqual(self.client.get('/admin/').status_code,404)
+        self.user.is_superuser=True;self.user.save()
+        self.assertContains(self.client.get('/admin/'),'مدیریت روشن، فروشگاه مرتب.')
+        self.assertContains(self.client.get('/admin/portal/product/'),'admin-panel.css')
+        response=self.client.get('/admin/')
+        self.assertIn('noindex',response['X-Robots-Tag'])
+        self.assertIn('no-store',response['Cache-Control'])
+
+    def test_profile_update_is_private_encrypted_and_scoped(self):
+        import json
+        from portal.profile import profile_cipher
+        other_before=self.other.first_name
+        response=self.client.post('/account/profile/',{'first_name':'نام نمونه','last_name':'آزمایشی','email':'example@example.com','national_code':'۰۱۲۳۴۵۶۷۸۹','birth_date':'۱۳۸۰/۰۱/۱۵','province':'تهران','city':'تهران','user_id':self.other.pk,'is_staff':'1','phone':'09000000000'})
+        self.assertRedirects(response,'/account/profile/')
+        self.user.refresh_from_db();self.other.refresh_from_db();self.account.refresh_from_db()
+        self.assertEqual(self.user.get_full_name(),'نام نمونه آزمایشی')
+        self.assertFalse(self.user.is_staff)
+        self.assertEqual(self.other.first_name,other_before)
+        self.assertEqual(self.account.phone,self.user.username)
+        ciphertext=self.account.national_code_encrypted
+        self.assertNotIn('0123456789',ciphertext)
+        self.assertEqual(profile_cipher().decrypt(ciphertext.encode()),b'0123456789')
+        self.assertEqual(self.account.birth_date.isoformat(),'2001-04-04')
+        page=self.client.get('/account/profile/')
+        self.assertNotContains(page,'0123456789');self.assertNotContains(page,ciphertext)
+        self.assertIn('no-store',page['Cache-Control'])
+        self.assertIn('noindex',page['X-Robots-Tag'])
+        self.assertNotIn('0123456789',json.dumps(Audit.objects.get(action='profile.update').details))
+        self.client.post('/account/profile/',{'first_name':'نام نمونه','last_name':'آزمایشی'})
+        self.account.refresh_from_db();self.assertEqual(self.account.national_code_encrypted,ciphertext)
+        self.client.post('/account/profile/',{'clear_national_code':'on'})
+        self.account.refresh_from_db();self.assertEqual(self.account.national_code_encrypted,'')
+
+    def test_profile_rejects_invalid_identity_without_partial_save(self):
+        for values in [{'national_code':'1111111111'},{'national_code':'0123456788'},{'birth_date':'۱۴۰۰/۱۲/۳۰'},{'birth_date':'۱۵۰۰/۰۱/۰۱'},{'email':'bad-email'}]:
+            response=self.client.post('/account/profile/',{'first_name':'نباید ذخیره شود',**values})
+            self.assertEqual(response.status_code,200)
+            self.user.refresh_from_db();self.assertNotEqual(self.user.first_name,'نباید ذخیره شود')
+        client=Client(enforce_csrf_checks=True);client.force_login(self.user)
+        self.assertEqual(client.post('/account/profile/',{'first_name':'CSRF'}).status_code,403)
+        self.assertEqual(Client().get('/account/profile/').status_code,302)
+
+    def test_paginated_seo_and_breadcrumbs_are_consistent(self):
+        for i in range(20):Post.objects.create(title='مقاله '+str(i),slug='seo-page-'+str(i),summary='راهنمای نمونه',body='متن',published=True,author=self.user)
+        response=self.client.get('/blog/?page=2')
+        self.assertContains(response,'https://dawnpanel.ir/blog/?page=2')
+        self.assertContains(response,'صفحه 2')
+        self.assertContains(response,'index,follow,max-image-preview:large')
+        response=self.client.get(self.product.get_absolute_url())
+        self.assertContains(response,'BreadcrumbList')
+        self.assertContains(self.client.get('/robots.txt'),'Disallow: /admin')
     def test_csrf_is_enforced(self):
         c=Client(enforce_csrf_checks=True);c.force_login(self.user)
         self.assertEqual(c.post('/account/checkout/',{'key':str(uuid.uuid4())}).status_code,403)

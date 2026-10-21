@@ -1,0 +1,8 @@
+{% extends 'account_base.html' %}
+{% block account %}
+<div class="section-title"><div><span class="eyebrow">حساب من</span><h1>اطلاعات پروفایل</h1><p>اطلاعاتت را کامل کن؛ هر زمان بخواهی می‌توانی ویرایششان کنی.</p></div></div>
+<div class="panel profile-panel"><div class="profile-identity"><span class="profile-avatar" aria-hidden="true">{{ user.first_name|first|default:'◌' }}</span><div><h2>{{ user.get_full_name|default:'پروفایل شما' }}</h2><span class="muted" dir="ltr">{{ user.account.phone }}</span></div><span class="chip">موبایل تأییدشده</span></div>
+<p class="profile-note">تکمیل این اطلاعات اختیاری است. واردکردن کد ملی به معنی احراز هویت رسمی نیست. شماره موبایل ورود از این بخش تغییر نمی‌کند.</p>
+{% if has_national_code %}<p class="notice">کد ملی شما ذخیره شده است؛ برای حفظ حریم خصوصی دوباره نمایش داده نمی‌شود.</p>{% endif %}
+<form method="post" class="profile-form">{% csrf_token %}{{ form.non_field_errors }}<div class="profile-fields">{% for field in form %}<div class="profile-field {% if field.name == 'clear_national_code' %}profile-check{% endif %}">{{ field.errors }}{% if field.name == 'clear_national_code' %}<label class="check">{{ field }} <span>{{ field.label }}</span></label>{% else %}{{ field.label_tag }}{{ field }}{% endif %}{% if field.help_text %}<small id="{{ field.auto_id }}_helptext">{{ field.help_text }}</small>{% endif %}</div>{% endfor %}</div><div class="profile-save"><button class="button" type="submit">ذخیره اطلاعات</button><a class="text-link" href="/account/">بازگشت به حساب</a></div></form></div>
+{% endblock %}

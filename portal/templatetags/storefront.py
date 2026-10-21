@@ -12,7 +12,7 @@ def card_price(product):
 
 
 @register.simple_tag
-def product_image(product,theme='light'):
+def product_image(product,theme='light',width=None):
     from django.templatetags.static import static
     visual=product.visual
     uploaded=(visual.night_image if theme=='dark' else visual.image) if visual else None
@@ -21,8 +21,14 @@ def product_image(product,theme='light'):
     if product.platform=='ai':
         name=product.name.casefold()
         kind='gemini' if ('gemini' in name or 'جمینای' in name) else 'claude' if ('claude' in name or 'کلاد' in name or 'کلود' in name) else 'chatgpt' if ('gpt' in name or 'جی پی تی' in name) else 'ai'
-        return static('artwork/'+kind+('-light' if theme=='light' else '')+'.webp')
-    return static('artwork/social'+('-light' if theme=='light' else '')+'.webp')
+        return static('artwork/'+kind+('-light' if theme=='light' else '')+('-480' if width==480 else '')+'.webp')
+    return static('artwork/social'+('-light' if theme=='light' else '')+('-480' if width==480 else '')+'.webp')
+
+@register.simple_tag
+def post_image(post,theme='light',width=None):
+    from django.templatetags.static import static
+    kind=['social','ai','hero'][post.pk%3]
+    return static('artwork/'+kind+('-light' if theme=='light' else '')+('-480' if width==480 else '')+'.webp')
 
 @register.filter
 def storefront_description(product):

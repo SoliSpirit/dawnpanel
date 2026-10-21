@@ -9,8 +9,8 @@ PRODUCTION=os.environ.get('DAWN_PRODUCTION','0')=='1'
 if PRODUCTION and SECRET_KEY=='local-tests-only-do-not-deploy': raise RuntimeError('DJANGO_SECRET_KEY required')
 ALLOWED_HOSTS=os.environ.get('ALLOWED_HOSTS','dawnpanel.ir,www.dawnpanel.ir,apibot.dawnpanel.ir,localhost,127.0.0.1,testserver').split(',')
 CSRF_TRUSTED_ORIGINS=['https://dawnpanel.ir','https://www.dawnpanel.ir','https://apibot.dawnpanel.ir']
-INSTALLED_APPS=['django.contrib.admin','django.contrib.auth','django.contrib.contenttypes','django.contrib.sessions','django.contrib.messages','django.contrib.staticfiles','portal']
-MIDDLEWARE=['django.middleware.security.SecurityMiddleware','whitenoise.middleware.WhiteNoiseMiddleware','django.contrib.sessions.middleware.SessionMiddleware','django.middleware.common.CommonMiddleware','django.middleware.csrf.CsrfViewMiddleware','django.contrib.auth.middleware.AuthenticationMiddleware','django.contrib.messages.middleware.MessageMiddleware','django.middleware.clickjacking.XFrameOptionsMiddleware','portal.middleware.SecurityHeaders']
+INSTALLED_APPS=['portal.admin_site.DawnAdminConfig','django.contrib.auth','django.contrib.contenttypes','django.contrib.sessions','django.contrib.messages','django.contrib.staticfiles','portal']
+MIDDLEWARE=['django.middleware.security.SecurityMiddleware','whitenoise.middleware.WhiteNoiseMiddleware','django.contrib.sessions.middleware.SessionMiddleware','django.contrib.auth.middleware.AuthenticationMiddleware','portal.middleware.AdminAccess','django.middleware.common.CommonMiddleware','django.middleware.csrf.CsrfViewMiddleware','django.contrib.messages.middleware.MessageMiddleware','django.middleware.clickjacking.XFrameOptionsMiddleware','portal.middleware.SecurityHeaders']
 ROOT_URLCONF='dawn.urls'
 TEMPLATES=[{'BACKEND':'django.template.backends.django.DjangoTemplates','DIRS':[BASE_DIR/'templates'],'APP_DIRS':True,'OPTIONS':{'context_processors':['django.template.context_processors.request','django.contrib.auth.context_processors.auth','django.contrib.messages.context_processors.messages','portal.context.brand']}}]
 WSGI_APPLICATION='dawn.wsgi.application'
@@ -44,6 +44,7 @@ X_FRAME_OPTIONS='DENY'
 DATA_UPLOAD_MAX_MEMORY_SIZE=262144
 DATA_UPLOAD_MAX_NUMBER_FIELDS=150
 OWNER_PHONE=os.environ.get('DAWN_OWNER_PHONE','')
+PROFILE_ENCRYPTION_KEY=BOT_CONFIG.get('profile_encryption_key',os.environ.get('DAWN_PROFILE_KEY',''))
 LOGGING={'version':1,'disable_existing_loggers':False,'handlers':{'console':{'class':'logging.StreamHandler'}},'root':{'handlers':['console'],'level':'INFO'},'loggers':{'django.security':{'handlers':['console'],'level':'WARNING','propagate':False}}}
 
 # Subdomains may host independent services; do not preload or impose HSTS on them.

@@ -1,0 +1,6 @@
+{% extends 'admin/index.html' %}{% load i18n %}
+{% block content %}
+<div class="dawn-admin-intro"><div><span class="admin-eyebrow">DAWNPANEL / MANAGEMENT</span><h2>مدیریت روشن، فروشگاه مرتب.</h2><p>محصولات، محتوا و درخواست‌های مشتریان را از اینجا مدیریت کن.</p></div><div class="admin-shortcuts"><a href="{% url 'staff' %}">میز سفارش و پشتیبانی ↗</a>{% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}">گفتگوی آنلاین ↗</a>{% endif %}</div></div>
+{% if dashboard_metrics %}<div class="admin-metrics">{% for metric in dashboard_metrics %}<a href="{% url metric.url %}"><span>{{ metric.label }}</span><strong>{{ metric.count }}</strong><small>مشاهده و مدیریت ←</small></a>{% endfor %}</div>{% endif %}
+<div id="content-main" class="dawn-admin-apps">{% include 'admin/app_list.html' with app_list=app_list show_changelinks=True %}</div>
+{% endblock %}

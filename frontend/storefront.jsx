@@ -42,10 +42,9 @@ function start() {
     gsap.ticker.add(ticker);
   }
   context = gsap.context(() => {
-    const entrance = document.querySelectorAll('.hero-copy > *, .page-head > *');
-    if (entrance.length) gsap.from(entrance, { y: 20, opacity: 0, duration: 0.75, stagger: 0.09, ease: 'power2.out', clearProps: 'all' });
-    if (document.querySelector('.hero-art')) gsap.from('.hero-art', { scale: 0.94, opacity: 0, duration: 1, ease: 'power2.out', clearProps: 'all' });
     document.querySelectorAll('.cards, .feature-panel, .cta, .detail-grid').forEach(section => {
+      // Never hide already-visible content after the deferred bundle arrives.
+      if (section.getBoundingClientRect().top < innerHeight) return;
       const targets = section.matches('.cards') ? section.children : [section];
       gsap.from(targets, { y: 25, opacity: 0, duration: 0.65, stagger: 0.07, ease: 'power2.out', clearProps: 'all', scrollTrigger: { trigger: section, start: 'top 94%', once: true } });
     });

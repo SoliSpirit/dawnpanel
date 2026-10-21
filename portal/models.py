@@ -94,6 +94,10 @@ class Account(models.Model):
     user=models.OneToOneField(User,on_delete=models.CASCADE,related_name='account')
     phone=models.CharField('موبایل',max_length=11,unique=True)
     legacy_id=models.BigIntegerField('شناسه حساب مشترک',unique=True)
+    national_code_encrypted=models.CharField('کد ملی رمز‌شده',max_length=255,blank=True,editable=False)
+    birth_date=models.DateField('تاریخ تولد',null=True,blank=True)
+    province=models.CharField('استان',max_length=80,blank=True)
+    city=models.CharField('شهر',max_length=80,blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: verbose_name='حساب وب';verbose_name_plural='حساب‌های وب'
     def __str__(self): return self.phone

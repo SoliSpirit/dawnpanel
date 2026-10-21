@@ -32,7 +32,7 @@ class ProductAdmin(AuditedAdmin):
         save_product_picture(obj,form)
     list_display=['name','platform','price','price_per','is_active','show_on_website','show_on_telegram']
     list_filter=['platform','is_active','show_on_website','show_on_telegram','category'];search_fields=['name'];list_per_page=30
-    fields=['category','name','description','current_picture','picture','current_night_picture','night_picture','remove_night_picture','picture_alt','remove_picture','platform','is_active','show_on_website','show_on_telegram','price','price_currency','price_amount','price_per','product_profit_percent','min_order','max_order','need_link','target_type','target_prompt','seo_description']
+    fieldsets=[('معرفی محصول',{'fields':['category','name','description','platform','seo_description']}),('انتشار در فروشگاه و ربات',{'fields':['is_active','show_on_website','show_on_telegram']}),('تصاویر روز و شب',{'fields':['current_picture','picture','current_night_picture','night_picture','picture_alt','remove_night_picture','remove_picture']}),('قیمت و محدوده سفارش',{'fields':['price','price_currency','price_amount','price_per','product_profit_percent','min_order','max_order']}),('اطلاعات تحویل',{'fields':['need_link','target_type','target_prompt']})]
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(Category)
 class CategoryAdmin(AuditedAdmin):
@@ -65,7 +65,15 @@ class OrderAdmin(ReadOnlyAdmin):
 class LedgerAdmin(ReadOnlyAdmin):
     list_display=['user_id','amount','type','status','created_at'];list_filter=['type','status']
 @admin.register(Account)
-class AccountAdmin(ReadOnlyAdmin): list_display=['phone','legacy_id','created_at']
+class AccountAdmin(ReadOnlyAdmin):
+    list_display=['phone','profile_name','city','created_at']
+    search_fields=['phone','user__first_name','user__last_name']
+    fields=['phone','profile_name','legacy_id','birth_date','province','city','national_code_status','created_at']
+    def get_readonly_fields(self,request,obj=None): return self.fields
+    @admin.display(description='نام و نام خانوادگی')
+    def profile_name(self,obj):return obj.user.get_full_name() or 'تکمیل نشده'
+    @admin.display(description='وضعیت کد ملی')
+    def national_code_status(self,obj):return 'ذخیره شده (خصوصی)' if obj.national_code_encrypted else 'ثبت نشده'
 @admin.register(Ticket)
 class TicketAdmin(AuditedAdmin):
     list_display=['id','subject','user','status','priority','assigned_to','updated_at'];list_filter=['status','priority'];search_fields=['subject'];readonly_fields=['user','subject','priority','order','created_at','updated_at']
