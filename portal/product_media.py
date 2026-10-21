@@ -35,7 +35,7 @@ class ProductImageForm(forms.ModelForm):
     night_picture=forms.FileField(label='عکس محصول در حالت شب',required=False,help_text='نسخه جداگانه مخصوص شب؛ بدون این عکس، تصویر شبِ دسته‌بندی نمایش داده می‌شود.')
     remove_night_picture=forms.BooleanField(label='حذف فقط عکس شب',required=False)
     picture_alt=forms.CharField(label='توضیح عکس برای سئو و دسترس‌پذیری',required=False,max_length=160)
-    remove_picture=forms.BooleanField(label='حذف عکس فعلی از محصول',required=False)
+    remove_picture=forms.BooleanField(label='حذف هر دو عکس روز و شب محصول',required=False)
     class Meta:
         model=Product
         fields='__all__'
