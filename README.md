@@ -50,3 +50,10 @@ pip-audit -r requirements.lock
 ## دامنه
 
 DNS دامنه و apibot باید به سرور مقصد اشاره کنند و پروکسی Cloudflare خاموش باشد. تمدید HTTPS، بکاپ زمان‌بندی‌شده و پایش سلامت باید روی سرور فعال بمانند.
+
+
+### Storefront animation assets
+
+The Django storefront uses React Bits SpotlightCard as decorative React islands, GSAP with ScrollTrigger for section entrances, and Lenis for desktop wheel scrolling. Product content and prices remain server rendered. Touch scrolling stays native, reduced-motion preferences disable animation, and account/payment pages do not load this bundle.
+
+Run `npm ci` then `npm run build` after changing `frontend/`. Commit generated `static/storefront.js`, `static/storefront.css` and `static/storefront.js.LEGAL.txt`; CI rebuilds and checks for drift. The server only needs Python. React Bits source provenance and license are in `frontend/react-bits/`; third-party license notices are in `frontend/THIRD_PARTY_NOTICES.md`.

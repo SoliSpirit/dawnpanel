@@ -20,6 +20,13 @@ jobs:
           cache: pip
       - run: sudo apt-get update -qq && sudo apt-get install -y pkg-config default-libmysqlclient-dev
       - run: pip install -r requirements.lock pip-audit
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run check:build
       - run: python manage.py check
       - run: python manage.py test portal --noinput
       - run: python -m compileall -q dawn portal telegram

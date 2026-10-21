@@ -13,3 +13,5 @@ __pycache__/
 *.pem
 *.key
 *.tar.gz
+
+/node_modules/
