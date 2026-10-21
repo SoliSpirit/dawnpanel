@@ -12,11 +12,12 @@ def card_price(product):
 
 
 @register.simple_tag
-def product_image(product,theme='dark'):
+def product_image(product,theme='light'):
     from django.templatetags.static import static
     visual=product.visual
-    if visual and visual.image:
-        return visual.image.url
+    uploaded=(visual.night_image if theme=='dark' else visual.image) if visual else None
+    if uploaded:
+        return uploaded.url
     if product.platform=='ai':
         name=product.name.casefold()
         kind='gemini' if ('gemini' in name or 'جمینای' in name) else 'claude' if ('claude' in name or 'کلاد' in name or 'کلود' in name) else 'chatgpt' if ('gpt' in name or 'جی پی تی' in name) else 'ai'

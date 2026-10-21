@@ -106,6 +106,41 @@ class SecurityAndCommerceTests(TransactionTestCase):
             self.assertContains(response,'https://dawnpanel.ir'+url)
             self.assertContains(response,'عکس واقعی محصول')
 
+    def test_product_day_and_night_uploads_are_independent(self):
+        import io,tempfile
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from portal.product_media import ProductImageForm,save_product_picture
+        from portal.templatetags.storefront import product_image
+        def upload(color):
+            image=io.BytesIO();Image.new('RGB',(64,64),color).save(image,format='PNG')
+            return SimpleUploadedFile('photo.png',image.getvalue(),content_type='image/png')
+        with tempfile.TemporaryDirectory() as directory,override_settings(MEDIA_ROOT=directory):
+            form=ProductImageForm(files={'picture':upload('white'),'night_picture':upload('black')})
+            # Exercise the same normalization hooks used by admin on both uploads.
+            form.cleaned_data={'picture':form.files['picture'],'night_picture':form.files['night_picture']}
+            day=form.clean_picture();night=form.clean_night_picture()
+            save_product_picture(self.product,Mock(cleaned_data={'picture':day,'night_picture':night,'picture_alt':'محصول'}))
+            day_url=product_image(self.product,'light');night_url=product_image(self.product,'dark')
+            self.assertTrue(day_url.startswith('/media/products/'))
+            self.assertTrue(night_url.startswith('/media/products/'))
+            self.assertNotEqual(day_url,night_url)
+            response=self.client.get(self.product.get_absolute_url())
+            self.assertContains(response,day_url);self.assertContains(response,night_url)
+            save_product_picture(self.product,Mock(cleaned_data={'remove_night_picture':True}))
+            self.assertEqual(product_image(self.product,'light'),day_url)
+            self.assertIn('/artwork/social.webp',product_image(self.product,'dark'))
+            save_product_picture(self.product,Mock(cleaned_data={'remove_picture':True}))
+            self.assertFalse(ProductVisual.objects.filter(product_id=self.product.pk).exists())
+
+    def test_night_upload_rejects_invalid_content(self):
+        from django import forms
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from portal.product_media import ProductImageForm
+        form=ProductImageForm()
+        form.cleaned_data={'night_picture':SimpleUploadedFile('image.png',b'<svg onload="alert(1)"/>',content_type='image/png')}
+        with self.assertRaises(forms.ValidationError):form.clean_night_picture()
+
     def test_product_admin_accepts_picture_upload(self):
         import io,tempfile
         from PIL import Image
@@ -115,12 +150,16 @@ class SecurityAndCommerceTests(TransactionTestCase):
         data={key:value if value is not None else '' for key,value in model_to_dict(self.product).items()}
         image=io.BytesIO();Image.new('RGB',(64,64),'blue').save(image,format='PNG')
         data.update({'picture':SimpleUploadedFile('picture.png',image.getvalue(),content_type='image/png'),'picture_alt':'تصویر انتخاب‌شده مدیر','_save':'ذخیره'})
+        night=io.BytesIO();Image.new('RGB',(64,64),'black').save(night,format='PNG')
+        data['night_picture']=SimpleUploadedFile('night.png',night.getvalue(),content_type='image/png')
         with tempfile.TemporaryDirectory() as directory,override_settings(MEDIA_ROOT=directory):
             response=self.client.post('/manage/portal/product/'+str(self.product.pk)+'/change/',data)
             self.assertEqual(response.status_code,302)
             visual=ProductVisual.objects.get(product_id=self.product.pk)
             self.assertEqual(visual.alt_text,'تصویر انتخاب‌شده مدیر')
             self.assertTrue(visual.image.storage.exists(visual.image.name))
+            self.assertTrue(visual.night_image.storage.exists(visual.night_image.name))
+            self.assertNotEqual(visual.image.name,visual.night_image.name)
 
     def test_image_upload_rejects_svg_and_oversized_payload(self):
         from django import forms

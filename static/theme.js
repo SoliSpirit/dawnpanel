@@ -29,7 +29,7 @@
   function apply(theme) {
     root.dataset.theme = theme;
     const color = document.querySelector('meta[name="theme-color"]');
-    if (color) color.content = theme === 'light' ? '#f7f9f6' : '#0c1320';
+    if (color) color.content = theme === 'light' ? '#f5f6f8' : '#18191b';
     inspect(root);
     document.dispatchEvent(new CustomEvent('dawn:theme-change', { detail: { theme } }));
   }

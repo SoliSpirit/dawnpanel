@@ -16,18 +16,23 @@ class AuditedAdmin(admin.ModelAdmin):
 @admin.register(Product)
 class ProductAdmin(AuditedAdmin):
     form=ProductImageForm
-    readonly_fields=['current_picture']
+    readonly_fields=['current_picture','current_night_picture']
     @admin.display(description='عکس فعلی')
     def current_picture(self,obj):
         if obj and obj.visual and obj.visual.image:
             return format_html('<img src="{}" alt="{}" width="240">',obj.visual.image.url,obj.visual.alt_text or obj.name)
         return 'هنوز عکسی ثبت نشده است.'
+    @admin.display(description='عکس شب فعلی')
+    def current_night_picture(self,obj):
+        if obj and obj.visual and obj.visual.night_image:
+            return format_html('<img src="{}" alt="{}" width="240">',obj.visual.night_image.url,obj.visual.alt_text or obj.name)
+        return 'تصویر شب دسته‌بندی نمایش داده می‌شود.'
     def save_model(self,request,obj,form,change):
         super().save_model(request,obj,form,change)
         save_product_picture(obj,form)
     list_display=['name','platform','price','price_per','is_active','show_on_website','show_on_telegram']
     list_filter=['platform','is_active','show_on_website','show_on_telegram','category'];search_fields=['name'];list_per_page=30
-    fields=['category','name','description','current_picture','picture','picture_alt','remove_picture','platform','is_active','show_on_website','show_on_telegram','price','price_currency','price_amount','price_per','product_profit_percent','min_order','max_order','need_link','target_type','target_prompt','seo_description']
+    fields=['category','name','description','current_picture','picture','current_night_picture','night_picture','remove_night_picture','picture_alt','remove_picture','platform','is_active','show_on_website','show_on_telegram','price','price_currency','price_amount','price_per','product_profit_percent','min_order','max_order','need_link','target_type','target_prompt','seo_description']
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(Category)
 class CategoryAdmin(AuditedAdmin):

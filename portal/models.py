@@ -200,6 +200,7 @@ class ReferralAlias(models.Model):
 class ProductVisual(models.Model):
     product_id=models.PositiveBigIntegerField('شناسه محصول',unique=True)
     image=models.FileField('عکس محصول',upload_to='products/%Y/%m/',max_length=255)
+    night_image=models.FileField('عکس شب محصول',upload_to='products/%Y/%m/',max_length=255,blank=True)
     alt_text=models.CharField('توضیح تصویر',max_length=160,blank=True)
     updated_at=models.DateTimeField(auto_now=True)
     class Meta:

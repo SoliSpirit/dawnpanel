@@ -2,6 +2,9 @@
 .support-chat{position:fixed;right:24px;bottom:88px;width:365px;max-width:calc(100vw - 32px);height:530px;max-height:calc(100dvh - 114px);z-index:1001;border-radius:20px;background:var(--shop-surface,#fff);color:var(--shop-text,#152630);border:1px solid var(--shop-border,#e2e7eb);box-shadow:0 20px 75px #061f3540;display:flex;flex-direction:column;overflow:hidden}
 .support-chat[hidden]{display:none}
 .chat-header{background:#0b8793;color:#fff;display:flex;align-items:center;gap:11px;padding:16px}
+:root[data-theme="dark"] .chat-header{background:#30483f;color:#f1f0ec}
+:root[data-theme="dark"] .chat-header span{color:#c7d8d0}
+:root[data-theme="dark"] .chat-launcher{box-shadow:0 8px 30px #0003}
 .chat-header img{border-radius:11px}
 .chat-header>div{flex:1}
 .chat-header strong{font-size:13px;display:block;line-height:1.7}

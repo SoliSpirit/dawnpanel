@@ -31,7 +31,9 @@ def normalize_product_image(upload):
         raise forms.ValidationError('فایل تصویر معتبر نیست.') from error
 
 class ProductImageForm(forms.ModelForm):
-    picture=forms.FileField(label='آپلود عکس محصول',required=False,help_text='JPG، PNG یا WebP تا ۵ مگابایت؛ تصویر بهینه و بدون اطلاعات اضافی ذخیره می‌شود.')
+    picture=forms.FileField(label='عکس محصول در حالت روز',required=False,help_text='JPG، PNG یا WebP تا ۵ مگابایت؛ تصویر بهینه و بدون اطلاعات اضافی ذخیره می‌شود.')
+    night_picture=forms.FileField(label='عکس محصول در حالت شب',required=False,help_text='نسخه جداگانه مخصوص شب؛ بدون این عکس، تصویر شبِ دسته‌بندی نمایش داده می‌شود.')
+    remove_night_picture=forms.BooleanField(label='حذف فقط عکس شب',required=False)
     picture_alt=forms.CharField(label='توضیح عکس برای سئو و دسترس‌پذیری',required=False,max_length=160)
     remove_picture=forms.BooleanField(label='حذف عکس فعلی از محصول',required=False)
     class Meta:
@@ -44,15 +46,23 @@ class ProductImageForm(forms.ModelForm):
     def clean_picture(self):
         upload=self.cleaned_data.get('picture')
         return normalize_product_image(upload) if upload else None
+    def clean_night_picture(self):
+        upload=self.cleaned_data.get('night_picture')
+        return normalize_product_image(upload) if upload else None
 
 def save_product_picture(product,form):
     picture=form.cleaned_data.get('picture')
-    if picture:
-        visual,_=ProductVisual.objects.get_or_create(product_id=product.pk,defaults={'image':''})
-        visual.image=picture
+    night_picture=form.cleaned_data.get('night_picture')
+    if form.cleaned_data.get('remove_picture'):
+        ProductVisual.objects.filter(product_id=product.pk).delete()
+        product.__dict__.pop('_visual_cache',None)
+        return
+    visual=ProductVisual.objects.filter(product_id=product.pk).first()
+    if picture or night_picture or visual:
+        visual=visual or ProductVisual(product_id=product.pk,image='')
+        if picture: visual.image=picture
+        if night_picture: visual.night_image=night_picture
+        elif form.cleaned_data.get('remove_night_picture'): visual.night_image=''
         visual.alt_text=form.cleaned_data.get('picture_alt','')
         visual.save()
-    elif form.cleaned_data.get('remove_picture'):
-        ProductVisual.objects.filter(product_id=product.pk).delete()
-    else:
-        ProductVisual.objects.filter(product_id=product.pk).update(alt_text=form.cleaned_data.get('picture_alt',''))
+    product.__dict__.pop('_visual_cache',None)
