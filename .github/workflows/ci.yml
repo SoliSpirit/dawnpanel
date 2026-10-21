@@ -56,6 +56,7 @@ jobs:
       - run: pip install -r requirements.lock
       - run: python manage.py test portal --noinput
   deploy:
+    timeout-minutes: 12
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     needs: [test, mysql-test]
     environment: production
@@ -77,5 +78,12 @@ jobs:
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
           git archive --format=tar.gz -o "$GITHUB_SHA.tar.gz" HEAD
-          scp -P "$DEPLOY_PORT" "$GITHUB_SHA.tar.gz" "dawndeploy@$DEPLOY_HOST:/var/lib/dawnpanel-deploy/incoming/"
-          ssh -p "$DEPLOY_PORT" "dawndeploy@$DEPLOY_HOST" "sudo /usr/local/sbin/dawnpanel-deploy $GITHUB_SHA"
+          SSH_OPTIONS=(-o BatchMode=yes -o ConnectTimeout=20 -o ConnectionAttempts=1 -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          for attempt in 1 2 3; do
+            if scp "${SSH_OPTIONS[@]}" -P "$DEPLOY_PORT" "$GITHUB_SHA.tar.gz" "dawndeploy@$DEPLOY_HOST:/var/lib/dawnpanel-deploy/incoming/" && timeout 300 ssh "${SSH_OPTIONS[@]}" -p "$DEPLOY_PORT" "dawndeploy@$DEPLOY_HOST" "sudo /usr/local/sbin/dawnpanel-deploy $GITHUB_SHA"; then
+              exit 0
+            fi
+            echo "Deployment connection attempt $attempt failed."
+            if [ "$attempt" -lt 3 ]; then sleep 5; fi
+          done
+          exit 1
