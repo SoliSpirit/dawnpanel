@@ -52,3 +52,6 @@ SILENCED_SYSTEM_CHECKS=['security.W005','security.W021']
 if os.environ.get('DAWN_TEST_MYSQL')=='1':
     if PRODUCTION: raise RuntimeError('Test database mode cannot run in production')
     DATABASES={'default':{'ENGINE':'django.db.backends.mysql','NAME':'dawnpanel_ci','USER':os.environ.get('DAWN_TEST_DB_USER','root'),'PASSWORD':os.environ.get('DAWN_TEST_DB_PASSWORD','ci-test-only'),'HOST':'127.0.0.1','PORT':os.environ.get('DAWN_TEST_DB_PORT','3306'),'OPTIONS':{'charset':'utf8mb4'}}}
+
+# Telegram's token is part of its API URL; never log routine HTTP client URLs.
+LOGGING['loggers'].update({'httpx':{'level':'WARNING'},'httpcore':{'level':'WARNING'}})

@@ -9,7 +9,14 @@ lock=open('/run/lock/dawnpanel-deploy.lock','w');fcntl.flock(lock,fcntl.LOCK_EX)
 archive=pathlib.Path('/var/lib/dawnpanel-deploy/incoming')/(sha+'.tar.gz')
 if not archive.is_file() or archive.is_symlink() or archive.stat().st_size>100_000_000: raise SystemExit('Invalid archive')
 release=BASE/'releases'/sha
-if release.exists(): raise SystemExit('This release already exists')
+if release.exists():
+    if (BASE/'current').exists() and (BASE/'current').resolve()==release:
+        result=subprocess.run(['curl','--fail','--silent','-H','Host: dawnpanel.ir','-H','X-Forwarded-Proto: https','http://127.0.0.1:18145/healthz/'],capture_output=True)
+        if result.returncode==0:
+            archive.unlink(missing_ok=True)
+            print('Already deployed and healthy',sha)
+            raise SystemExit(0)
+    raise SystemExit('Release directory exists but is not the healthy current release; inspect before retrying')
 release.mkdir(mode=0o755)
 try:
     with tarfile.open(archive) as tar:
