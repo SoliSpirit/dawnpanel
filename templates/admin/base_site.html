@@ -1,6 +1,6 @@
 {% extends 'admin/base.html' %}{% load static %}
 {% block title %}{{ title }} | مدیریت دان‌پنل{% endblock %}
-{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-panel.css' %}">{% endblock %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-panel.css' %}">{% endblock %}
 {% block branding %}<a class="dawn-admin-brand" href="{% url 'admin:index' %}"><img src="{% static 'brand/dawn-mark.svg' %}" width="42" height="42" alt=""><span>دان‌پنل<small>مرکز مدیریت فروشگاه</small></span></a>{% endblock %}
 {% block userlinks %}<a href="{% url 'profile' %}">پروفایل من</a> / {{ block.super }}{% endblock %}
 {% block nav-global %}<a class="admin-shop-link" href="{% url 'home' %}">مشاهده فروشگاه ↗</a>{% endblock %}
