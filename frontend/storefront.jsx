@@ -11,6 +11,11 @@ gsap.registerPlugin(ScrollTrigger);
 const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
 const pointerPreference = matchMedia('(hover: hover) and (pointer: fine)');
 const roots = [];
+function renderSpotlight(root, color) {
+  const light = document.documentElement.dataset.theme === 'light';
+  root.render(<SpotlightCard theme={light ? 'light' : 'dark'} className="store-spotlight" spotlightColor={color} intensity={light ? 0.4 : 0.17} borderGlow={0.45} spotlightSize={300} flare={false} proximity={40} />);
+}
+document.addEventListener('dawn:theme-change', () => roots.forEach(({root, color}) => renderSpotlight(root, color)));
 let lenis;
 let ticker;
 let context;
@@ -28,8 +33,8 @@ function start() {
       card.prepend(host);
       const color = card.querySelector('.ai') ? '#bbabff' : card.querySelector('.rubika') ? '#79c8ff' : card.querySelector('.eitaa') ? '#ffbb83' : '#81eadb';
       const root = createRoot(host);
-      root.render(<SpotlightCard className="store-spotlight" spotlightColor={color} intensity={0.17} borderGlow={0.45} spotlightSize={300} flare={false} proximity={40} />);
-      roots.push({ root, host });
+      renderSpotlight(root, color);
+      roots.push({ root, host, color });
     });
     lenis = new Lenis({ duration: 1.05, smoothWheel: true, syncTouch: false, anchors: true, prevent: node => Boolean(node.closest('textarea,select,[data-lenis-prevent],.table-wrap')) });
     lenis.on('scroll', ScrollTrigger.update);

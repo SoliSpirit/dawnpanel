@@ -22,3 +22,12 @@ Subjects:
 - ChatGPT: a floating emerald frosted glass sculptural interwoven knot with six smooth loops, a tiny clear chat bubble and an elegant dark graphite membership card
 - Gemini: an iridescent blue-violet four pointed glass star with a small cyan glass prism and an elegant dark graphite membership card
 - Claude: a warm terracotta peach sculptural radial sunburst with rounded tactile spokes, a cream glass chat bubble and an elegant dark graphite membership card
+
+
+## Day-mode companion images
+
+The built-in image generation editor created six separate day-mode companions, referencing the matching original image: `static/artwork/hero-light.webp`, `ai-light.webp`, `social-light.webp`, `chatgpt-light.webp`, `gemini-light.webp`, `claude-light.webp`. Original generated PNGs are retained in `private/artwork-originals/*-light.png`. Night images are preserved. Total optimized day image payload: 227540 bytes.
+
+Shared edit prompt, applied once per matching reference:
+
+Create a LIGHT DAY MODE counterpart of this existing DawnPanel storefront artwork. Preserve the exact main objects, their count, sculptural shapes, composition, relative positions, materials, camera angle, aspect ratio, framing and brand accent hues. Replace the dark navy environment and dark floor with a refined luminous ivory and pale mint daylight studio. Turn dark graphite pedestal/card elements into pearl white ceramic or pale champagne metal, keep cards blank. Use large soft natural daylight, gentle realistic shadows and beautiful clean glass reflections, retain the colored green/blue/orange/violet sculptural objects with enough saturation for contrast. If rocks are present, make them pale cream natural stone. Sophisticated bright premium ecommerce editorial render; readable objects, subtle depth, no blown highlights. This is a companion image for switching between day and night themes, not a redesign or a screenshot. No text, letters, numbers, additional objects, watermark or new logos.

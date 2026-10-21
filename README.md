@@ -65,3 +65,8 @@ AI products use platform `ai`, with independent website/Telegram publication fla
 Product admin supports a product photo, alt text and removing the active photo. Uploads accept decoded JPEG/PNG/WebP, max 5 MB and 16 megapixels. The server strips metadata, re-encodes to WebP, caps dimensions at 1600, and gives random filenames. `ProductVisual` stores media separately from the unmanaged legacy product table. Production media lives at `/var/lib/dawnpanel/media`, outside release folders; Nginx serves `/media/products/` and the daily backup includes media alongside database dumps. Use the updated `deploy/nginx.conf` (6 MB request limit) and `deploy/backup.py` root helper when provisioning.
 
 Product pages include a social image, alt text, canonical URL and structured data; AI offers use actual minimum-order totals converted from toman to IRR. Search/filter URLs are noindex/follow; `/ai/` is indexable and included in the image-aware sitemap. Generated artwork prompts and paths are documented in `docs/DESIGN_ASSETS.md`.
+
+
+### Day and night appearance
+
+The header toggle changes between day and night. The selected mode is saved locally in the browser; first visits follow the device color scheme. `static/theme.js` runs before styles under the existing self-only CSP and applies the saved preference before first paint. `static/theme.css` covers storefront, login, account, orders and support pages. Standard `picture` sources switch the six built-in artwork sets along with the theme. Merchant-uploaded photos keep their actual colors in both modes. Theme updates also follow device changes when no explicit preference is saved, and synchronize across tabs.
