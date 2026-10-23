@@ -6,7 +6,8 @@ register=template.Library()
 @register.simple_tag
 def platform_icon(name):
     name=name if name in {'telegram','eitaa','bale','rubika','chatgpt','gemini','claude'} else 'gemini'
-    return format_html('<img class="platform-logo" src="{}" alt="" width="32" height="32" loading="lazy" decoding="async">',static('platforms/'+name+'.svg'))
+    extension='.png' if name=='rubika' else '.svg'
+    return format_html('<img class="platform-logo" src="{}" alt="" width="32" height="32" loading="lazy" decoding="async">',static('platforms/'+name+extension))
 PATHS={
  'search':'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
  'user':'<circle cx="12" cy="7" r="4"/><path d="M4 22v-2a8 8 0 0 1 16 0v2"/>',

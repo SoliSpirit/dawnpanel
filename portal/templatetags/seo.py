@@ -9,6 +9,8 @@ def structured_data(context):
     request=context['request'];base='https://dawnpanel.ir'
     data={'@context':'https://schema.org','@type':'WebSite','name':'دان پنل','url':base,'inLanguage':'fa-IR','potentialAction':{'@type':'SearchAction','target':base+'/services/?q={search_term_string}','query-input':'required name=search_term_string'}}
     post=context.get('post');product=context.get('product')
+    if request.path=='/contact/':
+        data={'@context':'https://schema.org','@type':'ContactPage','name':'ارتباط با دان‌پنل','url':base+'/contact/','inLanguage':'fa-IR','description':context.get('description',''),'mainEntity':{'@type':'Organization','name':'دان‌پنل','url':base,'contactPoint':{'@type':'ContactPoint','contactType':'customer support','availableLanguage':'Persian','url':base+'/contact/'}}}
     if post:
         data={'@context':'https://schema.org','@type':'BlogPosting','headline':post.title,'description':post.summary,'datePublished':post.created_at.isoformat(),'dateModified':post.updated_at.isoformat(),'url':base+post.get_absolute_url(),'inLanguage':'fa-IR','author':{'@type':'Organization','name':'تحریریه دان پنل','url':base+'/about/'},'publisher':{'@type':'Organization','name':'دان پنل','url':base}}
     elif product:

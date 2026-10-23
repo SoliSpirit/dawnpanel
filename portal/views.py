@@ -24,6 +24,10 @@ def with_product_images(products):
 def home(request):
     return render(request,'home.html',{'featured':with_product_images(public_products().exclude(platform='ai').order_by('id')[:8]),'newest':with_product_images(public_products().order_by('-id')[:4]),'ai_products':with_product_images(public_products().filter(platform='ai').order_by('id')[:3]),'posts':Post.objects.filter(published=True)[:3],'title':'دان پنل | اشتراک هوش مصنوعی و خدمات دیجیتال','description':'فروشگاه دان پنل؛ اشتراک ChatGPT، Gemini و Claude و خدمات روبیکا، ایتا و بله با قیمت روشن، حساب یکپارچه و پشتیبانی تیکتی.'})
 
+@require_GET
+def contact(request):
+    return render(request,'contact.html',{'title':'ارتباط با ما | پشتیبانی دان‌پنل','description':'راه‌های ارتباط با دان‌پنل؛ گفتگوی آنلاین، ثبت و پیگیری تیکت و دسترسی به ربات تلگرام برای خرید و پیگیری محصولات.'})
+
 def ai_catalog(request):
     return catalog(request,platform_override='ai')
 
@@ -238,7 +242,7 @@ def robots(request): return HttpResponse('User-agent: *\nDisallow: /admin\nDisal
 def sitemap(request):
     from xml.sax.saxutils import escape
     from portal.templatetags.storefront import product_image,post_image
-    entries=[(path,None,None) for path in ['/','/ai/','/services/','/blog/','/about/','/terms/','/privacy/']]
+    entries=[(path,None,None) for path in ['/','/ai/','/services/','/blog/','/contact/','/about/','/terms/','/privacy/']]
     entries += [(product.get_absolute_url(),None,product_image(product)) for product in with_product_images(public_products())]
     entries += [(post.get_absolute_url(),post.updated_at.date().isoformat(),post_image(post)) for post in Post.objects.filter(published=True)]
     body=[]
