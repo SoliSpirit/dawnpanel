@@ -284,6 +284,29 @@ class SecurityAndCommerceTests(TransactionTestCase):
     def test_expired_otp(self):
         o=OTP.objects.create(phone='09120000001',code_hash=digest('123456'),session_hash=digest('s'),expires_at=timezone.now()-timedelta(seconds=1))
         self.assertIsNone(verify_otp(o.pk,'123456','s'))
+
+    def test_login_session_persists_for_180_days_without_sliding(self):
+        from django.contrib.sessions.models import Session
+        client=Client()
+        session=client.session
+        session['otp_id']=str(uuid.uuid4());session['otp_phone']=self.account.phone;session.save()
+        started=timezone.now()
+        with patch('portal.views.verify_otp',return_value=self.account.phone):
+            response=client.post('/login/verify/',{'code':'123456'})
+        self.assertEqual(response.status_code,302)
+        session=client.session
+        self.assertEqual(int(session['_auth_user_id']),self.user.pk)
+        deadline=session.get_expiry_date()
+        self.assertAlmostEqual((deadline-started).total_seconds(),180*86400,delta=5)
+        self.assertFalse(session.get_expire_at_browser_close())
+        self.assertTrue(response.cookies['sessionid']['expires'])
+        self.assertTrue(response.cookies['sessionid']['httponly'])
+        with patch('django.utils.timezone.now',return_value=started+timedelta(days=179)):
+            self.assertEqual(client.get('/account/').status_code,200)
+            session=client.session;session['checkout']={'example':'session modification'};session.save()
+            self.assertEqual(Session.objects.get(session_key=session.session_key).expire_date,deadline)
+        with patch('django.utils.timezone.now',return_value=deadline+timedelta(seconds=1)):
+            self.assertEqual(client.get('/account/').status_code,302)
     def test_rate_limit(self):
         self.assertTrue(rate_limit('test',2,60));self.assertTrue(rate_limit('test',2,60));self.assertFalse(rate_limit('test',2,60))
     def test_phone_normalization(self):

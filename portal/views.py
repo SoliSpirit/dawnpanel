@@ -1,5 +1,7 @@
 import secrets,uuid
+from datetime import timedelta
 from urllib.parse import quote
+from django.conf import settings
 from django.shortcuts import render,redirect,get_object_or_404
 from django.http import HttpResponse,HttpResponseForbidden,JsonResponse
 from django.contrib.auth import login,logout
@@ -106,6 +108,8 @@ def verify(request):
             if phone:
                 try:
                     user=login_account(phone);login(request,user,backend='django.contrib.auth.backends.ModelBackend')
+                    # Keep a fixed deadline even when checkout or chat updates the session.
+                    request.session.set_expiry(timezone.now()+timedelta(seconds=settings.SESSION_COOKIE_AGE))
                     request.session.pop('otp_id',None);request.session.pop('otp_phone',None)
                     return redirect('staff' if user.is_staff else 'dashboard')
                 except BusinessError as e: form.add_error(None,str(e))
