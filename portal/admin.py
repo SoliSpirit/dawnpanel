@@ -16,6 +16,13 @@ class AuditedAdmin(admin.ModelAdmin):
 @admin.register(Product)
 class ProductAdmin(AuditedAdmin):
     form=ProductImageForm
+    change_form_template='admin/portal/product/change_form.html'
+    def get_changeform_initial_data(self,request):
+        return {'platform':'rubika','show_on_website':True,**super().get_changeform_initial_data(request)}
+    def get_fieldsets(self,request,obj=None):
+        fieldsets=super().get_fieldsets(request,obj)
+        if obj:return fieldsets
+        return [(name,{**options,'fields':[field for field in options['fields'] if field not in ['current_picture','current_night_picture','remove_picture','remove_night_picture']]}) for name,options in fieldsets]
     readonly_fields=['current_picture','current_night_picture']
     @admin.display(description='عکس فعلی')
     def current_picture(self,obj):
@@ -30,9 +37,16 @@ class ProductAdmin(AuditedAdmin):
     def save_model(self,request,obj,form,change):
         super().save_model(request,obj,form,change)
         save_product_picture(obj,form)
-    list_display=['name','platform','price','price_per','is_active','show_on_website','show_on_telegram']
+    @admin.display(description='محصول',ordering='name')
+    def product_label(self,obj):
+        return format_html('<strong class="catalog-row-name">{}</strong><small class="catalog-row-category">{}</small>',obj.name,obj.category.name if obj.category else 'بدون دسته‌بندی')
+    @admin.display(description='قیمت پایه (تومان)',ordering='price')
+    def base_price(self,obj):
+        return format_html('<strong>{}</strong><small class="catalog-row-category">به‌ازای {} عدد</small>',format(obj.price,','),format(obj.price_per,','))
+    def get_queryset(self,request):return super().get_queryset(request).select_related('category')
+    list_display=['product_label','platform','base_price','is_active','show_on_website','show_on_telegram']
     list_filter=['platform','is_active','show_on_website','show_on_telegram','category'];search_fields=['name'];list_per_page=30
-    fieldsets=[('معرفی محصول',{'fields':['category','name','description','platform','seo_description']}),('انتشار در فروشگاه و ربات',{'fields':['is_active','show_on_website','show_on_telegram']}),('تصاویر روز و شب',{'fields':['current_picture','picture','current_night_picture','night_picture','picture_alt','remove_night_picture','remove_picture']}),('قیمت و محدوده سفارش',{'fields':['price','price_currency','price_amount','price_per','product_profit_percent','min_order','max_order']}),('اطلاعات تحویل',{'fields':['need_link','target_type','target_prompt']})]
+    fieldsets=[('معرفی محصول',{'fields':['name','category','platform','description']}),('قیمت و تعداد',{'fields':['price',('price_per','min_order'),'max_order'],'description':'همه قیمت‌های پایه به تومان هستند. برای اشتراک تکی، تعداد مبنا و حداقل سفارش را روی ۱ قرار دهید.'}),('انتشار در سایت و تلگرام',{'fields':['is_active','show_on_website','show_on_telegram'],'description':'محل نمایش محصول را مستقل انتخاب کنید. محصولات غیرفعال قابل خرید نیستند.'}),('تصاویر روز و شب',{'fields':[('picture','night_picture'),'picture_alt','current_picture','current_night_picture','remove_night_picture','remove_picture']}),('اطلاعات تحویل و سئو',{'fields':['need_link','target_prompt','seo_description']}),('تنظیمات پیشرفته قیمت و ربات',{'fields':['price_currency','price_amount','product_profit_percent','target_type'],'classes':['collapse'],'description':'برای فروش معمولی با تومان نیازی به تغییر این بخش ندارید.'})]
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(Category)
 class CategoryAdmin(AuditedAdmin):

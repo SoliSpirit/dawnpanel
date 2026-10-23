@@ -122,7 +122,8 @@ def sign_out(request): logout(request);return redirect('home')
 @login_required
 def dashboard(request):
     a=request.user.account;wallet=get_object_or_404(LegacyUser,pk=a.legacy_id)
-    return render(request,'dashboard.html',{'wallet':wallet,'orders':Order.objects.filter(user_id=a.legacy_id)[:5],'transactions':Ledger.objects.filter(user_id=a.legacy_id)[:8],'order_count':Order.objects.filter(user_id=a.legacy_id).count(),'ticket_count':Ticket.objects.filter(user=request.user).exclude(status='closed').count(),'rank':MemberRank.objects.filter(min_spending__lte=wallet.total_purchases).last(),'title':'حساب کاربری'})
+    orders=Order.objects.filter(user_id=a.legacy_id)
+    return render(request,'dashboard.html',{'wallet':wallet,'orders':orders[:5],'transactions':Ledger.objects.filter(user_id=a.legacy_id)[:6],'order_count':orders.count(),'pending_count':orders.filter(status__in=['pending','confirmed','approved','processing']).count(),'ticket_count':Ticket.objects.filter(user=request.user).exclude(status='closed').count(),'rank':MemberRank.objects.filter(min_spending__lte=wallet.total_purchases).last(),'title':'حساب کاربری'})
 
 @login_required
 @sensitive_post_parameters('national_code','birth_date')

@@ -1,1 +1,18 @@
-{% extends 'base.html' %}{% block content %}<section class="wrap account-layout"><aside class="account-nav"><span class="eyebrow">پنل کاربری</span><h3>{{ user.account.phone }}</h3><a href="/account/">◈ نمای کلی</a><a href="/account/profile/">◌ اطلاعات پروفایل</a><a href="/services/">＋ سفارش جدید</a><a href="/account/orders/">◎ سفارش‌های من</a><a href="/account/charge/">↗ شارژ کیف پول</a><a href="/account/gift/">✧ کد هدیه</a><a href="/account/referrals/">♧ دعوت دوستان</a><a href="/account/tickets/">✳ تیکت و پشتیبانی</a>{% if user.is_staff %}{% if perms.portal.change_chatconversation %}<a href="/staff/chat/">◉ گفتگوی آنلاین</a>{% endif %}<a href="/staff/">▣ میز مدیریت</a><a href="/admin/">⚙ مدیریت سایت</a>{% endif %}<form method="post" action="/logout/">{% csrf_token %}<button class="text-button">خروج از حساب</button></form></aside><div class="account-main">{% block account %}{% endblock %}</div></section>{% endblock %}
+{% extends 'base.html' %}{% load static ui %}
+{% block storefront_assets %}<link rel="stylesheet" href="{% static 'account-panel.css' %}">{% endblock %}
+{% block content %}
+<section class="wrap account-layout customer-workspace"><aside class="account-nav">
+<div class="customer-identity"><span class="customer-avatar" aria-hidden="true">{{ user.first_name|first|default:'د' }}</span><div><strong>{{ user.get_full_name|default:'همراه دان‌پنل' }}</strong><small dir="ltr">{{ user.account.phone }}</small></div></div>
+<span class="customer-nav-label">حساب من</span>
+<a {% if request.path == '/account/' %}aria-current="page"{% endif %} href="{% url 'dashboard' %}">{% icon 'grid' %} داشبورد</a>
+<a {% if request.path == '/account/profile/' %}aria-current="page"{% endif %} href="{% url 'profile' %}">{% icon 'user' %} اطلاعات پروفایل</a>
+<a {% if '/account/orders/' in request.path %}aria-current="page"{% endif %} href="{% url 'orders' %}">{% icon 'clock' %} سفارش‌های من</a>
+<a {% if request.path == '/account/charge/' %}aria-current="page"{% endif %} href="{% url 'charge' %}">{% icon 'wallet' %} شارژ کیف پول</a>
+<a {% if '/account/tickets/' in request.path %}aria-current="page"{% endif %} href="{% url 'tickets' %}">{% icon 'headset' %} تیکت و پشتیبانی</a>
+<span class="customer-nav-label">بیشتر با دان‌پنل</span>
+<a {% if request.path == '/account/gift/' %}aria-current="page"{% endif %} href="{% url 'gift' %}">{% icon 'spark' %} کد هدیه</a>
+<a {% if request.path == '/account/referrals/' %}aria-current="page"{% endif %} href="{% url 'referrals' %}">{% icon 'chat' %} دعوت دوستان</a>
+{% if user.is_staff %}<span class="customer-nav-label">مدیریت فروشگاه</span><a href="{% url 'admin:index' %}">{% icon 'shield' %} پنل مدیریت</a>{% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}">{% icon 'chat' %} گفتگوی آنلاین</a>{% endif %}{% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'staff' %}">{% icon 'clock' %} رسیدگی به درخواست‌ها</a>{% endif %}{% endif %}
+<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button">خروج از حساب</button></form></aside>
+<div class="account-main">{% block account %}{% endblock %}</div></section>
+{% endblock %}

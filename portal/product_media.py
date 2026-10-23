@@ -41,6 +41,20 @@ class ProductImageForm(forms.ModelForm):
         fields='__all__'
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
+        self.fields['category'].queryset=self.fields['category'].queryset.order_by('sort_order','name')
+        self.fields['description'].widget.attrs.update(rows=5,placeholder='ویژگی‌ها، مدت اشتراک و شرایط تحویل محصول را بنویسید…')
+        self.fields['name'].widget.attrs['placeholder']='مثلاً اشتراک یک‌ماهه…'
+        self.fields['target_prompt'].widget.attrs.update(rows=3,placeholder='چه اطلاعاتی از خریدار لازم دارید؟')
+        self.fields['seo_description'].widget=forms.Textarea(attrs={'rows':3,'maxlength':160})
+        for name in ['picture','night_picture']:self.fields[name].widget.attrs['accept']='image/jpeg,image/png,image/webp'
+        self.fields['price_per'].help_text='قیمت بالا برای چند عدد است؟ برای اشتراک تکی: ۱؛ برای خدمات هزار‌تایی: ۱۰۰۰.'
+        self.fields['max_order'].help_text='اختیاری؛ خالی یعنی بدون سقف.'
+        self.fields['target_type'].label='نوع مقصد در ربات'
+        target_choices=[('channel_group','لینک کانال یا گروه'),('numeric_id','شناسه عددی'),('email','ایمیل خریدار'),('username','نام کاربری تلگرام'),('custom','اطلاعات دلخواه'),('none','بدون دریافت اطلاعات')]
+        current=self.instance.target_type
+        if current and current not in dict(target_choices):target_choices.append((current,current))
+        self.fields['target_type'].widget=forms.Select(choices=target_choices)
+        self.fields['need_link'].help_text='اگر لینک، شناسه یا ایمیل برای تحویل لازم است، فعال بماند.'
         if self.instance.pk and self.instance.visual:
             self.fields['picture_alt'].initial=self.instance.visual.alt_text
     def clean_picture(self):

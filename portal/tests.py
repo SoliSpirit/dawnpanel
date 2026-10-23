@@ -216,11 +216,41 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.user.is_staff=True;self.user.save()
         self.assertEqual(self.client.get('/admin/').status_code,404)
         self.user.is_superuser=True;self.user.save()
-        self.assertContains(self.client.get('/admin/'),'مدیریت روشن، فروشگاه مرتب.')
+        self.assertTemplateUsed(self.client.get('/admin/'),'admin/dashboard.html')
         self.assertContains(self.client.get('/admin/portal/product/'),'admin-panel.css')
         response=self.client.get('/admin/')
         self.assertIn('noindex',response['X-Robots-Tag'])
         self.assertIn('no-store',response['Cache-Control'])
+
+    def test_store_dashboard_data_respects_staff_permissions(self):
+        self.buy()
+        self.user.is_staff=True;self.user.save()
+        self.user.user_permissions.add(Permission.objects.get(content_type__app_label='portal',codename='view_product'))
+        response=self.client.get('/admin/')
+        self.assertNotIn('recent_orders',response.context)
+        self.assertNotIn('completed_revenue',response.context)
+        self.assertNotIn('recent_tickets',response.context)
+        self.assertNotContains(response,'href="/admin/portal/product/add/"')
+        self.user.is_superuser=True;self.user.save()
+        response=self.client.get('/admin/')
+        self.assertEqual(response.context['pending_orders_count'],1)
+        self.assertEqual(response.context['completed_revenue'],0)
+        self.assertEqual(len(response.context['recent_orders']),1)
+
+    def test_admin_can_add_website_product_with_independent_bot_visibility(self):
+        self.user.is_staff=True;self.user.is_superuser=True;self.user.save()
+        response=self.client.get('/admin/portal/product/add/')
+        self.assertEqual(response.status_code,200)
+        self.assertTrue(response.context['adminform'].form.initial['show_on_website'])
+        data={'name':'اشتراک نمونه','category':self.category.pk,'platform':'ai','price':'500000','price_per':'1','min_order':'1','is_active':'on','show_on_website':'on','price_currency':'TOMAN','product_profit_percent':'0','target_type':'email','need_link':'on','_save':'ذخیره'}
+        response=self.client.post('/admin/portal/product/add/',data)
+        self.assertEqual(response.status_code,302)
+        product=Product.objects.get(name='اشتراک نمونه')
+        self.assertTrue(product.show_on_website)
+        self.assertFalse(product.show_on_telegram)
+        self.assertEqual(product.price,500000)
+        self.assertEqual(product.target_type,'email')
+        self.assertTrue(Audit.objects.filter(action='product.create',object_ref=str(product.pk)).exists())
 
     def test_profile_update_is_private_encrypted_and_scoped(self):
         import json

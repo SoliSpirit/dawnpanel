@@ -1,0 +1,12 @@
+{% load ui %}
+<button class="sticky toggle-nav-sidebar" id="toggle-nav-sidebar" aria-label="باز و بسته کردن منوی مدیریت"></button>
+<nav class="sticky" id="nav-sidebar" aria-label="منوی مدیریت">
+<span class="workspace-nav-label">فضای کاری دان‌پنل</span>
+<label class="visually-hidden" for="nav-filter">جستجو در بخش‌های مدیریت</label><input id="nav-filter" type="search" placeholder="جستجو در منو…" autocomplete="off">
+<a class="workspace-nav-link{% if request.path == '/admin/' %} selected{% endif %}" href="{% url 'admin:index' %}">{% icon 'grid' %} داشبورد</a>
+{% if perms.portal.add_product %}<a class="workspace-nav-link workspace-nav-add" href="{% url 'admin:portal_product_add' %}">{% icon 'spark' %} افزودن محصول</a>{% endif %}
+{% if perms.portal.change_order or perms.portal.change_ticket %}<a class="workspace-nav-link" href="{% url 'staff' %}">{% icon 'clock' %} سفارش و پشتیبانی</a>{% endif %}
+{% if perms.portal.change_chatconversation %}<a class="workspace-nav-link" href="{% url 'chat_desk' %}">{% icon 'chat' %} گفتگوی آنلاین</a>{% endif %}
+{% for app in available_apps %}<details class="workspace-nav-group" open><summary>{{ app.name }}</summary>{% for model in app.models %}<a class="workspace-nav-link{% if model.admin_url in request.path %} selected{% endif %}" href="{{ model.admin_url }}">{{ model.name }}</a>{% endfor %}</details>{% endfor %}
+<a class="workspace-nav-link" href="{% url 'home' %}">{% icon 'arrow' %} بازگشت به فروشگاه</a>
+</nav>

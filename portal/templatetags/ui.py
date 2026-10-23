@@ -3,6 +3,10 @@ from django.utils.safestring import mark_safe
 from django.utils.html import format_html
 from django.templatetags.static import static
 register=template.Library()
+@register.filter
+def number(value):
+    try:return format(int(value),',')
+    except (ValueError,TypeError):return value
 @register.simple_tag
 def platform_icon(name):
     name=name if name in {'telegram','eitaa','bale','rubika','chatgpt','gemini','claude'} else 'gemini'
