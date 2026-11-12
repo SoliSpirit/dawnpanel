@@ -57,7 +57,7 @@ def verify_otp(otp_id,code,session):
         return otp.phone if valid else None
 
 @transaction.atomic
-def login_account(phone):
+def login_account(phone,campaign_id=None):
     user,_=User.objects.get_or_create(username=phone,defaults={'first_name':'کاربر دان پنل'})
     user=User.objects.select_for_update().get(pk=user.pk)
     account=Account.objects.filter(user=user).first()
@@ -68,6 +68,8 @@ def login_account(phone):
         else: legacy=LegacyUser.objects.create(user_id=-secrets.randbits(61)-1,full_name='کاربر سایت',phone_number=phone,is_verified=True,referral_code=secrets.token_hex(12))
         if legacy.is_banned: raise BusinessError('دسترسی حساب محدود شده است. با پشتیبانی تماس بگیرید.')
         account=Account.objects.create(user=user,phone=phone,legacy_id=legacy.pk)
+        if campaign_id:
+            Campaign.objects.filter(pk=campaign_id,active=True).update(registrations=F('registrations')+1)
         user.set_unusable_password()
     if LegacyUser.objects.get(pk=account.legacy_id).is_banned: raise BusinessError('دسترسی حساب محدود شده است.')
     if settings.OWNER_PHONE and phone==settings.OWNER_PHONE:

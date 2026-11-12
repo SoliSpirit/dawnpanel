@@ -3,7 +3,22 @@ from django.core.exceptions import PermissionDenied
 from .models import *
 from .product_media import ProductImageForm,save_product_picture
 from django.utils.html import format_html
+from django.urls import reverse
+
+@admin.register(Campaign)
+class CampaignAdmin(admin.ModelAdmin):
+    list_display=['name','share_link','clicks','registrations','active']
+    readonly_fields=['share_link','clicks','registrations']
+    search_fields=['name','code']
+    @admin.display(description='لینک قابل اشتراک')
+    def share_link(self,obj):
+        if not obj.code:return 'پس از ذخیره ساخته می‌شود.'
+        url='https://dawnpanel.ir'+reverse('campaign',args=[obj.code])
+        return format_html('<a href="{}" dir="ltr">{}</a>',url,url)
 class AuditAdmin(admin.ModelAdmin):
+    date_hierarchy='created_at'
+    search_fields=['actor__username','action','object_ref']
+    list_select_related=['actor']
     list_display=['created_at','actor','action','object_ref'];list_filter=['action'];readonly_fields=['actor','action','object_ref','details','created_at']
     def has_add_permission(self,request): return False
     def has_change_permission(self,request,obj=None): return False
@@ -45,6 +60,7 @@ class ProductAdmin(AuditedAdmin):
         return format_html('<strong>{}</strong><small class="catalog-row-category">به‌ازای {} عدد</small>',format(obj.price,','),format(obj.price_per,','))
     def get_queryset(self,request):return super().get_queryset(request).select_related('category')
     list_display=['product_label','platform','base_price','is_active','show_on_website','show_on_telegram']
+    list_editable=['is_active','show_on_website','show_on_telegram']
     list_filter=['platform','is_active','show_on_website','show_on_telegram','category'];search_fields=['name'];list_per_page=30
     fieldsets=[('معرفی محصول',{'fields':['name','category','platform','description']}),('قیمت و تعداد',{'fields':['price',('price_per','min_order'),'max_order'],'description':'همه قیمت‌های پایه به تومان هستند. برای اشتراک تکی، تعداد مبنا و حداقل سفارش را روی ۱ قرار دهید.'}),('انتشار در سایت و تلگرام',{'fields':['is_active','show_on_website','show_on_telegram'],'description':'محل نمایش محصول را مستقل انتخاب کنید. محصولات غیرفعال قابل خرید نیستند.'}),('تصاویر روز و شب',{'fields':[('picture','night_picture'),'picture_alt','current_picture','current_night_picture','remove_night_picture','remove_picture']}),('اطلاعات تحویل و سئو',{'fields':['need_link','target_prompt','seo_description']}),('تنظیمات پیشرفته قیمت و ربات',{'fields':['price_currency','price_amount','product_profit_percent','target_type'],'classes':['collapse'],'description':'برای فروش معمولی با تومان نیازی به تغییر این بخش ندارید.'})]
     def has_delete_permission(self,request,obj=None): return False
@@ -54,6 +70,7 @@ class CategoryAdmin(AuditedAdmin):
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(Post)
 class PostAdmin(AuditedAdmin):
+    change_form_template='admin/portal/post/change_form.html'
     list_display=['title','published','author','updated_at'];list_filter=['published'];search_fields=['title'];prepopulated_fields={'slug':('title',)}
     readonly_fields=['author','created_at','updated_at']
     def save_model(self,request,obj,form,change):

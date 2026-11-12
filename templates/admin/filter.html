@@ -1,0 +1,4 @@
+<details data-filter-title="{{ title }}"{% for choice in choices %}{% if choice.selected and not forloop.first %} open{% endif %}{% endfor %}>
+  <summary>{{ title }}</summary>
+  <ul>{% for choice in choices %}<li{% if choice.selected %} class="selected"{% endif %}><a {% if choice.selected %}aria-current="true"{% endif %} href="{{ choice.query_string|iriencode }}">{{ choice.display }}</a></li>{% endfor %}</ul>
+</details>

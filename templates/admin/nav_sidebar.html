@@ -7,6 +7,6 @@
 {% if perms.portal.add_product %}<a class="workspace-nav-link workspace-nav-add" href="{% url 'admin:portal_product_add' %}">{% icon 'spark' %} افزودن محصول</a>{% endif %}
 {% if perms.portal.change_order or perms.portal.change_ticket %}<a class="workspace-nav-link" href="{% url 'staff' %}">{% icon 'clock' %} سفارش و پشتیبانی</a>{% endif %}
 {% if perms.portal.change_chatconversation %}<a class="workspace-nav-link" href="{% url 'chat_desk' %}">{% icon 'chat' %} گفتگوی آنلاین</a>{% endif %}
-{% for app in available_apps %}<details class="workspace-nav-group" open><summary>{{ app.name }}</summary>{% for model in app.models %}<a class="workspace-nav-link{% if model.admin_url in request.path %} selected{% endif %}" href="{{ model.admin_url }}">{{ model.name }}</a>{% endfor %}</details>{% endfor %}
+{% for label, models in workspace_groups %}{% if models %}<details class="workspace-nav-group"><summary>{{ label }}</summary>{% for model in models %}<a class="workspace-nav-link{% if model.admin_url in request.path %} selected{% endif %}" href="{{ model.admin_url }}">{{ model.name }}</a>{% endfor %}</details>{% endif %}{% endfor %}
 <a class="workspace-nav-link" href="{% url 'home' %}">{% icon 'arrow' %} بازگشت به فروشگاه</a>
 </nav>

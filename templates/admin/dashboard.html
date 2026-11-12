@@ -4,6 +4,25 @@
 {% block sidebar %}{% endblock %}
 {% block content %}
 <div class="workspace-heading"><div><span class="admin-eyebrow">مرکز مدیریت دان‌پنل</span><h1>داشبورد فروشگاه</h1><p>سلام {{ user.first_name|default:'مدیر' }}؛ محصولات، فروش و درخواست‌های مشتریان اینجا در دسترس توست.</p></div>{% if perms.portal.add_product %}<a class="workspace-primary" href="{% url 'admin:portal_product_add' %}">{% icon 'spark' %} افزودن محصول جدید</a>{% endif %}</div>
+{% if perms.portal.view_order or perms.portal.view_account %}
+<section class="workspace-section" aria-labelledby="report-title">
+<div class="workspace-title"><h2 id="report-title">گزارش فروش و مشتریان</h2></div>
+{% if perms.portal.view_order %}<p>فروش تکمیل‌شده امروز: <strong>{{ today_sales|number }} تومان</strong></p>{% endif %}
+{% if perms.portal.view_account %}<p>ثبت‌نام جدید امروز در سایت: <strong>{{ new_customers_today|number }}</strong></p>{% endif %}
+{% if perms.portal.view_order %}
+<form method="get" class="report-filter"><label for="period">بازه</label><select name="period" id="period">
+<option value="today"{% if report_period == 'today' %} selected{% endif %}>امروز</option>
+<option value="week"{% if report_period == 'week' %} selected{% endif %}>هفت روز</option>
+<option value="month"{% if report_period == 'month' %} selected{% endif %}>سی روز</option>
+<option value="year"{% if report_period == 'year' %} selected{% endif %}>یک سال</option>
+<option value="custom"{% if report_period == 'custom' %} selected{% endif %}>سفارشی</option>
+</select><label for="start">از تاریخ</label><input type="date" id="start" name="start" value="{{ report_start|date:'Y-m-d' }}"><label for="end">تا تاریخ</label><input type="date" id="end" name="end" value="{{ report_end|date:'Y-m-d' }}"><button type="submit" class="button">نمایش</button></form>
+{% if report_error %}<p role="alert">{{ report_error }}</p>{% endif %}
+<p>فروش تکمیل‌شده در بازه: <strong>{{ range_sales|number }} تومان</strong>{% if monthly_buckets %} · نمودار ماهانه{% endif %}</p>
+<ul class="sales-chart">{% for row in sales_rows %}<li><time dir="ltr">{{ row.day|date:'Y-m-d' }}</time><meter min="0" max="100" value="{{ row.bar }}" aria-label="فروش نسبت به بیشترین مقدار در بازه"></meter><strong>{{ row.total|number }} تومان</strong></li>{% empty %}<li>در این بازه فروش تکمیل‌شده ثبت نشده است.</li>{% endfor %}</ul>
+{% endif %}</section>
+{% endif %}
+
 <div class="admin-metrics">{% for metric in dashboard_metrics %}<a href="{% url metric.url %}"><span>{{ metric.label }}</span><strong>{{ metric.count|number }}</strong><small>مشاهده جزئیات ←</small></a>{% endfor %}</div>
 <section class="workspace-section"><div class="workspace-title"><h2>کارهای روزمره</h2><span>میان‌برهای فروشگاه</span></div><div class="workspace-actions">
 {% if perms.portal.add_product %}<a href="{% url 'admin:portal_product_add' %}"><span class="workspace-icon">{% icon 'spark' %}</span><strong>افزودن محصول</strong><small>قیمت، تصاویر و محل انتشار</small></a>{% endif %}

@@ -149,6 +149,17 @@ class Post(models.Model):
     class Meta: ordering=['-created_at'];verbose_name='مقاله';verbose_name_plural='وبلاگ'
     def __str__(self): return self.title
     def get_absolute_url(self): return f'/blog/{self.slug}/'
+
+class Campaign(models.Model):
+    name=models.CharField('نام کمپین',max_length=120)
+    code=models.SlugField('کد لینک',unique=True,max_length=60)
+    clicks=models.PositiveBigIntegerField('باز شدن لینک',default=0,editable=False)
+    registrations=models.PositiveBigIntegerField('ثبت‌نام منتسب',default=0,editable=False)
+    active=models.BooleanField('فعال',default=True)
+    class Meta:
+        verbose_name='لینک تبلیغاتی'
+        verbose_name_plural='لینک‌های تبلیغاتی'
+    def __str__(self):return self.name
 class Audit(models.Model):
     actor=models.ForeignKey(User,on_delete=models.SET_NULL,null=True)
     action=models.CharField(max_length=80)

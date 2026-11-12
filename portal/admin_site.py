@@ -6,6 +6,9 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.shortcuts import redirect
 from django.db.models import Sum
+from django.db.models.functions import TruncDate, TruncMonth
+from django.utils import timezone
+from datetime import date, timedelta
 
 
 class DawnAdminConfig(AdminConfig):
@@ -17,6 +20,15 @@ class DawnAdminSite(AdminSite):
     site_title='مدیریت دان‌پنل'
     index_title='نمای کلی فروشگاه'
     index_template='admin/dashboard.html'
+
+    def each_context(self, request):
+        context=super().each_context(request)
+        groups=[('فروشگاه', {'Product','Category','Order','Ledger','Currency','GiftCode'}),
+                ('مشتریان و دسترسی‌ها', {'Account','LegacyUser','MemberRank','User','Group'}),
+                ('محتوا و پشتیبانی', {'Post','Ticket'}), ('تبلیغات', {'Campaign'}), ('فعالیت‌ها', {'Audit'})]
+        models=[model for app in context['available_apps'] for model in app['models'] if model['admin_url']]
+        context['workspace_groups']=[(label,[m for m in models if m['object_name'] in names]) for label,names in groups]
+        return context
 
     def has_permission(self,request):
         return super().has_permission(request) and bool(request.user.get_all_permissions())
@@ -57,4 +69,27 @@ class DawnAdminSite(AdminSite):
             context.update(recent_orders=orders[:6],pending_orders_count=orders.filter(status__in=['pending','confirmed','approved','processing']).count(),completed_revenue=orders.filter(status='completed').aggregate(total=Sum('total_price'))['total'] or 0)
         if request.user.has_perm('portal.view_ticket'):
             context['recent_tickets']=apps.get_model('portal','Ticket').objects.select_related('user').exclude(status='closed')[:5]
+        today=timezone.localdate()
+        period=request.GET.get('period','week')
+        days={'today':1,'week':7,'month':30,'year':365}
+        start,end=today-timedelta(days=days.get(period,7)-1),today
+        if period=='custom':
+            try:
+                start,end=(date.fromisoformat(request.GET.get(k,'')) for k in ('start','end'))
+                if not date(2000,1,1)<=start<=end<=today or (end-start).days>365:raise ValueError
+            except ValueError:
+                start,end=today-timedelta(days=6),today
+                context['report_error']='بازه معتبر تا ۳۶۶ روز و حداکثر تا امروز انتخاب کنید.'
+        elif period not in days:period='week'
+        context.update(report_start=start,report_end=end,report_period=period)
+        if request.user.has_perm('portal.view_account'):
+            context['new_customers_today']=apps.get_model('portal','Account').objects.filter(created_at__date=today).count()
+        if request.user.has_perm('portal.view_order'):
+            completed=orders.filter(status='completed')
+            context['today_sales']=completed.filter(completed_at__date=today).aggregate(total=Sum('total_price'))['total'] or 0
+            trunc=TruncMonth if (end-start).days>60 else TruncDate
+            rows=list(completed.filter(completed_at__date__range=(start,end)).order_by().annotate(day=trunc('completed_at')).values('day').annotate(total=Sum('total_price')).order_by('day'))
+            peak=max([1]+[row['total'] for row in rows])
+            for row in rows:row['bar']=max(0,min(100,round(row['total']*100/peak)))
+            context.update(sales_rows=rows,range_sales=sum(row['total'] for row in rows),monthly_buckets=trunc is TruncMonth)
         return super().index(request,{**context,**(extra_context or {})})

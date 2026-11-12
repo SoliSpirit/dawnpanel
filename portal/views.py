@@ -8,7 +8,7 @@ from django.contrib.auth import login,logout
 from django.contrib.auth.decorators import login_required,permission_required
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.db.models import Q,Sum
+from django.db.models import F,Q,Sum
 from django.db import transaction
 from django.views.decorators.http import require_POST,require_GET,require_http_methods
 from django.views.decorators.debug import sensitive_post_parameters
@@ -28,7 +28,7 @@ def home(request):
 
 @require_GET
 def contact(request):
-    return render(request,'contact.html',{'title':'ارتباط با ما | پشتیبانی دان‌پنل','description':'راه‌های ارتباط با دان‌پنل؛ گفتگوی آنلاین، ثبت و پیگیری تیکت و دسترسی به ربات تلگرام برای خرید و پیگیری محصولات.'})
+    return render(request,'contact.html',{'title':'ارتباط با ما | پشتیبانی دان‌پنل','description':'راه‌های ارتباط با دان‌پنل؛ گفتگوی آنلاین، ثبت و پیگیری تیکت و کانال‌های رسمی دان‌پنل در شبکه‌های اجتماعی.'})
 
 def ai_catalog(request):
     return catalog(request,platform_override='ai')
@@ -95,6 +95,16 @@ def sign_in(request):
         except BusinessError as e: form.add_error(None,str(e))
     return render(request,'auth.html',{'form':form,'title':'ورود یا ثبت‌نام','subtitle':'با شماره موبایل خود وارد شوید. رمز یک‌بارمصرف برای شما پیامک می‌شود.','button':'دریافت کد ورود'})
 
+@require_GET
+def campaign(request,code):
+    link=get_object_or_404(Campaign,code=code,active=True)
+    Campaign.objects.filter(pk=link.pk).update(clicks=F('clicks')+1)
+    request.session['campaign']={'id':link.pk,'at':int(timezone.now().timestamp())}
+    response=redirect('catalog')
+    response['Cache-Control']='private, no-store'
+    response['X-Robots-Tag']='noindex, nofollow'
+    return response
+
 def verify(request):
     if request.user.is_authenticated: return redirect('dashboard')
     otp_id=request.session.get('otp_id')
@@ -107,7 +117,11 @@ def verify(request):
             phone=verify_otp(otp_id,code,request.session.session_key)
             if phone:
                 try:
-                    user=login_account(phone);login(request,user,backend='django.contrib.auth.backends.ModelBackend')
+                    attribution=request.session.pop('campaign',None)
+                    campaign_id=attribution['id'] if attribution and 0<=timezone.now().timestamp()-attribution['at']<=30*86400 else None
+                    user=login_account(phone,campaign_id=campaign_id) if campaign_id else login_account(phone)
+                    login(request,user,backend='django.contrib.auth.backends.ModelBackend')
+                    Audit.objects.create(actor=user,action='account.login')
                     # Keep a fixed deadline even when checkout or chat updates the session.
                     request.session.set_expiry(timezone.now()+timedelta(seconds=settings.SESSION_COOKIE_AGE))
                     request.session.pop('otp_id',None);request.session.pop('otp_phone',None)
@@ -117,7 +131,10 @@ def verify(request):
     return render(request,'auth.html',{'form':form,'title':'تایید شماره موبایل','subtitle':'کد پیامک‌شده را وارد کنید. اعتبار کد پنج دقیقه است.','button':'تایید و ورود','verify':True})
 
 @require_POST
-def sign_out(request): logout(request);return redirect('home')
+def sign_out(request):
+    if request.user.is_authenticated:Audit.objects.create(actor=request.user,action='account.logout')
+    logout(request)
+    return redirect('home')
 
 @login_required
 def dashboard(request):
