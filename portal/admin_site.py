@@ -63,7 +63,10 @@ class DawnAdminSite(AdminSite):
                 rows=apps.get_model('portal',model).objects.all()
                 if model=='Ticket': rows=rows.exclude(status='closed')
                 metrics.append({'label':label,'count':rows.count(),'url':url})
-        context={'dashboard_metrics':metrics}
+        icons={'Product':'grid','Order':'clock','Ticket':'headset','Account':'user'}
+        for metric,model in zip(metrics,[m for m in ['Product','Order','Ticket','Account'] if request.user.has_perm('portal.view_'+m.lower())]):
+            metric['icon']=icons[model]
+        context={'dashboard_metrics':metrics,'dashboard_date':timezone.localdate()}
         if request.user.has_perm('portal.view_order'):
             orders=apps.get_model('portal','Order').objects.all()
             context.update(recent_orders=orders[:6],pending_orders_count=orders.filter(status__in=['pending','confirmed','approved','processing']).count(),completed_revenue=orders.filter(status='completed').aggregate(total=Sum('total_price'))['total'] or 0)
@@ -91,5 +94,13 @@ class DawnAdminSite(AdminSite):
             rows=list(completed.filter(completed_at__date__range=(start,end)).order_by().annotate(day=trunc('completed_at')).values('day').annotate(total=Sum('total_price')).order_by('day'))
             peak=max([1]+[row['total'] for row in rows])
             for row in rows:row['bar']=max(0,min(100,round(row['total']*100/peak)))
-            context.update(sales_rows=rows,range_sales=sum(row['total'] for row in rows),monthly_buckets=trunc is TruncMonth)
+            # Fill the selected interval, including periods without completed sales.
+            totals={row['day'].strftime('%Y-%m' if trunc is TruncMonth else '%Y-%m-%d'):row['total'] for row in rows}
+            chart=[]
+            cursor=start.replace(day=1) if trunc is TruncMonth else start
+            while cursor<=end:
+                key=cursor.strftime('%Y-%m' if trunc is TruncMonth else '%Y-%m-%d')
+                chart.append({'label':key,'amount':totals.get(key,0)})
+                cursor=(cursor.replace(year=cursor.year+1,month=1) if cursor.month==12 else cursor.replace(month=cursor.month+1)) if trunc is TruncMonth else cursor+timedelta(days=1)
+            context.update(sales_rows=rows,range_sales=sum(row['total'] for row in rows),monthly_buckets=trunc is TruncMonth,sales_chart=chart)
         return super().index(request,{**context,**(extra_context or {})})

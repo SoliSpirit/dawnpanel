@@ -230,12 +230,40 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.assertNotIn('recent_orders',response.context)
         self.assertNotIn('completed_revenue',response.context)
         self.assertNotIn('recent_tickets',response.context)
+        self.assertNotIn('sales_chart',response.context)
+        self.assertNotContains(response,'sales-chart-data')
         self.assertNotContains(response,'href="/admin/portal/product/add/"')
         self.user.is_superuser=True;self.user.save()
         response=self.client.get('/admin/')
         self.assertEqual(response.context['pending_orders_count'],1)
         self.assertEqual(response.context['completed_revenue'],0)
         self.assertEqual(len(response.context['recent_orders']),1)
+
+    def test_dashboard_chart_fills_dates_and_counts_completed_sales_only(self):
+        import json
+        import re
+        self.user.is_staff=True;self.user.is_superuser=True;self.user.save()
+        order=self.buy()
+        now=timezone.now()
+        Order.objects.filter(pk=order.pk).update(status='completed',completed_at=now)
+        self.buy()
+        response=self.client.get('/admin/?period=week')
+        chart=response.context['sales_chart']
+        self.assertEqual(len(chart),7)
+        self.assertEqual(sum(row['amount'] for row in chart),order.total_price)
+        self.assertEqual(chart[-1]['label'],timezone.localdate().isoformat())
+        self.assertEqual(chart[-1]['amount'],order.total_price)
+        self.assertEqual(response.context['today_sales'],order.total_price)
+        rendered=response.content.decode()
+        self.assertEqual(json.loads(re.search(r'<script id="sales-chart-data" type="application/json">(.*?)</script>',rendered).group(1)),chart)
+        self.assertNotIn('<details open>',rendered)
+        response=self.client.get('/admin/?period=custom&start=invalid&end=2030-01-01')
+        self.assertTrue(response.context['report_error'])
+        self.assertEqual(len(response.context['sales_chart']),7)
+        response=self.client.get('/admin/?period=year')
+        self.assertTrue(response.context['monthly_buckets'])
+        self.assertIn(len(response.context['sales_chart']),[12,13])
+        self.assertEqual(sum(row['amount'] for row in response.context['sales_chart']),order.total_price)
 
     def test_admin_can_add_website_product_with_independent_bot_visibility(self):
         self.user.is_staff=True;self.user.is_superuser=True;self.user.save()

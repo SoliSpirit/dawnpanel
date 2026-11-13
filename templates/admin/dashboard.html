@@ -1,36 +1,42 @@
-{% extends 'admin/index.html' %}{% load ui %}
+{% extends 'admin/index.html' %}{% load ui static %}
 {% block nav-sidebar %}{% include 'admin/nav_sidebar.html' %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block sidebar %}{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'admin-dashboard.js' %}" defer></script>{% endblock %}
 {% block content %}
-<div class="workspace-heading"><div><span class="admin-eyebrow">مرکز مدیریت دان‌پنل</span><h1>داشبورد فروشگاه</h1><p>سلام {{ user.first_name|default:'مدیر' }}؛ محصولات، فروش و درخواست‌های مشتریان اینجا در دسترس توست.</p></div>{% if perms.portal.add_product %}<a class="workspace-primary" href="{% url 'admin:portal_product_add' %}">{% icon 'spark' %} افزودن محصول جدید</a>{% endif %}</div>
-{% if perms.portal.view_order or perms.portal.view_account %}
-<section class="workspace-section" aria-labelledby="report-title">
-<div class="workspace-title"><h2 id="report-title">گزارش فروش و مشتریان</h2></div>
-{% if perms.portal.view_order %}<p>فروش تکمیل‌شده امروز: <strong>{{ today_sales|number }} تومان</strong></p>{% endif %}
-{% if perms.portal.view_account %}<p>ثبت‌نام جدید امروز در سایت: <strong>{{ new_customers_today|number }}</strong></p>{% endif %}
-{% if perms.portal.view_order %}
-<form method="get" class="report-filter"><label for="period">بازه</label><select name="period" id="period">
-<option value="today"{% if report_period == 'today' %} selected{% endif %}>امروز</option>
-<option value="week"{% if report_period == 'week' %} selected{% endif %}>هفت روز</option>
-<option value="month"{% if report_period == 'month' %} selected{% endif %}>سی روز</option>
-<option value="year"{% if report_period == 'year' %} selected{% endif %}>یک سال</option>
-<option value="custom"{% if report_period == 'custom' %} selected{% endif %}>سفارشی</option>
-</select><label for="start">از تاریخ</label><input type="date" id="start" name="start" value="{{ report_start|date:'Y-m-d' }}"><label for="end">تا تاریخ</label><input type="date" id="end" name="end" value="{{ report_end|date:'Y-m-d' }}"><button type="submit" class="button">نمایش</button></form>
-{% if report_error %}<p role="alert">{{ report_error }}</p>{% endif %}
-<p>فروش تکمیل‌شده در بازه: <strong>{{ range_sales|number }} تومان</strong>{% if monthly_buckets %} · نمودار ماهانه{% endif %}</p>
-<ul class="sales-chart">{% for row in sales_rows %}<li><time dir="ltr">{{ row.day|date:'Y-m-d' }}</time><meter min="0" max="100" value="{{ row.bar }}" aria-label="فروش نسبت به بیشترین مقدار در بازه"></meter><strong>{{ row.total|number }} تومان</strong></li>{% empty %}<li>در این بازه فروش تکمیل‌شده ثبت نشده است.</li>{% endfor %}</ul>
-{% endif %}</section>
-{% endif %}
+<div class="command-dashboard">
+<header class="command-intro"><div><div class="command-kicker"><span class="command-dot"></span> فضای کاری شما <span class="command-date" dir="ltr">{{ dashboard_date|date:'Y/m/d' }}</span></div><h1>داشبورد فروشگاه<span>.</span></h1><p>نمای روشن از فروش، مشتریان و کارهای امروز.</p></div><div class="command-intro-actions">{% if perms.portal.add_product %}<a class="command-button" href="{% url 'admin:portal_product_add' %}"><span aria-hidden="true">＋</span> محصول جدید</a>{% endif %}<a class="command-button secondary" href="{% url 'home' %}">{% icon 'arrow' %} فروشگاه</a></div></header>
 
-<div class="admin-metrics">{% for metric in dashboard_metrics %}<a href="{% url metric.url %}"><span>{{ metric.label }}</span><strong>{{ metric.count|number }}</strong><small>مشاهده جزئیات ←</small></a>{% endfor %}</div>
-<section class="workspace-section"><div class="workspace-title"><h2>کارهای روزمره</h2><span>میان‌برهای فروشگاه</span></div><div class="workspace-actions">
-{% if perms.portal.add_product %}<a href="{% url 'admin:portal_product_add' %}"><span class="workspace-icon">{% icon 'spark' %}</span><strong>افزودن محصول</strong><small>قیمت، تصاویر و محل انتشار</small></a>{% endif %}
-{% if perms.portal.view_product %}<a href="{% url 'admin:portal_product_changelist' %}"><span class="workspace-icon">{% icon 'grid' %}</span><strong>مدیریت محصولات</strong><small>جستجو، ویرایش و انتشار</small></a>{% endif %}
-{% if perms.portal.change_order %}<a href="{% url 'staff' %}"><span class="workspace-icon">{% icon 'clock' %}</span><strong>رسیدگی به سفارش‌ها</strong><small>{{ pending_orders_count|default:0|number }} سفارش در جریان</small></a>{% endif %}
-{% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}"><span class="workspace-icon">{% icon 'headset' %}</span><strong>گفتگوی آنلاین</strong><small>پاسخ به مشتریان</small></a>{% endif %}</div></section>
-<div class="workspace-columns">
-{% if perms.portal.view_order %}<section class="workspace-section"><div class="workspace-title"><h2>آخرین سفارش‌ها</h2><a href="{% url 'admin:portal_order_changelist' %}">همه سفارش‌ها ←</a></div><div class="workspace-table"><table><thead><tr><th>محصول / پیگیری</th><th>مبلغ (تومان)</th><th>وضعیت</th></tr></thead><tbody>{% for order in recent_orders %}<tr><td><a href="{% url 'admin:portal_order_change' order.pk %}">{{ order.product_name }}</a><small dir="ltr">{{ order.tracking_code }}</small></td><td>{{ order.total_price|number }}</td><td><span class="workspace-badge">{{ order.status_label }}</span></td></tr>{% empty %}<tr><td colspan="3" class="workspace-empty">هنوز سفارشی ثبت نشده است.</td></tr>{% endfor %}</tbody></table></div><div class="workspace-footnote">مجموع فروش سفارش‌های تکمیل‌شده: <strong>{{ completed_revenue|number }} تومان</strong></div></section>{% endif %}
-{% if perms.portal.view_ticket %}<section class="workspace-section"><div class="workspace-title"><h2>درخواست‌های پشتیبانی</h2><a href="{% url 'admin:portal_ticket_changelist' %}">همه تیکت‌ها ←</a></div>{% for ticket in recent_tickets %}<a class="workspace-ticket" href="{% if perms.portal.change_ticket %}{% url 'ticket' ticket.pk %}{% else %}{% url 'admin:portal_ticket_change' ticket.pk %}{% endif %}"><span><strong>{{ ticket.subject }}</strong><small>#{{ ticket.pk }} · {{ ticket.get_status_display }}</small></span>{% icon 'arrow' %}</a>{% empty %}<p class="workspace-empty">تیکت بازی برای نمایش وجود ندارد.</p>{% endfor %}</section>{% endif %}</div>
-<section class="workspace-section"><div class="workspace-title"><h2>بخش‌های مدیریت</h2><span>محصولات، محتوا و دسترسی‌ها</span></div><div class="workspace-models">{% for app in app_list %}{% for model in app.models %}<a href="{{ model.admin_url }}"><strong>{{ model.name }}</strong><span>مشاهده و مدیریت ←</span></a>{% endfor %}{% endfor %}</div></section>
+<div class="command-metrics">{% for metric in dashboard_metrics %}<a class="command-metric" href="{% url metric.url %}"><div><span>{{ metric.label }}</span><i>{% icon metric.icon %}</i></div><strong>{{ metric.count|number }}</strong><footer><span>مشاهده جزئیات</span><span aria-hidden="true">↖</span></footer></a>{% endfor %}</div>
+
+<div class="command-main-grid">
+{% if perms.portal.view_order %}<section class="command-card command-report" aria-labelledby="sales-title"><div class="command-card-heading"><div><span class="command-overline">عملکرد فروش</span><h2 id="sales-title">روند درآمد فروشگاه</h2></div><span class="command-pill">{% if monthly_buckets %}نمای ماهانه{% else %}نمای روزانه{% endif %}</span></div>
+<form method="get" class="command-filter"><label class="visually-hidden" for="report-period">بازه گزارش</label><select id="report-period" name="period"><option value="today"{% if report_period == 'today' %} selected{% endif %}>امروز</option><option value="week"{% if report_period == 'week' %} selected{% endif %}>۷ روز گذشته</option><option value="month"{% if report_period == 'month' %} selected{% endif %}>۳۰ روز گذشته</option><option value="year"{% if report_period == 'year' %} selected{% endif %}>یک سال گذشته</option><option value="custom"{% if report_period == 'custom' %} selected{% endif %}>بازه دلخواه</option></select><div class="command-date-fields"{% if report_period != 'custom' %} hidden{% endif %}><label for="report-start">از</label><input type="date" id="report-start" name="start" value="{{ report_start|date:'Y-m-d' }}"><label for="report-end">تا</label><input type="date" id="report-end" name="end" value="{{ report_end|date:'Y-m-d' }}"></div><button type="submit">اعمال بازه {% icon 'arrow' %}</button></form>
+{% if report_error %}<p class="command-error" role="alert">{{ report_error }}</p>{% endif %}
+<div class="command-report-total"><strong>{{ range_sales|number }}</strong><span>تومان</span><small>مجموع فروش تکمیل‌شده در بازهٔ انتخابی</small></div>
+{{ sales_chart|json_script:'sales-chart-data' }}
+<div id="sales-visual" class="command-chart" aria-label="نمودار فروش تکمیل‌شده" role="img"></div>
+<div class="command-chart-note"><span><i></i> مبلغ فروش تکمیل‌شده</span><span dir="ltr">{{ report_start|date:'Y/m/d' }} — {{ report_end|date:'Y/m/d' }}</span></div>
+{% if not range_sales %}<p class="command-zero-note">در این بازه فروش تکمیل‌شده‌ای ثبت نشده است؛ نمودار مقدار صفر را نشان می‌دهد.</p>{% endif %}
+<details class="command-data"><summary>جدول دقیق گزارش</summary><div class="command-table-scroll"><table><thead><tr><th>تاریخ</th><th>فروش (تومان)</th></tr></thead><tbody>{% for row in sales_chart %}<tr><td dir="ltr">{{ row.label }}</td><td>{{ row.amount|number }}</td></tr>{% endfor %}</tbody></table></div></details>
+</section>{% endif %}
+<aside class="command-today command-card"><div class="command-card-heading"><div><span class="command-overline">در یک نگاه</span><h2>امروز در دان‌پنل</h2></div>{% icon 'spark' %}</div>
+{% if perms.portal.view_order %}<div class="command-today-value"><span>فروش تکمیل‌شده امروز</span><strong>{{ today_sales|number }} <small>تومان</small></strong></div><a class="command-today-row" href="{% url 'admin:portal_order_changelist' %}"><span>{% icon 'clock' %} سفارش‌های در جریان</span><b>{{ pending_orders_count|number }}</b></a>{% endif %}
+{% if perms.portal.view_account %}<a class="command-today-row" href="{% url 'admin:portal_account_changelist' %}"><span>{% icon 'user' %} ثبت‌نام جدید امروز</span><b>{{ new_customers_today|number }}</b></a>{% endif %}
+<div class="command-today-bottom"><span class="command-orbit">{% icon 'grid' %}</span><strong>کار بعدی، یک کلیک فاصله.</strong><p>از منوی کناری وارد بخش دلخواه شو؛ هر بخش فقط با دسترسی مجاز نمایش داده می‌شود.</p></div></aside>
+</div>
+
+<section class="command-shortcuts" aria-label="دسترسی سریع">
+{% if perms.portal.view_product %}<a href="{% url 'admin:portal_product_changelist' %}"><i>{% icon 'grid' %}</i><span><strong>محصولات</strong><small>قیمت، تصاویر و انتشار</small></span><b aria-hidden="true">↖</b></a>{% endif %}
+{% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'staff' %}"><i>{% icon 'clock' %}</i><span><strong>میز رسیدگی</strong><small>سفارش‌ها و تیکت‌ها</small></span><b aria-hidden="true">↖</b></a>{% endif %}
+{% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}"><i>{% icon 'chat' %}</i><span><strong>گفتگوی آنلاین</strong><small>ارتباط با مشتریان</small></span><b aria-hidden="true">↖</b></a>{% endif %}
+{% if perms.portal.add_post %}<a href="{% url 'admin:portal_post_add' %}"><i>{% icon 'book' %}</i><span><strong>نوشتن مقاله</strong><small>مجله و راهنمای خرید</small></span><b aria-hidden="true">↖</b></a>{% endif %}
+</section>
+
+<div class="command-bottom-grid">
+{% if perms.portal.view_order %}<section class="command-card"><div class="command-card-heading"><div><span class="command-overline">جریان فروش</span><h2>آخرین سفارش‌ها</h2></div><a href="{% url 'admin:portal_order_changelist' %}">مشاهده همه ↖</a></div><div class="command-table-scroll"><table><thead><tr><th>محصول و کد پیگیری</th><th>مبلغ / تومان</th><th>وضعیت</th><th><span class="visually-hidden">جزئیات</span></th></tr></thead><tbody>{% for order in recent_orders %}<tr><td><strong>{{ order.product_name }}</strong><small dir="ltr">{{ order.tracking_code }}</small></td><td>{{ order.total_price|number }}</td><td><span class="command-status" data-status="{{ order.status }}">{{ order.status_label }}</span></td><td><a class="command-row-link" href="{% url 'admin:portal_order_change' order.pk %}" aria-label="جزئیات سفارش {{ order.tracking_code }}">↖</a></td></tr>{% empty %}<tr><td colspan="4"><div class="command-empty">{% icon 'grid' %}<strong>هنوز سفارشی ثبت نشده</strong><p>با ثبت اولین سفارش، جزئیات آن اینجا قرار می‌گیرد.</p></div></td></tr>{% endfor %}</tbody></table></div><div class="command-card-footer">مجموع فروش تکمیل‌شده <strong>{{ completed_revenue|number }} تومان</strong></div></section>{% endif %}
+{% if perms.portal.view_ticket %}<section class="command-card"><div class="command-card-heading"><div><span class="command-overline">همراه مشتریان</span><h2>تیکت‌های باز</h2></div><a href="{% url 'admin:portal_ticket_changelist' %}">همه تیکت‌ها ↖</a></div>{% for ticket in recent_tickets %}<a class="command-ticket" href="{% if perms.portal.change_ticket %}{% url 'ticket' ticket.pk %}{% else %}{% url 'admin:portal_ticket_change' ticket.pk %}{% endif %}"><i>{% icon 'chat' %}</i><span><strong>{{ ticket.subject }}</strong><small>#{{ ticket.pk }} · {{ ticket.get_status_display }}</small></span><b aria-hidden="true">↖</b></a>{% empty %}<div class="command-empty">{% icon 'headset' %}<strong>تیکت بازی وجود ندارد</strong><p>درخواست‌های جدید مشتریان اینجا نمایش داده می‌شوند.</p></div>{% endfor %}</section>{% endif %}</div>
+
+<section class="command-modules"><div class="command-section-heading"><h2>تمام بخش‌های مدیریت</h2><p>هر دسته را باز کن و وارد بخش موردنظر شو.</p></div><div class="command-module-grid">{% for label, models in workspace_groups %}{% if models %}<details><summary><span>{% icon 'grid' %} {{ label }}</span><b>{{ models|length }}</b></summary><div>{% for model in models %}<a href="{{ model.admin_url }}">{{ model.name }} <span aria-hidden="true">↖</span></a>{% endfor %}</div></details>{% endif %}{% endfor %}</div></section>
+</div>
 {% endblock %}
