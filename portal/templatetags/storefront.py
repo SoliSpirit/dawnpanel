@@ -21,7 +21,11 @@ def product_image(product,theme='light',width=None):
     if product.platform=='ai':
         name=product.name.casefold()
         kind='gemini' if ('gemini' in name or 'جمینای' in name) else 'claude' if ('claude' in name or 'کلاد' in name or 'کلود' in name) else 'chatgpt' if ('gpt' in name or 'جی پی تی' in name) else 'ai'
+        if kind in {'chatgpt','gemini'}:
+            return static('artwork/products-v1/'+kind+'-'+theme+('-480' if width==480 else '')+'.webp')
         return static('artwork/'+kind+('-light' if theme=='light' else '')+('-480' if width==480 else '')+'.webp')
+    if product.platform in {'rubika','bale','eitaa'}:
+        return static('artwork/products-v1/'+product.platform+'-'+theme+('-480' if width==480 else '')+'.webp')
     return static('artwork/social'+('-light' if theme=='light' else '')+('-480' if width==480 else '')+'.webp')
 
 @register.simple_tag

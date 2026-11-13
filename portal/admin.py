@@ -43,11 +43,17 @@ class ProductAdmin(AuditedAdmin):
     def current_picture(self,obj):
         if obj and obj.visual and obj.visual.image:
             return format_html('<img src="{}" alt="{}" width="240">',obj.visual.image.url,obj.visual.alt_text or obj.name)
+        if obj:
+            from .templatetags.storefront import product_image
+            return format_html('<img src="{}" alt="{}" width="240"><p>تصویر آمادهٔ این خانواده؛ با بارگذاری عکس دلخواه جایگزین می‌شود.</p>',product_image(obj,'light'),obj.name)
         return 'هنوز عکسی ثبت نشده است.'
     @admin.display(description='عکس شب فعلی')
     def current_night_picture(self,obj):
         if obj and obj.visual and obj.visual.night_image:
             return format_html('<img src="{}" alt="{}" width="240">',obj.visual.night_image.url,obj.visual.alt_text or obj.name)
+        if obj:
+            from .templatetags.storefront import product_image
+            return format_html('<img src="{}" alt="{}" width="240"><p>تصویر آمادهٔ حالت شب</p>',product_image(obj,'dark'),obj.name)
         return 'تصویر شب دسته‌بندی نمایش داده می‌شود.'
     def save_model(self,request,obj,form,change):
         super().save_model(request,obj,form,change)

@@ -129,7 +129,7 @@ class SecurityAndCommerceTests(TransactionTestCase):
             self.assertContains(response,day_url);self.assertContains(response,night_url)
             save_product_picture(self.product,Mock(cleaned_data={'remove_night_picture':True}))
             self.assertEqual(product_image(self.product,'light'),day_url)
-            self.assertIn('/artwork/social.webp',product_image(self.product,'dark'))
+            self.assertIn('/artwork/products-v1/rubika-dark.webp',product_image(self.product,'dark'))
             save_product_picture(self.product,Mock(cleaned_data={'remove_picture':True}))
             self.assertFalse(ProductVisual.objects.filter(product_id=self.product.pk).exists())
 
