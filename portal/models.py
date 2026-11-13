@@ -62,7 +62,10 @@ class Product(models.Model):
         if not hasattr(self,'_visual_cache'):
             self._visual_cache=ProductVisual.objects.filter(product_id=self.pk).first()
         return self._visual_cache
-    def get_absolute_url(self): return f'/services/{self.pk}/'
+    def get_absolute_url(self):
+        from django.urls import reverse
+        from django.utils.text import slugify
+        return reverse('product_named',kwargs={'pk':self.pk,'slug':slugify(self.name,allow_unicode=True)[:90].strip('-') or 'product'})
 class Order(models.Model):
     tracking_code=models.CharField(max_length=20)
     user=models.ForeignKey(LegacyUser,on_delete=models.DO_NOTHING,db_column='user_id')
@@ -217,6 +220,8 @@ class ProductVisual(models.Model):
     image=models.FileField('عکس محصول',upload_to='products/%Y/%m/',max_length=255)
     night_image=models.FileField('عکس شب محصول',upload_to='products/%Y/%m/',max_length=255,blank=True)
     alt_text=models.CharField('توضیح تصویر',max_length=160,blank=True)
+    plan_name=models.CharField('نام پلن',max_length=80,blank=True)
+    duration_months=models.PositiveSmallIntegerField('مدت اعتبار به ماه',null=True,blank=True,validators=[MinValueValidator(1)])
     updated_at=models.DateTimeField(auto_now=True)
     class Meta:
         verbose_name='تصویر محصول'

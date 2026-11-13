@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="retail-wrap contact-page">
+  <div class="contact-intro"><span class="eyebrow">راهنمای خرید</span><h1>سوالات متداول دان‌پنل</h1><p>پاسخ پرسش‌های رایج دربارهٔ سفارش، اشتراک و کیف پول.</p></div>
+  <div class="panel prose">
+    <details><summary>از کجا قیمت نهایی سفارش را ببینم؟</summary><p>محصول و تعداد را انتخاب کن. مبلغ نهایی پیش از تأیید و برداشت از کیف پول نمایش داده می‌شود.</p></details>
+    <details><summary>چطور مدت اشتراک و شیوهٔ تحویل را مقایسه کنم؟</summary><p>صفحهٔ هر گزینه را باز کن و مدت اعتبار، شرایط فعال‌سازی و نوع حساب را بخوان. اگر جزئیات مشخص نبود، قبل از سفارش از پشتیبانی بپرس.</p></details>
+    <details><summary>چطور سفارشم را پیگیری کنم؟</summary><p>در <a href="{% url 'orders' %}">سفارش‌های من</a> وضعیت و کد پیگیری را ببین. برای بررسی بیشتر همان کد را در تیکت بنویس.</p></details>
+    <details><summary>اگر پول از حساب کم شد اما کیف پول شارژ نشد چه کار کنم؟</summary><p>شمارهٔ مرجع پرداخت را نگه دار و از طریق <a href="{% url 'contact' %}">راه‌های ارتباط با ما</a> موضوع را اطلاع بده.</p></details>
+  </div>
+  <p><a class="button" href="{% url 'blog' %}">مجله و راهنماهای دان‌پنل</a></p>
+</section>
+{% endblock %}

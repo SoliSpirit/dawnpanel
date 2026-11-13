@@ -31,6 +31,8 @@ def normalize_product_image(upload):
         raise forms.ValidationError('فایل تصویر معتبر نیست.') from error
 
 class ProductImageForm(forms.ModelForm):
+    plan_name=forms.CharField(label='نام پلن، مثل Plus یا Pro',max_length=80,required=False)
+    duration_months=forms.IntegerField(label='مدت اعتبار به ماه',min_value=1,max_value=120,required=False)
     picture=forms.FileField(label='عکس محصول در حالت روز',required=False,help_text='JPG، PNG یا WebP تا ۵ مگابایت؛ تصویر بهینه و بدون اطلاعات اضافی ذخیره می‌شود.')
     night_picture=forms.FileField(label='عکس محصول در حالت شب',required=False,help_text='نسخه جداگانه مخصوص شب؛ بدون این عکس، تصویر شبِ دسته‌بندی نمایش داده می‌شود.')
     remove_night_picture=forms.BooleanField(label='حذف فقط عکس شب',required=False)
@@ -57,6 +59,8 @@ class ProductImageForm(forms.ModelForm):
         self.fields['need_link'].help_text='اگر لینک، شناسه یا ایمیل برای تحویل لازم است، فعال بماند.'
         if self.instance.pk and self.instance.visual:
             self.fields['picture_alt'].initial=self.instance.visual.alt_text
+            self.fields['plan_name'].initial=self.instance.visual.plan_name
+            self.fields['duration_months'].initial=self.instance.visual.duration_months
     def clean_picture(self):
         upload=self.cleaned_data.get('picture')
         return normalize_product_image(upload) if upload else None
@@ -67,16 +71,19 @@ class ProductImageForm(forms.ModelForm):
 def save_product_picture(product,form):
     picture=form.cleaned_data.get('picture')
     night_picture=form.cleaned_data.get('night_picture')
-    if form.cleaned_data.get('remove_picture'):
-        ProductVisual.objects.filter(product_id=product.pk).delete()
-        product.__dict__.pop('_visual_cache',None)
-        return
     visual=ProductVisual.objects.filter(product_id=product.pk).first()
-    if picture or night_picture or visual:
+    if picture or night_picture or visual or form.cleaned_data.get('plan_name') or form.cleaned_data.get('duration_months'):
         visual=visual or ProductVisual(product_id=product.pk,image='')
         if picture: visual.image=picture
         if night_picture: visual.night_image=night_picture
         elif form.cleaned_data.get('remove_night_picture'): visual.night_image=''
         visual.alt_text=form.cleaned_data.get('picture_alt','')
-        visual.save()
+        if 'plan_name' in form.cleaned_data:visual.plan_name=form.cleaned_data['plan_name']
+        if 'duration_months' in form.cleaned_data:visual.duration_months=form.cleaned_data['duration_months']
+        if form.cleaned_data.get('remove_picture'):
+            visual.image='';visual.night_image='';visual.alt_text=''
+            if not visual.plan_name and not visual.duration_months:
+                if visual.pk:visual.delete()
+            else:visual.save()
+        else:visual.save()
     product.__dict__.pop('_visual_cache',None)

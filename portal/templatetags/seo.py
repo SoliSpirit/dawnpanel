@@ -53,7 +53,7 @@ def page_seo(context):
     image=product_image(product) if product else post_image(context['post']) if context.get('post') else static('artwork/hero-light.webp')
     private=request.path.startswith(('/account/','/login/','/admin/','/manage/','/staff/','/payment/'))
     filtered=bool(request.GET.get('q') or request.GET.get('platform'))
-    canonical='https://dawnpanel.ir'+request.path
+    canonical='https://dawnpanel.ir'+(product.get_absolute_url() if product else request.path)
     page=context.get('page')
     if page and page.number>1 and not filtered:
         canonical+='?page='+str(page.number)

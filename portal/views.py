@@ -1,6 +1,7 @@
 import secrets,uuid
 from datetime import timedelta
 from urllib.parse import quote
+from django.utils.encoding import iri_to_uri
 from django.conf import settings
 from django.shortcuts import render,redirect,get_object_or_404
 from django.http import HttpResponse,HttpResponseForbidden,JsonResponse
@@ -49,8 +50,10 @@ def catalog(request,platform_override=None):
     page.object_list=with_product_images(page.object_list)
     return render(request,'catalog.html',{'page':page,'platform':platform,'q':q,'title':'اشتراک هوش مصنوعی؛ ChatGPT، Gemini و Claude | دان پنل' if platform=='ai' else 'خرید خدمات دیجیتال و پیام‌رسان | دان پنل','description':'خرید و بررسی اشتراک‌های هوش مصنوعی ChatGPT، Gemini و Claude؛ شرایط و مدت هر اشتراک را پیش از خرید بررسی کنید.' if platform=='ai' else 'مشاهده قیمت و شرایط خدمات روبیکا، ایتا و بله و اشتراک‌های هوش مصنوعی در فروشگاه دان پنل.'})
 
-def product(request,pk):
+def product(request,pk,slug=None):
     p=get_object_or_404(public_products(),pk=pk)
+    if request.method in ('GET','HEAD') and iri_to_uri(request.path)!=p.get_absolute_url():
+        return redirect(p,permanent=True)
     form=OrderForm(request.POST or None,initial={'quantity':p.min_order})
     if p.platform=='ai':
         form.fields['target'].label='ایمیل یا توضیحات سفارش'
@@ -264,7 +267,7 @@ def robots(request): return HttpResponse('User-agent: *\nDisallow: /admin\nDisal
 def sitemap(request):
     from xml.sax.saxutils import escape
     from portal.templatetags.storefront import product_image,post_image
-    entries=[(path,None,None) for path in ['/','/ai/','/services/','/blog/','/contact/','/about/','/terms/','/privacy/']]
+    entries=[(path,None,None) for path in ['/','/ai/','/services/','/blog/','/contact/','/faq/','/about/','/terms/','/privacy/']]
     entries += [(product.get_absolute_url(),None,product_image(product)) for product in with_product_images(public_products())]
     entries += [(post.get_absolute_url(),post.updated_at.date().isoformat(),post_image(post)) for post in Post.objects.filter(published=True)]
     body=[]
