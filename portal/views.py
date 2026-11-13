@@ -1,6 +1,5 @@
 import secrets,uuid
 from datetime import timedelta
-from urllib.parse import quote
 from django.utils.encoding import iri_to_uri
 from django.conf import settings
 from django.shortcuts import render,redirect,get_object_or_404
@@ -272,7 +271,7 @@ def sitemap(request):
     entries += [(post.get_absolute_url(),post.updated_at.date().isoformat(),post_image(post)) for post in Post.objects.filter(published=True)]
     body=[]
     for path,modified,image in entries:
-        entry='<url><loc>https://dawnpanel.ir'+escape(quote(path,safe='/'))+'</loc>'
+        entry='<url><loc>https://dawnpanel.ir'+escape(iri_to_uri(path))+'</loc>'
         if modified:entry+='<lastmod>'+modified+'</lastmod>'
         if image:entry+='<image:image><image:loc>https://dawnpanel.ir'+escape(image)+'</image:loc></image:image>'
         body.append(entry+'</url>')
