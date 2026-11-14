@@ -254,3 +254,16 @@ class ChatMessage(models.Model):
 class SupportPresence(models.Model):
     user=models.OneToOneField(User,on_delete=models.CASCADE)
     seen_at=models.DateTimeField(auto_now=True,db_index=True)
+
+
+class SourceProduct(models.Model):
+    """Stable association between a supplier item and an imported product."""
+    source=models.CharField(max_length=30)
+    external_id=models.CharField(max_length=80)
+    product_id=models.PositiveBigIntegerField(unique=True)
+    source_url=models.URLField(max_length=1000,blank=True)
+    last_price=models.PositiveBigIntegerField()
+    updated_at=models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['source','external_id'],name='unique_source_product')]
