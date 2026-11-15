@@ -1,0 +1,14 @@
+{% extends 'admin/base_site.html' %}{% load ui %}
+{% block content %}
+<section class="module">
+<h1>{% if is_approval %}تأیید تغییر قیمت{% else %}رد پیشنهاد قیمت{% endif %}</h1>
+<p>قیمت‌ها به تومان و برای تعداد مبنای محصول هستند. سود محصول دوباره اضافه نمی‌شود؛ درصد سود فعلی همچنان در محاسبهٔ فروش اعمال خواهد شد. پیشنهاد قدیمی‌تر از ۲۴ ساعت یا محصولی که بعد از دریافت دستی ویرایش شده باشد، اعمال نمی‌شود.</p>
+<form method="post">{% csrf_token %}
+<input type="hidden" name="action" value="{{ action_name }}">
+<input type="hidden" name="confirm" value="yes">
+<table><thead><tr><th>محصول</th><th>منبع</th><th>قیمت پایه هنگام دریافت</th><th>قیمت پیشنهادی</th><th>وضعیت</th></tr></thead><tbody>
+{% for row in rows %}<tr><td>{{ row.product_name|default:row.product_id }}<input type="hidden" name="_selected_action" value="{{ row.pk }}"><input type="hidden" name="observed_{{ row.pk }}" value="{{ row.observed_at|date:'c' }}"></td><td>{{ row.source }}</td><td>{{ row.price_baseline.price|default_if_none:'—'|number }}</td><td>{{ row.proposed_price|default_if_none:'—'|number }}</td><td>{{ row.get_review_status_display }}</td></tr>{% endfor %}
+</tbody></table>
+<div class="submit-row"><input type="submit" value="{% if is_approval %}تأیید و اعمال{% else %}رد پیشنهادها{% endif %}"> <a href="{% url 'admin:portal_sourceproduct_changelist' %}">انصراف</a></div>
+</form></section>
+{% endblock %}

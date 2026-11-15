@@ -27,6 +27,8 @@
 </div>
 
 <section class="command-shortcuts" aria-label="دسترسی سریع">
+{% if perms.portal.view_sourceproduct %}<a href="{% url 'admin:portal_sourceproduct_changelist' %}?review_status__exact=pending"><i>{% icon 'wallet' %}</i><span><strong>تأیید قیمت منابع</strong><small>{{ supplier_pending_count|number }} پیشنهاد · {{ supplier_conflict_count|number }} تعارض</small></span><b aria-hidden="true">↖</b></a>{% endif %}
+{% if perms.portal.view_sourcesyncsettings %}<a href="{% url 'admin:portal_sourcesyncsettings_changelist' %}"><i>{% icon 'clock' %}</i><span><strong>دریافت خودکار قیمت</strong><small>دریافت اکنون، فاصله و تأیید تغییرات</small></span><b aria-hidden="true">↖</b></a>{% endif %}
 {% if perms.portal.view_product %}<a href="{% url 'admin:portal_product_changelist' %}"><i>{% icon 'grid' %}</i><span><strong>محصولات</strong><small>قیمت، تصاویر و انتشار</small></span><b aria-hidden="true">↖</b></a>{% endif %}
 {% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'staff' %}"><i>{% icon 'clock' %}</i><span><strong>میز رسیدگی</strong><small>سفارش‌ها و تیکت‌ها</small></span><b aria-hidden="true">↖</b></a>{% endif %}
 {% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}"><i>{% icon 'chat' %}</i><span><strong>گفتگوی آنلاین</strong><small>ارتباط با مشتریان</small></span><b aria-hidden="true">↖</b></a>{% endif %}

@@ -5,7 +5,7 @@
   const key = 'dawnpanel-theme';
   let preference = null;
   try { const saved = localStorage.getItem(key); if (saved === 'light' || saved === 'dark') preference = saved; } catch {}
-  const initial = () => preference || 'dark';
+  const initial = () => preference || (system.matches ? 'dark' : 'light');
   function syncSource(source) {
     const media = root.dataset.theme === 'light' ? 'all' : 'not all';
     if (source.media !== media) source.media = media;

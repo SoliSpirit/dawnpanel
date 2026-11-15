@@ -49,6 +49,11 @@ class SupplierCatalogueTests(SimpleTestCase):
 
 
 class SupplierImportTests(TransactionTestCase):
+    def setUp(self):
+        from .models import Category, Product
+        Product.objects.all().delete()
+        Category.objects.all().delete()
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -81,3 +86,15 @@ class SupplierImportTests(TransactionTestCase):
         self.assertFalse(Product.objects.exclude(pk=existing.pk).filter(is_active=True).exists())
         existing.refresh_from_db()
         self.assertEqual(existing.price, 123)
+
+    def test_explicit_publish_uses_source_link_and_keeps_telegram_hidden(self):
+        from .models import Product, SourceProduct
+        from .services import public_products
+        Product.objects.all().delete()
+        with NamedTemporaryFile(mode='w+',encoding='utf-8') as source:
+            json.dump(SupplierCatalogueTests().sample(),source)
+            source.flush()
+            call_command('import_source_catalog',source.name,apply=True,publish=True)
+        self.assertEqual(public_products().count(),2)
+        self.assertFalse(Product.objects.filter(show_on_telegram=True).exists())
+        self.assertEqual(SourceProduct.objects.count(),2)

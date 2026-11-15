@@ -1930,6 +1930,9 @@ def claim_receipt(receipt_id, status, admin_id):
 async def admin_receipt_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Restore the action buttons of a still-pending receipt."""
     query = update.callback_query
+    if update.effective_user.id not in ADMIN_IDS:
+        await query.answer("دسترسی غیرمجاز",show_alert=True)
+        return ConversationHandler.END
     await query.answer("🔙 برگشت")
     parts = query.data.split("_")
     if len(parts) != 4:
@@ -6116,7 +6119,7 @@ def create_charge_handler():
                         context.user_data['zarinpal_authority'] = payment_result["authority"]
 
                         authority = payment_result['authority']
-                        redirect_url = f"https://dawnpanel.ir/pay.html?authority={authority}"
+                        redirect_url = payment_result['payment_url']
 
                         cancel_keyboard = InlineKeyboardMarkup([
                             [InlineKeyboardButton("💳 رفتن به درگاه پرداخت", url=redirect_url)],
@@ -6599,16 +6602,12 @@ def format_admin_charge_success(user_id, amount, tracking_code):
 
 def create_admin_handler():
     async def admin_quick_charge(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id not in ADMIN_IDS:
+            await update.callback_query.answer("دسترسی غیرمجاز",show_alert=True)
+            return ConversationHandler.END
         query = update.callback_query; await query.answer()
         parts = query.data.split("_")
         uid, amount, rid, pt = int(parts[1]), int(parts[2]), int(parts[3]), parts[4]
-
-        # Claim the receipt first. This makes repeated/double clicks harmless.
-        if not claim_receipt(rid, 'processing', update.effective_user.id):
-            try: await query.edit_message_reply_markup(reply_markup=None)
-            except Exception: pass
-            await query.message.reply_text("⚠️ این رسید قبلاً پردازش شده و امکان شارژ مجدد ندارد.")
-            return ConversationHandler.END
 
         # Remove the action buttons immediately so the admin cannot click again.
         try:
@@ -6617,12 +6616,7 @@ def create_admin_handler():
             pass
 
         try:
-            if not update_user_balance(uid, amount):
-                update_receipt_status(rid, 'pending', None, None, None)
-                await query.message.reply_text("❌ شارژ انجام نشد؛ لطفاً دوباره بررسی کنید.")
-                return ConversationHandler.END
-            update_receipt_status(rid, 'approved', update.effective_user.id, amount)
-            save_transaction(uid, amount, 'deposit', f'شارژ سریع - {format_amount(amount)} تومان', pt)
+            uid,amount,pt = await asyncio.to_thread(integration.receipt_decision,rid,update.effective_user.id)
             commission_info = add_commission_to_referrer(uid, amount)
 
             try:
@@ -6641,11 +6635,16 @@ def create_admin_handler():
                 text=format_admin_charge_success(uid, amount, pt),
                 parse_mode="HTML"
             )
+        except integration.BusinessError as error:
+            await query.message.reply_text(str(error))
         except Exception:
             logger.exception("quick charge failed receipt=%s", rid)
         return ConversationHandler.END
 
     async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id not in ADMIN_IDS:
+            await update.callback_query.answer("دسترسی غیرمجاز",show_alert=True)
+            return ConversationHandler.END
         query = update.callback_query; await query.answer()
         parts = query.data.split("_")
         receipt_id = int(parts[3])
@@ -6670,6 +6669,9 @@ def create_admin_handler():
         return ADMIN_AMOUNT_INPUT
 
     async def admin_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id not in ADMIN_IDS:
+            await update.callback_query.answer("دسترسی غیرمجاز",show_alert=True)
+            return ConversationHandler.END
         query = update.callback_query; await query.answer()
         parts = query.data.split("_")
         receipt_id = int(parts[3])
@@ -6696,6 +6698,8 @@ def create_admin_handler():
         return ADMIN_REJECT_REASON
 
     async def receive_admin_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id not in ADMIN_IDS:
+            return ConversationHandler.END
         text = update.message.text
 
         if text in ["/start", "/cancel"]:
@@ -6709,11 +6713,7 @@ def create_admin_handler():
                 await update.message.reply_text("❌ > 0")
                 return ADMIN_AMOUNT_INPUT
 
-            update_user_balance(uid, amount)
-            receipt = get_receipt_by_id(rid)
-            pt = receipt['payment_tracking_code'] if receipt else generate_payment_tracking()
-            update_receipt_status(rid, 'approved', update.effective_user.id, amount)
-            save_transaction(uid, amount, 'deposit', f'شارژ دستی - {format_amount(amount)} تومان', pt)
+            uid,amount,pt = await asyncio.to_thread(integration.receipt_decision,rid,update.effective_user.id,amount=amount)
             commission_info = add_commission_to_referrer(uid, amount)
 
             try:
@@ -6736,11 +6736,16 @@ def create_admin_handler():
                 )
             except: pass
             return ConversationHandler.END
+        except integration.BusinessError as error:
+            await update.message.reply_text(str(error))
+            return ConversationHandler.END
         except:
             await update.message.reply_text("❌ عدد وارد کنید:")
             return ADMIN_AMOUNT_INPUT
 
     async def receive_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id not in ADMIN_IDS:
+            return ConversationHandler.END
         text = update.message.text
 
         if text in ["/start", "/cancel"]:
@@ -6751,7 +6756,11 @@ def create_admin_handler():
         rid = context.user_data.get('receipt_id')
         receipt = get_receipt_by_id(rid)
         pt = receipt['payment_tracking_code'] if receipt else ''
-        update_receipt_status(rid, 'rejected', update.effective_user.id, reject_reason=reason)
+        try:
+            uid,_,pt = await asyncio.to_thread(integration.receipt_decision,rid,update.effective_user.id,reject_reason=reason)
+        except integration.BusinessError as error:
+            await update.message.reply_text(str(error))
+            return ConversationHandler.END
         try: 
             await context.bot.send_message(
                 uid, 

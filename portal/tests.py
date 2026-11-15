@@ -431,17 +431,18 @@ class MariaDBConcurrencyTests(TransactionTestCase):
             c.execute("CREATE TABLE referrals (referrer_id BIGINT,referred_user_id BIGINT,total_commission BIGINT DEFAULT 0) ENGINE=InnoDB")
             c.execute("CREATE TABLE bot_settings (setting_key VARCHAR(100),setting_value VARCHAR(100)) ENGINE=InnoDB")
             c.execute("CREATE TABLE phone_verification_codes (user_id BIGINT PRIMARY KEY,phone_number VARCHAR(20),verification_code VARCHAR(64),last_code VARCHAR(10),expires_at DATETIME,verification_attempts INT DEFAULT 0) ENGINE=InnoDB")
+            c.execute("CREATE TABLE receipts (id BIGINT PRIMARY KEY,user_id BIGINT,amount BIGINT,status VARCHAR(30),payment_tracking_code VARCHAR(10),admin_id BIGINT,charge_amount BIGINT,reject_reason TEXT,processed_at DATETIME NULL) ENGINE=InnoDB")
     @classmethod
     def tearDownClass(cls):
         with connection.cursor() as c:
-            for t in ['zarinpal_transactions','zarinpal_verification_queue','referrals','bot_settings','phone_verification_codes']:c.execute('DROP TABLE '+t)
+            for t in ['receipts','zarinpal_transactions','zarinpal_verification_queue','referrals','bot_settings','phone_verification_codes']:c.execute('DROP TABLE '+t)
         with connection.schema_editor() as e:
             for m in reversed(cls.legacy): e.delete_model(m)
         super().tearDownClass()
     def setUp(self):
         for m in [Order,Ledger,Product,Category,LegacyUser]:m.objects.all().delete()
         with connection.cursor() as c:
-            for t in ['zarinpal_transactions','zarinpal_verification_queue','referrals','bot_settings','phone_verification_codes']:c.execute('DELETE FROM '+t)
+            for t in ['receipts','zarinpal_transactions','zarinpal_verification_queue','referrals','bot_settings','phone_verification_codes']:c.execute('DELETE FROM '+t)
         self.user=User.objects.create_user(username='race-user')
         self.wallet=LegacyUser.objects.create(user_id=201,phone_number='09120000003',is_verified=True,balance=1500,referral_code='race')
         self.account=Account.objects.create(user=self.user,phone='09120000003',legacy_id=201)
@@ -509,3 +510,31 @@ class MariaDBConcurrencyTests(TransactionTestCase):
     def test_bot_phone_requires_matching_code(self):
         self.otp_for_bot();self.assertFalse(verify_bot_phone(201,'999999'))
         self.assertTrue(verify_bot_phone(201,'123456'))
+
+    def receipt(self):
+        with connection.cursor() as c:
+            c.execute("INSERT INTO receipts(id,user_id,amount,status,payment_tracking_code) VALUES(1,201,1000,'pending','receipt')")
+
+    def test_receipt_concurrent_approval_credits_once(self):
+        self.receipt()
+        results=self.race(lambda i:decide_bot_receipt(1,901,amount=1000))
+        self.assertEqual(results.count('denied'),1)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance,2500)
+        self.assertEqual(Ledger.objects.filter(type='deposit').count(),1)
+
+    def test_receipt_failure_rolls_back_wallet_and_status(self):
+        self.receipt()
+        with patch('portal.services.Ledger.objects.create',side_effect=RuntimeError('test-only')):
+            with self.assertRaises(RuntimeError):decide_bot_receipt(1,901)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance,1500)
+        with connection.cursor() as c:
+            c.execute('SELECT status FROM receipts WHERE id=1')
+            self.assertEqual(c.fetchone()[0],'pending')
+
+    def test_approved_receipt_cannot_be_rejected_or_credited_again(self):
+        self.receipt()
+        decide_bot_receipt(1,901)
+        with self.assertRaises(BusinessError):decide_bot_receipt(1,901)
+        with self.assertRaises(BusinessError):decide_bot_receipt(1,901,reject_reason='test-only')

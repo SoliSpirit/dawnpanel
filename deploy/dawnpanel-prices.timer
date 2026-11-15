@@ -1,0 +1,10 @@
+[Unit]
+Description=Check DawnPanel supplier schedules every five minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Unit=dawnpanel-prices.service
+
+[Install]
+WantedBy=timers.target

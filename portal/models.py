@@ -55,7 +55,9 @@ class Product(models.Model):
     def __str__(self): return self.name
     def clean(self):
         if self.max_order and self.max_order<self.min_order: raise ValidationError('حداکثر سفارش از حداقل کمتر است.')
-        if self.show_on_website and self.platform not in ['rubika','eitaa','bale','ai']: raise ValidationError('نوع محصول برای نمایش در فروشگاه پشتیبانی نمی‌شود.')
+        if self.show_on_website and self.platform not in ['rubika','eitaa','bale','ai']:
+            if self.platform not in ['telegram','other'] or not self.pk or not SourceProduct.objects.filter(product_id=self.pk).exists():
+                raise ValidationError('این نوع محصول فقط با اتصال منبع معتبر در فروشگاه منتشر می‌شود.')
         if self.price_currency!='TOMAN' and self.price_amount is None: raise ValidationError('برای قیمت ارزی مبلغ لازم است.')
     @property
     def visual(self):
@@ -263,7 +265,43 @@ class SourceProduct(models.Model):
     product_id=models.PositiveBigIntegerField(unique=True)
     source_url=models.URLField(max_length=1000,blank=True)
     last_price=models.PositiveBigIntegerField()
+    sync_enabled=models.BooleanField('دریافت قیمت این محصول',default=True)
+    proposed_price=models.PositiveBigIntegerField('قیمت پیشنهادی تومان',null=True,blank=True)
+    price_baseline=models.JSONField(default=dict,editable=False)
+    observed_at=models.DateTimeField('آخرین دریافت معتبر',null=True,blank=True)
+    available=models.BooleanField('موجود در منبع',default=False)
+    review_status=models.CharField('وضعیت قیمت',max_length=20,default='new',choices=[
+        ('new','دریافت نشده'),('pending','منتظر تأیید'),('applied','اعمال شده'),
+        ('unchanged','بدون تغییر'),('conflict','نیازمند بررسی'),('rejected','رد شده'),
+        ('unavailable','ناموجود در منبع')])
     updated_at=models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints=[models.UniqueConstraint(fields=['source','external_id'],name='unique_source_product')]
+        verbose_name='قیمت منبع محصول'
+        verbose_name_plural='بررسی قیمت محصولات'
+
+    def __str__(self):
+        return f'{self.source} / {self.external_id}'
+
+
+class SourceSyncSettings(models.Model):
+    source=models.CharField('منبع',max_length=30,unique=True,choices=[
+        ('denapanel','دناپنل'),('premstore','پریم‌استور')])
+    enabled=models.BooleanField('دریافت زمان‌بندی‌شده',default=False)
+    require_approval=models.BooleanField('نیاز به تأیید پیش از اعمال',default=True)
+    interval_minutes=models.PositiveIntegerField('فاصله دریافت به دقیقه',default=60,
+        validators=[MinValueValidator(15)])
+    max_change_percent=models.PositiveIntegerField('حداکثر تغییر برای اعمال خودکار (%)',default=25,
+        validators=[MinValueValidator(1)])
+    last_attempt=models.DateTimeField('آخرین تلاش',null=True,blank=True,editable=False)
+    last_success=models.DateTimeField('آخرین دریافت موفق',null=True,blank=True,editable=False)
+    running_until=models.DateTimeField(null=True,blank=True,editable=False)
+    last_error=models.CharField('خطای آخر',max_length=200,blank=True,editable=False)
+
+    class Meta:
+        verbose_name='تنظیم دریافت قیمت'
+        verbose_name_plural='تنظیمات دریافت قیمت'
+
+    def __str__(self):
+        return self.get_source_display()

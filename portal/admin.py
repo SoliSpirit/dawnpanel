@@ -4,6 +4,7 @@ from .models import *
 from .product_media import ProductImageForm,save_product_picture
 from django.utils.html import format_html
 from django.urls import reverse
+from .services import BusinessError
 
 @admin.register(Campaign)
 class CampaignAdmin(admin.ModelAdmin):
@@ -130,3 +131,104 @@ class GiftAdmin(AuditedAdmin):
         super().save_model(request,obj,form,change)
 @admin.register(MemberRank)
 class RankAdmin(AuditedAdmin): list_display=['name','min_spending']
+
+
+@admin.register(SourceSyncSettings)
+class SourceSyncSettingsAdmin(AuditedAdmin):
+    list_display=['source','enabled','require_approval','interval_minutes','last_success','last_error']
+    fields=['source','enabled','require_approval','interval_minutes','max_change_percent',
+            'last_attempt','last_success','last_error']
+    readonly_fields=['last_attempt','last_success','last_error']
+    actions=['fetch_prices']
+
+    def get_readonly_fields(self,request,obj=None):
+        return self.readonly_fields + (['source'] if obj else [])
+
+    def has_delete_permission(self,request,obj=None):
+        return False
+
+    def has_add_permission(self,request):
+        return super().has_add_permission(request) and request.user.has_perm('portal.change_product')
+
+    def has_change_permission(self,request,obj=None):
+        return super().has_change_permission(request,obj) and request.user.has_perm('portal.change_product')
+
+    @admin.action(description='دریافت قیمت‌ها اکنون (مطابق حالت تأیید/خودکار)',permissions=['change'])
+    def fetch_prices(self,request,queryset):
+        from .price_sync import sync_source
+        from django.contrib import messages
+        for config in queryset:
+            try:
+                result=sync_source(config.source,actor=request.user)
+                self.message_user(request,f'{config}: {result}')
+            except Exception:
+                self.message_user(request,f'{config}: دریافت ناموفق بود؛ وضعیت منبع را بررسی کنید.',level=messages.ERROR)
+
+
+@admin.register(SourceProduct)
+class SourceProductAdmin(AuditedAdmin):
+    list_display=['product_label','source','external_id','last_price','proposed_price',
+                  'review_status','available','sync_enabled','observed_at']
+    list_filter=['source','review_status','sync_enabled','available']
+    search_fields=['external_id','=product_id']
+    list_per_page=30
+    fields=['source','external_id','product_id','source_url','sync_enabled','last_price',
+            'proposed_price','review_status','available','observed_at']
+    readonly_fields=[field for field in fields if field!='sync_enabled']
+    actions=['approve_prices','reject_prices']
+
+    def has_add_permission(self,request):
+        return False
+
+    def has_delete_permission(self,request,obj=None):
+        return False
+
+    def has_change_permission(self,request,obj=None):
+        return super().has_change_permission(request,obj) and request.user.has_perm('portal.change_product')
+
+    @admin.display(description='محصول')
+    def product_label(self,obj):
+        name=getattr(obj,'product_name',None)
+        if not name:return str(obj.product_id)
+        return format_html('<a href="{}">{}</a>',reverse('admin:portal_product_change',args=[obj.product_id]),name)
+
+    def get_queryset(self,request):
+        from django.db.models import OuterRef,Subquery
+        return super().get_queryset(request).annotate(
+            product_name=Subquery(Product.objects.filter(pk=OuterRef('product_id')).values('name')[:1]))
+
+    def review_prices(self,request,queryset,action):
+        from django.contrib import messages
+        from django.shortcuts import render
+        from django.utils.dateparse import parse_datetime
+        from .price_sync import apply_proposal,reject_proposal
+        rows=list(queryset.order_by('pk')[:51])
+        if len(rows)>50:
+            self.message_user(request,'هر بار حداکثر ۵۰ محصول انتخاب کنید.',level=messages.ERROR)
+            return
+        if request.POST.get('confirm')!='yes':
+            return render(request,'admin/portal/sourceproduct/review.html',{
+                **self.admin_site.each_context(request),'title':'بررسی تغییر قیمت‌ها',
+                'rows':rows,'action_name':action,'opts':self.model._meta,
+                'is_approval':action=='approve_prices'})
+        count=0
+        for row in rows:
+            try:
+                expected=parse_datetime(request.POST.get('observed_'+str(row.pk),''))
+                if expected is None:raise ValueError()
+                if action=='approve_prices':
+                    count+=bool(apply_proposal(row.pk,request.user,expected_observed_at=expected))
+                else:
+                    reject_proposal(row.pk,request.user,expected_observed_at=expected)
+                    count+=1
+            except (ValueError,BusinessError,Product.DoesNotExist,SourceProduct.DoesNotExist):
+                self.message_user(request,f'محصول {row.product_id}: پیشنهاد معتبر نیست یا تغییر کرده است.',level=messages.WARNING)
+        self.message_user(request,f'{count} مورد بررسی و ثبت شد؛ موارد متعارض اعمال نشدند.')
+
+    @admin.action(description='بررسی و تأیید قیمت‌های انتخاب‌شده',permissions=['change'])
+    def approve_prices(self,request,queryset):
+        return self.review_prices(request,queryset,'approve_prices')
+
+    @admin.action(description='رد قیمت‌های انتخاب‌شده',permissions=['change'])
+    def reject_prices(self,request,queryset):
+        return self.review_prices(request,queryset,'reject_prices')

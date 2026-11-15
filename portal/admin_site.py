@@ -8,7 +8,7 @@ from django.shortcuts import redirect
 from django.db.models import Sum
 from django.db.models.functions import TruncDate, TruncMonth
 from django.utils import timezone
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 
 class DawnAdminConfig(AdminConfig):
@@ -25,7 +25,7 @@ class DawnAdminSite(AdminSite):
         context=super().each_context(request)
         groups=[('فروشگاه', {'Product','Category','Order','Ledger','Currency','GiftCode'}),
                 ('مشتریان و دسترسی‌ها', {'Account','LegacyUser','MemberRank','User','Group'}),
-                ('محتوا و پشتیبانی', {'Post','Ticket'}), ('تبلیغات', {'Campaign'}), ('فعالیت‌ها', {'Audit'})]
+                 ('محتوا و پشتیبانی', {'Post','Ticket'}), ('قیمت منابع', {'SourceProduct','SourceSyncSettings'}), ('تبلیغات', {'Campaign'}), ('فعالیت‌ها', {'Audit'})]
         models=[model for app in context['available_apps'] for model in app['models'] if model['admin_url']]
         context['workspace_groups']=[(label,[m for m in models if m['object_name'] in names]) for label,names in groups]
         return context
@@ -67,6 +67,10 @@ class DawnAdminSite(AdminSite):
         for metric,model in zip(metrics,[m for m in ['Product','Order','Ticket','Account'] if request.user.has_perm('portal.view_'+m.lower())]):
             metric['icon']=icons[model]
         context={'dashboard_metrics':metrics,'dashboard_date':timezone.localdate()}
+        if request.user.has_perm('portal.view_sourceproduct'):
+            sources=apps.get_model('portal','SourceProduct').objects
+            context['supplier_pending_count']=sources.filter(review_status='pending').count()
+            context['supplier_conflict_count']=sources.filter(review_status='conflict').count()
         if request.user.has_perm('portal.view_order'):
             orders=apps.get_model('portal','Order').objects.all()
             context.update(recent_orders=orders[:6],pending_orders_count=orders.filter(status__in=['pending','confirmed','approved','processing']).count(),completed_revenue=orders.filter(status='completed').aggregate(total=Sum('total_price'))['total'] or 0)
@@ -85,13 +89,26 @@ class DawnAdminSite(AdminSite):
                 context['report_error']='بازه معتبر تا ۳۶۶ روز و حداکثر تا امروز انتخاب کنید.'
         elif period not in days:period='week'
         context.update(report_start=start,report_end=end,report_period=period)
+        def midnight(day):
+            return timezone.make_aware(datetime.combine(day,time.min))
         if request.user.has_perm('portal.view_account'):
-            context['new_customers_today']=apps.get_model('portal','Account').objects.filter(created_at__date=today).count()
+            context['new_customers_today']=apps.get_model('portal','Account').objects.filter(
+                created_at__gte=midnight(today),created_at__lt=midnight(today+timedelta(days=1))).count()
         if request.user.has_perm('portal.view_order'):
             completed=orders.filter(status='completed')
-            context['today_sales']=completed.filter(completed_at__date=today).aggregate(total=Sum('total_price'))['total'] or 0
+            context['today_sales']=completed.filter(completed_at__gte=midnight(today),
+                completed_at__lt=midnight(today+timedelta(days=1))).aggregate(total=Sum('total_price'))['total'] or 0
             trunc=TruncMonth if (end-start).days>60 else TruncDate
-            rows=list(completed.filter(completed_at__date__range=(start,end)).order_by().annotate(day=trunc('completed_at')).values('day').annotate(total=Sum('total_price')).order_by('day'))
+            # Convert in Python: MariaDB installations may lack named timezone tables.
+            # Filter by aware boundaries so the database still uses its datetime index.
+            grouped={}
+            for row in completed.filter(completed_at__gte=midnight(start),
+                    completed_at__lt=midnight(end+timedelta(days=1))).order_by().values(
+                        'completed_at','total_price').iterator():
+                day=timezone.localtime(row['completed_at']).date()
+                if trunc is TruncMonth:day=day.replace(day=1)
+                grouped[day]=grouped.get(day,0)+row['total_price']
+            rows=[{'day':day,'total':amount} for day,amount in sorted(grouped.items())]
             peak=max([1]+[row['total'] for row in rows])
             for row in rows:row['bar']=max(0,min(100,round(row['total']*100/peak)))
             # Fill the selected interval, including periods without completed sales.

@@ -36,7 +36,10 @@ def ai_catalog(request):
 def catalog(request,platform_override=None):
     products=public_products().select_related('category')
     platform=platform_override or request.GET.get('platform','')
-    if platform in ['rubika','eitaa','bale','ai']: products=products.filter(platform=platform)
+    if platform in ['rubika','eitaa','bale','ai','telegram','other']: products=products.filter(platform=platform)
+    category=request.GET.get('category','')
+    if category.isascii() and category.isdigit():
+        products=products.filter(category_id=int(category[:18]))
     q=request.GET.get('q','')[:100]
     if q:
         terms=[q]
@@ -47,14 +50,16 @@ def catalog(request,platform_override=None):
         products=products.filter(search)
     page=Paginator(products.order_by('id'),12).get_page(request.GET.get('page'))
     page.object_list=with_product_images(page.object_list)
-    return render(request,'catalog.html',{'page':page,'platform':platform,'q':q,'title':'اشتراک هوش مصنوعی؛ ChatGPT، Gemini و Claude | دان پنل' if platform=='ai' else 'خرید خدمات دیجیتال و پیام‌رسان | دان پنل','description':'خرید و بررسی اشتراک‌های هوش مصنوعی ChatGPT، Gemini و Claude؛ شرایط و مدت هر اشتراک را پیش از خرید بررسی کنید.' if platform=='ai' else 'مشاهده قیمت و شرایط خدمات روبیکا، ایتا و بله و اشتراک‌های هوش مصنوعی در فروشگاه دان پنل.'})
+    return render(request,'catalog.html',{'page':page,'platform':platform,'q':q,'category':category,
+        'catalog_categories':Category.objects.filter(pk__in=public_products().values('category_id')),
+        'title':'اشتراک هوش مصنوعی؛ ChatGPT، Gemini و Claude | دان پنل' if platform=='ai' else 'خرید خدمات دیجیتال و پیام‌رسان | دان پنل','description':'خرید و بررسی اشتراک‌های هوش مصنوعی ChatGPT، Gemini و Claude؛ شرایط و مدت هر اشتراک را پیش از خرید بررسی کنید.' if platform=='ai' else 'مشاهده قیمت و شرایط خدمات دیجیتال، نرم‌افزار و پیام‌رسان در فروشگاه دان پنل.'})
 
 def product(request,pk,slug=None):
     p=get_object_or_404(public_products(),pk=pk)
     if request.method in ('GET','HEAD') and iri_to_uri(request.path)!=p.get_absolute_url():
         return redirect(p,permanent=True)
     form=OrderForm(request.POST or None,initial={'quantity':p.min_order})
-    if p.platform=='ai':
+    if p.platform=='ai' or (p.platform=='other' and SourceProduct.objects.filter(product_id=p.pk).exists()):
         form.fields['target'].label='ایمیل یا توضیحات سفارش'
         form.fields['target'].help_text='اطلاعات لازم برای تحویل، مطابق توضیحات محصول.'
     total=None

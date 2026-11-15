@@ -9,6 +9,7 @@ def number(value):
     except (ValueError,TypeError):return value
 @register.simple_tag
 def platform_icon(name):
+    if name=='other':return icon('grid')
     name=name if name in {'telegram','eitaa','bale','rubika','chatgpt','gemini','claude','instagram'} else 'gemini'
     extension='.png' if name=='rubika' else '.svg'
     return format_html('<img class="platform-logo" src="{}" alt="" width="32" height="32" loading="lazy" decoding="async">',static('platforms/'+name+extension))

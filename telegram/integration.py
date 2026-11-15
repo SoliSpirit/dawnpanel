@@ -8,6 +8,14 @@ from django.db import close_old_connections
 from portal.services import place_bot_order,change_order,verify_payment,BusinessError
 from portal.models import Product
 
+
+def receipt_decision(receipt_id,admin_id,**kwargs):
+    from portal.services import decide_bot_receipt
+    try:
+        return decide_bot_receipt(receipt_id,admin_id,**kwargs)
+    finally:
+        close_old_connections()
+
 def purchase(*args):
     try: return place_bot_order(*args)
     finally: close_old_connections()

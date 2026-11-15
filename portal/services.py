@@ -4,12 +4,43 @@ from decimal import Decimal,ROUND_CEILING
 import requests
 from django.conf import settings
 from django.db import transaction,connection
-from django.db.models import F
+from django.db.models import F,Q
 from django.utils import timezone
 from django.contrib.auth.models import User
 from .models import *
 
 class BusinessError(ValueError): pass
+
+
+@transaction.atomic
+def decide_bot_receipt(receipt_id, admin_id, *, amount=None, reject_reason=None):
+    """Claim, credit and record a card receipt in one database transaction."""
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT user_id,amount,status,payment_tracking_code FROM receipts WHERE id=%s FOR UPDATE',[receipt_id])
+        row=cursor.fetchone()
+        if not row or row[2]!='pending':
+            raise BusinessError('این رسید قبلاً بررسی شده است.')
+        uid,declared,_,tracking=row
+        if reject_reason is not None:
+            cursor.execute("UPDATE receipts SET status='rejected',admin_id=%s,reject_reason=%s,processed_at=NOW() WHERE id=%s",
+                           [admin_id,str(reject_reason)[:2000],receipt_id])
+            Audit.objects.create(action='receipt.reject',object_ref=str(receipt_id),
+                                 details={'telegram_admin_id':admin_id})
+            return uid,0,tracking
+        amount=int(declared if amount is None else amount)
+        if not 0<amount<=100_000_000:
+            raise BusinessError('مبلغ شارژ نامعتبر است.')
+        wallet=LegacyUser.objects.select_for_update().get(pk=uid)
+        wallet.balance+=amount
+        wallet.total_payments+=amount
+        wallet.save(update_fields=['balance','total_payments'])
+        Ledger.objects.create(user_id=uid,amount=amount,type='deposit',
+                              description='تأیید رسید کارت به کارت',payment_tracking_code=tracking)
+        cursor.execute("UPDATE receipts SET status='approved',admin_id=%s,charge_amount=%s,processed_at=NOW() WHERE id=%s",
+                       [admin_id,amount,receipt_id])
+        Audit.objects.create(action='receipt.approve',object_ref=str(receipt_id),
+                             details={'telegram_admin_id':admin_id,'amount':amount})
+        return uid,amount,tracking
 
 def normalize_phone(value):
     value=str(value).translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩','01234567890123456789'))
@@ -78,7 +109,11 @@ def login_account(phone,campaign_id=None):
     user.save()
     return user
 
-def public_products(): return Product.objects.filter(is_active=True,category__is_active=True,show_on_website=True,platform__in=['rubika','eitaa','bale','ai'])
+def public_products():
+    supported=Q(platform__in=['rubika','eitaa','bale','ai']) | Q(
+        platform__in=['telegram','other'],pk__in=SourceProduct.objects.values('product_id'))
+    unavailable=SourceProduct.objects.filter(sync_enabled=True,available=False).values('product_id')
+    return Product.objects.filter(supported,is_active=True,category__is_active=True,show_on_website=True).exclude(pk__in=unavailable)
 
 def price_for(product,quantity):
     if quantity<product.min_order or (product.max_order and quantity>product.max_order) or quantity>100000000: raise BusinessError('تعداد خارج از محدوده مجاز است.')
@@ -193,6 +228,8 @@ def place_bot_order(uid,product_id,quantity,target,quoted_total):
     if wallet.is_banned or not wallet.is_verified: raise BusinessError('حساب مجاز به ثبت سفارش نیست.')
     p=Product.objects.select_for_update().filter(pk=product_id,is_active=True,category__is_active=True,show_on_telegram=True).first()
     if not p: raise BusinessError('محصول در تلگرام در دسترس نیست.')
+    if SourceProduct.objects.filter(product_id=p.pk,sync_enabled=True,available=False).exists():
+        raise BusinessError('این محصول فعلاً در منبع موجود نیست.')
     total,pack=price_for(p,quantity)
     if total!=quoted_total: raise BusinessError('قیمت تغییر کرده؛ سفارش را دوباره بررسی کنید.')
     if p.need_link and not str(target).strip(): raise BusinessError('مقصد سفارش لازم است.')
