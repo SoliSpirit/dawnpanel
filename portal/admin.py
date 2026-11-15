@@ -172,9 +172,9 @@ class SourceProductAdmin(AuditedAdmin):
     list_filter=['source','review_status','sync_enabled','available']
     search_fields=['external_id','=product_id']
     list_per_page=30
-    fields=['source','external_id','product_id','source_url','sync_enabled','last_price',
+    fields=['source','external_id','product_id','source_url','family_name','family_summary','sync_enabled','last_price',
             'proposed_price','review_status','available','observed_at']
-    readonly_fields=[field for field in fields if field!='sync_enabled']
+    readonly_fields=[field for field in fields if field not in {'sync_enabled','family_name','family_summary'}]
     actions=['approve_prices','reject_prices']
 
     def has_add_permission(self,request):

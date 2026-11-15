@@ -77,6 +77,8 @@ def catalogue_rows(snapshot):
                 'description': plain_text(entry.get('description') or product.get('short_description')),
                 'platform': 'ai' if category == 'هوش مصنوعی' else 'other',
                 'plan_name': label[:80],
+                'family_name': html.unescape(product['name']),
+                'family_summary': plain_text(product.get('short_description')),
             })
     for entry in snapshot['denapanel']['services']:
         cells = entry['cells']

@@ -264,6 +264,8 @@ class SourceProduct(models.Model):
     external_id=models.CharField(max_length=80)
     product_id=models.PositiveBigIntegerField(unique=True)
     source_url=models.URLField(max_length=1000,blank=True)
+    family_name=models.CharField('نام خانواده محصول',max_length=500,blank=True,default='')
+    family_summary=models.TextField('معرفی خانواده محصول',blank=True,default='')
     last_price=models.PositiveBigIntegerField()
     sync_enabled=models.BooleanField('دریافت قیمت این محصول',default=True)
     proposed_price=models.PositiveBigIntegerField('قیمت پیشنهادی تومان',null=True,blank=True)

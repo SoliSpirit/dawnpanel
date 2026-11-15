@@ -1,5 +1,34 @@
 # Supplier catalogue and price controls
 
+## Storefront organization
+
+Subscription plans with the same Premstore parent URL share one display card.
+Each plan keeps its original Product ID, URL, price, checkout and source-price
+association. Product pages use native plan links, so selection works without
+JavaScript; the selected plan's URL is also the purchase form's action.
+Known original merchant ChatGPT/Gemini/Claude plans share their brand's card only
+when exactly one imported parent matches; this creates no supplier association.
+Other merchant products are retained separately rather than guessed into groups.
+
+The curated presentation taxonomy lives in `portal/store_catalog.py`. Subscription
+categories are separate from Telegram/Rubika/Eitaa/Bale services. Existing
+category IDs and historical orders are not rewritten. The legacy `platform`,
+numeric `category`, search and pagination links still work; `section` adds the
+curated category filter. Counts refer to visible product families, not plans.
+Minimum card prices use actual checkout totals for minimum order quantities.
+
+After migration 0012, backfill the existing parent titles/descriptions:
+
+```sh
+python manage.py refresh_catalog_metadata
+```
+
+This command fetches the public Premstore catalogue but updates **only**
+`SourceProduct.family_name` and `family_summary` for matching source IDs/URLs.
+It does not import new products, apply prices, alter availability, change price
+proposals or touch schedules. Re-running it refreshes these editorial fields;
+do not run it after manual family-text edits unless replacement is intended.
+
 Public catalogues come from fixed HTTPS endpoints on `denapanel.ir` and
 `premstore.ir`. Responses have time/size/page limits, redirects are rejected,
 and a malformed catalogue is rejected rather than treated as zero prices.

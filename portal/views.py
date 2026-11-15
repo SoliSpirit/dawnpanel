@@ -16,6 +16,7 @@ from django.utils import timezone
 from .models import *
 from .forms import *
 from .services import *
+from .store_catalog import families, category_tiles, filter_families, TAXONOMY
 
 def with_product_images(products):
     products=list(products)
@@ -24,7 +25,12 @@ def with_product_images(products):
     return products
 
 def home(request):
-    return render(request,'home.html',{'featured':with_product_images(public_products().exclude(platform='ai').order_by('id')[:8]),'newest':with_product_images(public_products().order_by('-id')[:4]),'ai_products':with_product_images(public_products().filter(platform='ai').order_by('id')[:3]),'posts':Post.objects.filter(published=True)[:3],'title':'دان پنل | اشتراک هوش مصنوعی و خدمات دیجیتال','description':'فروشگاه دان پنل؛ اشتراک ChatGPT، Gemini و Claude و خدمات روبیکا، ایتا و بله با قیمت روشن، حساب یکپارچه و پشتیبانی تیکتی.'})
+    items=families()
+    subscriptions=[f for f in items if f.section not in {'telegram','rubika','eitaa','bale'}]
+    return render(request,'home.html',{'families':subscriptions[:6],
+        'categories':category_tiles(items),'posts':Post.objects.filter(published=True)[:3],
+        'title':'دان پنل | اشتراک هوش مصنوعی و خدمات دیجیتال',
+        'description':'اشتراک‌ها و خدمات دیجیتال را بر اساس دسته‌بندی پیدا کنید؛ انتخاب پلن و پرداخت در دان‌پنل.'})
 
 @require_GET
 def contact(request):
@@ -34,25 +40,24 @@ def ai_catalog(request):
     return catalog(request,platform_override='ai')
 
 def catalog(request,platform_override=None):
-    products=public_products().select_related('category')
+    items=families()
     platform=platform_override or request.GET.get('platform','')
-    if platform in ['rubika','eitaa','bale','ai','telegram','other']: products=products.filter(platform=platform)
+    if platform not in ['rubika','eitaa','bale','ai','telegram','other']: platform=''
+    section=request.GET.get('section','')
+    if section not in {row[0] for row in TAXONOMY}: section=''
+    if platform_override=='ai': section='ai';platform=''
     category=request.GET.get('category','')
-    if category.isascii() and category.isdigit():
-        products=products.filter(category_id=int(category[:18]))
     q=request.GET.get('q','')[:100]
-    if q:
-        terms=[q]
-        for aliases in [('ChatGPT','چت جی پی تی','چت‌جی‌پی‌تی'),('Gemini','جمینای'),('Claude','کلاد','کلود')]:
-            if q.casefold() in [alias.casefold() for alias in aliases]: terms=list(aliases)
-        search=Q()
-        for term in terms: search |= Q(name__icontains=term)|Q(description__icontains=term)
-        products=products.filter(search)
-    page=Paginator(products.order_by('id'),12).get_page(request.GET.get('page'))
-    page.object_list=with_product_images(page.object_list)
+    filtered=filter_families(items,section=section,platform=platform,category=category,query=q)
+    sort=request.GET.get('sort','')
+    if sort in {'price','-price'}:
+        filtered.sort(key=lambda f:(f.minimum is None, (f.minimum or 0)*(-1 if sort=='-price' else 1)))
+    label=next((row[1] for row in TAXONOMY if row[0]==section),'همه محصولات')
+    page=Paginator(filtered,12).get_page(request.GET.get('page'))
     return render(request,'catalog.html',{'page':page,'platform':platform,'q':q,'category':category,
-        'catalog_categories':Category.objects.filter(pk__in=public_products().values('category_id')),
-        'title':'اشتراک هوش مصنوعی؛ ChatGPT، Gemini و Claude | دان پنل' if platform=='ai' else 'خرید خدمات دیجیتال و پیام‌رسان | دان پنل','description':'خرید و بررسی اشتراک‌های هوش مصنوعی ChatGPT، Gemini و Claude؛ شرایط و مدت هر اشتراک را پیش از خرید بررسی کنید.' if platform=='ai' else 'مشاهده قیمت و شرایط خدمات دیجیتال، نرم‌افزار و پیام‌رسان در فروشگاه دان پنل.'})
+        'section':section,'sort':sort,'categories':category_tiles(items),'section_label':label,
+        'catalog_categories':Category.objects.filter(pk__in=[p.category_id for f in filtered for p in f.plans]),
+        'title':label+' | فروشگاه دان‌پنل','description':'انتخاب اشتراک و خدمات دیجیتال بر اساس دسته‌بندی؛ مقایسه پلن‌ها و خرید از دان‌پنل.'})
 
 def product(request,pk,slug=None):
     p=get_object_or_404(public_products(),pk=pk)
@@ -62,6 +67,7 @@ def product(request,pk,slug=None):
     if p.platform=='ai' or (p.platform=='other' and SourceProduct.objects.filter(product_id=p.pk).exists()):
         form.fields['target'].label='ایمیل یا توضیحات سفارش'
         form.fields['target'].help_text='اطلاعات لازم برای تحویل، مطابق توضیحات محصول.'
+        form.fields['target'].widget.attrs['placeholder']='ایمیل یا اطلاعات سفارش'
     total=None
     try: pack=price_for(p,p.price_per if p.price_per>=p.min_order and (not p.max_order or p.price_per<=p.max_order) else p.min_order)[1]
     except BusinessError: pack=None
@@ -74,7 +80,11 @@ def product(request,pk,slug=None):
             request.session['checkout']=pending
             return render(request,'review.html',{'product':p,'pending':pending,'total':total,'title':'تایید سفارش'})
         except BusinessError as e: form.add_error(None,str(e))
-    return render(request,'product.html',{'product':p,'form':form,'pack_price':pack,'title':p.name,'description':p.seo_description or (p.name+'؛ مشاهده قیمت، شرایط سفارش و پشتیبانی در دان پنل.')[:160]})
+    items=families()
+    family=next((f for f in items if any(plan.pk==p.pk for plan in f.plans)),None)
+    return render(request,'product.html',{'product':p,'family':family,
+        'related':[f for f in items if family and f.section==family.section and f is not family][:4],
+        'form':form,'pack_price':pack,'title':p.name,'description':p.seo_description or (p.name+'؛ مشاهده قیمت، شرایط سفارش و پشتیبانی در دان پنل.')[:160]})
 
 @require_POST
 @login_required

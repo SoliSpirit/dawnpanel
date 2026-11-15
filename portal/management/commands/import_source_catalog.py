@@ -61,6 +61,7 @@ class Command(BaseCommand):
                 source=row['source'], external_id=row['external_id'],
                 product_id=product.pk, source_url=row['url'], last_price=row['price'],
                 available=row['available'],
+                family_name=row.get('family_name',''),family_summary=row.get('family_summary',''),
             )
             if row.get('plan_name'):
                 ProductVisual.objects.create(product_id=product.pk,image='',plan_name=row['plan_name'])

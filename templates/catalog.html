@@ -1,35 +1,25 @@
-{% extends 'base.html' %}{% load static %}
+{% extends 'base.html' %}{% load ui %}
 {% block storefront_assets %}{% include 'partials/storefront_assets.html' %}{% endblock %}
 {% block content %}
-<section class="wrap page-head"><div class="catalog-intro">
-<div><span class="eyebrow">{% if platform == 'ai' %}AI MEMBERSHIPS{% else %}DAWN DIGITAL STORE{% endif %}</span>
-<h1>{% if platform == 'ai' %}یک انتخاب هوشمندانه‌تر.{% else %}ویترین دیجیتال تو.{% endif %}</h1>
-<p>محصول، پلن و شرایط تحویل را انتخاب کن؛ سفارش و پرداخت در حساب دان‌پنل انجام می‌شود.</p></div>
-<picture class="theme-picture"><source data-theme-light srcset="{% if platform == 'ai' %}{% static 'artwork/ai-light.webp' %}{% else %}{% static 'artwork/social-light.webp' %}{% endif %}" media="not all">
-<img src="{% if platform == 'ai' %}{% static 'artwork/ai.webp' %}{% else %}{% static 'artwork/social.webp' %}{% endif %}" alt="" width="480" height="320" fetchpriority="high"></picture>
-</div></section>
-<section class="wrap section compact">
-<div class="catalog-tools">
-<nav class="tabs" aria-label="نوع محصولات">
-<a class="{% if not platform %}active{% endif %}" href="/services/">همه محصولات</a>
-<a class="{% if platform == 'ai' %}active{% endif %}" href="/ai/">هوش مصنوعی</a>
-<a class="{% if platform == 'other' %}active{% endif %}" href="/services/?platform=other">اشتراک و نرم‌افزار</a>
-<a class="{% if platform == 'telegram' %}active{% endif %}" href="/services/?platform=telegram">تلگرام</a>
-<a class="{% if platform == 'rubika' %}active{% endif %}" href="/services/?platform=rubika">روبیکا</a>
-<a class="{% if platform == 'eitaa' %}active{% endif %}" href="/services/?platform=eitaa">ایتا</a>
-<a class="{% if platform == 'bale' %}active{% endif %}" href="/services/?platform=bale">بله</a>
-</nav>
-<form method="get" class="search">
-<input type="hidden" name="platform" value="{{ platform }}">
-<label class="visually-hidden" for="catalog-category">دسته‌بندی</label>
-<select name="category" id="catalog-category"><option value="">همه دسته‌بندی‌ها</option>
-{% for item in catalog_categories %}<option value="{{ item.pk }}"{% if category == item.pk|stringformat:'s' %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
-<input name="q" value="{{ q }}" placeholder="جست‌وجوی محصولات…" aria-label="جست‌وجوی محصولات" maxlength="100">
-<button type="submit">جستجو</button></form>
+<div class="retail-wrap organized-store">
+  <header class="store-heading"><div><span class="eyebrow">انتخابی برای هر روز تو</span><h1>فروشگاه <span>دان‌پنل</span></h1><p>از دسته‌بندی شروع کن؛ محصول را پیدا کن، پلن مناسب خودت را انتخاب کن.</p></div><a class="store-text-link" href="/services/">همه محصولات ←</a></header>
+  <section aria-label="دسته‌بندی محصولات">{% include 'partials/category_tiles.html' %}</section>
+  <div class="store-workspace">
+    <aside class="store-filters"><h2>پیدا کردن محصول</h2>
+      <form method="get"><input type="hidden" name="platform" value="{{ platform }}"><input type="hidden" name="section" value="{{ section }}">
+        <label for="store-query">نام محصول</label><input id="store-query" name="q" value="{{ q }}" placeholder="مثلاً ChatGPT" maxlength="100">
+        <label for="store-subcategory">زیر‌دسته</label><select id="store-subcategory" name="category"><option value="">همه زیر‌دسته‌ها</option>{% for item in catalog_categories %}<option value="{{ item.pk }}"{% if category == item.pk|stringformat:'s' %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
+        <label for="store-sort">مرتب‌سازی</label><select id="store-sort" name="sort"><option value="">پیشنهاد فروشگاه</option><option value="price"{% if sort == 'price' %} selected{% endif %}>ارزان‌ترین</option><option value="-price"{% if sort == '-price' %} selected{% endif %}>گران‌ترین</option></select>
+        <button class="button full" type="submit">نمایش محصولات</button>
+      </form>
+      <a class="store-reset" href="/services/{% if section %}?section={{ section }}{% endif %}">پاک‌کردن فیلترها</a>
+      <div class="filter-help"><strong>برای انتخاب کمک می‌خواهی؟</strong><p>قبل از خرید، شرایط و نوع تحویل پلن را بررسی کن.</p><a href="/contact/">ارتباط با پشتیبانی ←</a></div>
+    </aside>
+    <section class="store-results" aria-label="محصولات">
+      <div class="store-results-heading"><h2>{{ section_label }}</h2><span>{{ page.paginator.count|number }} محصول · صفحه {{ page.number|number }}{% if q %} · «{{ q }}»{% endif %}</span></div>
+      <div class="family-grid">{% for family in page %}{% include 'partials/family_card.html' %}{% empty %}<div class="empty"><h3>محصولی با این مشخصات پیدا نشد.</h3><p>عبارت جستجو یا فیلترها را تغییر بده.</p><a href="/services/">بازگشت به فروشگاه</a></div>{% endfor %}</div>
+      {% include 'partials/pagination.html' %}
+    </section>
+  </div>
 </div>
-<p class="muted">{{ page.paginator.count }} محصول و پلن · صفحه {{ page.number }} از {{ page.paginator.num_pages }}</p>
-<div class="cards three">{% for product in page %}{% include 'partials/product_card.html' %}
-{% empty %}<div class="empty wide"><h2>محصولی پیدا نشد.</h2><p>دسته‌بندی یا عبارت جست‌وجو را تغییر بده.</p><a href="{% url 'catalog' %}">همه محصولات</a></div>{% endfor %}</div>
-{% include 'partials/pagination.html' %}
-</section>
 {% endblock %}

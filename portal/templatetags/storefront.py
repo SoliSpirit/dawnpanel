@@ -2,6 +2,27 @@ from django import template
 from portal.services import price_for, BusinessError
 register = template.Library()
 
+
+@register.simple_tag
+def family_icon(family):
+    """Use local brand marks; never hotlink logos or mislabel unknown brands."""
+    from django.templatetags.static import static
+    name=family.name.casefold()
+    for key,aliases in [
+        ('chatgpt',('gpt','جی پی تی','جی‌پی‌تی')),
+        ('gemini',('gemini','جمینای')),('claude',('claude','کلاد','کلود')),
+        ('telegram',('telegram','تلگرام')),('eitaa',('ایتا',)),
+        ('bale',('بله',)),('spotify',('spotify','اسپاتیفای')),
+        ('netflix',('netflix','نتفلیکس')),('notion',('notion','نوشن')),
+        ('duolingo',('duolingo','دولینگو')),
+        ('github',('github','گیت‌هاب')),('perplexity',('perplexity','پرپلکسیتی')),
+        ('deezer',('deezer','دیزر')),('elevenlabs',('elevenlabs','الون‌لبز')),
+        ('youtube',('youtube','یوتیوب')),
+    ]:
+        if any(alias in name for alias in aliases):
+            return static('platforms/'+key+'.svg')
+    return ''
+
 @register.simple_tag
 def card_price(product):
     # Reuse checkout pricing, including currency rates, profit and rounding.

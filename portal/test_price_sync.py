@@ -141,6 +141,105 @@ class PriceSyncTests(TransactionTestCase):
         self.link.refresh_from_db()
         self.assertIsNone(self.link.proposed_price)
 
+    def add_family_plan(self):
+        from .models import ProductVisual
+        self.link.source_url='https://premstore.ir/product/example/'
+        self.link.family_name='Example family'
+        self.link.family_summary='Family introduction'
+        self.link.save()
+        ProductVisual.objects.create(product_id=self.product.pk,plan_name='Monthly')
+        plan=Product.objects.create(name='Example - Annual',category=self.category,price=2400,
+            min_order=1,max_order=1,platform='ai',show_on_website=True)
+        ProductVisual.objects.create(product_id=plan.pk,plan_name='Annual')
+        SourceProduct.objects.create(source='premstore',external_id='12',product_id=plan.pk,
+            source_url=self.link.source_url,family_name='Example family',last_price=2400,available=True)
+        return plan
+
+    def test_catalog_groups_parent_but_retains_plan_identity(self):
+        from .store_catalog import families
+        plan=self.add_family_plan()
+        groups=families()
+        self.assertEqual(len(groups),1)
+        self.assertEqual(groups[0].name,'Example family')
+        self.assertEqual(groups[0].minimum,1000)
+        self.assertEqual({p.pk for p in groups[0].plans},{self.product.pk,plan.pk})
+        response=self.client.get('/services/')
+        self.assertEqual(response.status_code,200)
+        self.assertContains(response,'data-family-card',count=1)
+        response=self.client.get(plan.get_absolute_url())
+        self.assertContains(response,'aria-current="true"')
+        self.assertContains(response,self.product.get_absolute_url())
+        self.assertContains(response,'action="'+plan.get_absolute_url()+'"')
+        self.assertEqual(response.context['product'].pk,plan.pk)
+
+    def test_family_search_matches_plan_not_just_parent(self):
+        self.add_family_plan()
+        response=self.client.get('/services/',{'q':'Annual'})
+        self.assertEqual(response.context['page'].paginator.count,1)
+        self.assertEqual(len(response.context['page'][0].plans),2)
+
+    def test_card_minimum_uses_actual_quantity_total_not_pack(self):
+        from .store_catalog import families
+        Product.objects.filter(pk=self.product.pk).update(price_per=1000,min_order=100)
+        self.assertEqual(families()[0].minimum,100)
+
+    def test_subscription_social_is_not_telegram_services(self):
+        from .store_catalog import families
+        self.category.name='شبکه‌های اجتماعی'
+        self.category.save()
+        Product.objects.filter(pk=self.product.pk).update(platform='other')
+        self.assertEqual(families()[0].section,'social')
+        self.assertEqual(self.client.get('/services/?section=telegram').context['page'].paginator.count,0)
+        self.assertEqual(self.client.get('/services/?section=social').context['page'].paginator.count,1)
+
+    def test_unavailable_plan_not_in_group(self):
+        plan=self.add_family_plan()
+        SourceProduct.objects.filter(product_id=plan.pk).update(available=False)
+        response=self.client.get('/services/')
+        self.assertEqual(len(response.context['page'][0].plans),1)
+        self.assertEqual(self.client.get(plan.get_absolute_url()).status_code,404)
+
+    def test_legacy_brand_plans_share_card_without_supplier_mapping(self):
+        from .store_catalog import families
+        self.link.family_name='ChatGPT'
+        self.link.source_url='https://premstore.ir/product/chatgpt/'
+        self.link.save()
+        legacy=Product.objects.create(name='ChatGPT original merchant plan',category=self.category,
+            price=900,platform='ai',show_on_website=True)
+        groups=families()
+        self.assertEqual(len(groups),1)
+        self.assertEqual(len(groups[0].plans),2)
+        self.assertFalse(SourceProduct.objects.filter(product_id=legacy.pk).exists())
+        self.assertEqual(self.client.get(legacy.get_absolute_url()).status_code,200)
+
+    def test_post_selected_plan_keeps_existing_checkout_contract(self):
+        plan=self.add_family_plan()
+        user=User.objects.create_user(username='family-buyer')
+        self.client.force_login(user)
+        response=self.client.post(plan.get_absolute_url(),{'quantity':1,'target':'buyer@example.test'})
+        self.assertEqual(response.status_code,200)
+        self.assertTemplateUsed(response,'review.html')
+        self.assertEqual(self.client.session['checkout']['product_id'],plan.pk)
+        self.assertEqual(self.client.session['checkout']['quoted_total'],2400)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.price,1000)
+
+    def test_metadata_refresh_never_changes_prices_or_observations(self):
+        from django.core.management import call_command
+        self.add_family_plan()
+        self.fetch()
+        self.link.refresh_from_db()
+        old=(self.link.last_price,self.link.proposed_price,self.link.observed_at,self.link.review_status,self.link.available)
+        with patch('portal.management.commands.refresh_catalog_metadata.fetch_catalogue',return_value=[{
+            'external_id':'11','url':self.link.source_url,'family_name':'New title',
+            'family_summary':'New summary','price':999999,'available':False}]):
+            call_command('refresh_catalog_metadata')
+        self.link.refresh_from_db()
+        self.assertEqual(self.link.family_name,'New title')
+        self.assertEqual((self.link.last_price,self.link.proposed_price,self.link.observed_at,self.link.review_status,self.link.available),old)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.price,1000)
+
     def test_linked_telegram_visible_but_legacy_telegram_stays_private(self):
         self.product.platform='telegram'
         self.product.save()

@@ -1,0 +1,3 @@
+<div class="store-category-grid">
+{% for item in categories %}<a href="/services/?section={{ item.key }}" class="store-category-tile{% if section == item.key %} selected{% endif %}"{% if section == item.key %} aria-current="page"{% endif %}><span class="category-symbol" aria-hidden="true">{{ item.symbol }}</span><strong>{{ item.name }}</strong><small>{{ item.count }} محصول</small></a>{% endfor %}
+</div>

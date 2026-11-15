@@ -52,7 +52,7 @@ def page_seo(context):
     description=context.get('description') or 'فروشگاه اشتراک هوش مصنوعی و خدمات پیام‌رسان با حساب یکپارچه و پشتیبانی تیکتی در دان پنل.'
     image=product_image(product) if product else post_image(context['post']) if context.get('post') else static('artwork/hero-light.webp')
     private=request.path.startswith(('/account/','/login/','/admin/','/manage/','/staff/','/payment/'))
-    filtered=bool(request.GET.get('q') or request.GET.get('platform') or request.GET.get('category'))
+    filtered=bool(request.GET.get('q') or request.GET.get('platform') or request.GET.get('category') or request.GET.get('section') or request.GET.get('sort'))
     canonical='https://dawnpanel.ir'+(product.get_absolute_url() if product else request.path)
     page=context.get('page')
     if page and page.number>1 and not filtered:
