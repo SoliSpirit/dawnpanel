@@ -1,6 +1,8 @@
 """Presentation-only taxonomy. Plans retain their original checkout identities."""
 from collections import OrderedDict
 from dataclasses import dataclass
+import re
+import unicodedata
 
 from .models import ProductVisual, SourceProduct
 from .services import BusinessError, price_for, public_products
@@ -29,6 +31,19 @@ CATEGORY_MAP = {
     'سیستم‌عامل و نرم‌افزار':'software', 'فیلم و ویدیو':'video',
     'شبکه‌های اجتماعی':'social',
 }
+MESSAGING = {'telegram','rubika','eitaa','bale'}
+SEARCH_CHARS = str.maketrans('يك۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', 'یک01234567890123456789')
+BRANDS = (
+    ('chatgpt', ('chatgpt', 'chat gpt', 'چت جی پی تی', 'چت جیپیتی')),
+    ('gemini', ('gemini', 'جمینای')),
+    ('claude', ('claude', 'کلاد', 'کلود')),
+)
+
+
+def search_text(value):
+    text = unicodedata.normalize('NFKC', value).casefold().translate(SEARCH_CHARS)
+    text = ''.join(char for char in text if not unicodedata.combining(char) and char != 'ـ')
+    return ' '.join(re.findall(r'[^\W_]+', text))
 
 
 def section_for(product, link=None):
@@ -71,19 +86,12 @@ class Family:
 
     @property
     def subscription(self):
-        return self.imported or self.section not in {'telegram','rubika','eitaa','bale'}
+        return self.imported or self.section not in MESSAGING
 
 
 def known_ai_brand(name):
-    text = name.casefold().replace('\u200c',' ').replace('-',' ')
-    matches = []
-    for brand, aliases in [
-        ('chatgpt',('chatgpt','چت جی پی تی','چت جی‌پی‌تی')),
-        ('gemini',('gemini','جمینای')),
-        ('claude',('claude','کلاد','کلود')),
-    ]:
-        if any(alias in text for alias in aliases):
-            matches.append(brand)
+    text = ' '+search_text(name)+' '
+    matches = [brand for brand,aliases in BRANDS if any(' '+alias+' ' in text for alias in aliases)]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -135,19 +143,25 @@ def category_tiles(items):
             if any(f.section == key for f in items)]
 
 
-def filter_families(items, *, section='', platform='', category='', query=''):
+def filter_families(items, *, section='', platform='', category='', query='', collection=''):
     result = []
+    query = search_text(query)
+    terms = next((aliases for _,aliases in BRANDS if query in aliases), ())
     for family in items:
         if section and family.section != section:
             continue
-        if platform and not any(p.platform == platform for p in family.plans):
+        if collection and (family.section in MESSAGING) != (collection == 'messaging'):
             continue
-        if category and not any(str(p.category_id) == category for p in family.plans):
+        matches = [p for p in family.plans if (not platform or p.platform == platform)
+                   and (not category or str(p.category_id) == category)]
+        if not matches:
             continue
-        text = ' '.join([family.name,family.summary]+[p.name+' '+(p.description or '') for p in family.plans]).casefold()
-        aliases = [('chatgpt','چت جی پی تی','چت‌جی‌پی‌تی'),('gemini','جمینای'),('claude','کلاد','کلود')]
-        terms = next((group for group in aliases if query.casefold() in group), (query.casefold(),))
-        if query and not any(term in text for term in terms):
-            continue
+        if query:
+            text = search_text(' '.join([family.name,family.summary]+
+                [p.name+' '+(p.description or '') for p in matches]))
+            if terms and not any(term in text for term in terms):
+                continue
+            if not terms and not all(word in text for word in query.split()):
+                continue
         result.append(family)
     return result

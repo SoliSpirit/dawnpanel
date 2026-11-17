@@ -1,9 +1,17 @@
 from django import forms
 from .models import Ticket
+
+PERSIAN_DIGITS = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
+
 class PhoneForm(forms.Form):
     phone=forms.CharField(label='شماره موبایل',max_length=20,widget=forms.TextInput(attrs={'inputmode':'tel','autocomplete':'tel','placeholder':'۰۹۱۲۱۲۳۴۵۶۷','dir':'ltr'}))
 class CodeForm(forms.Form):
     code=forms.RegexField(r'^[0-9]{6}$',label='کد شش رقمی',widget=forms.TextInput(attrs={'inputmode':'numeric','autocomplete':'one-time-code','maxlength':6,'dir':'ltr'}))
+    def __init__(self, data=None, *args, **kwargs):
+        if data is not None and isinstance(data.get('code'), str):
+            data=data.copy()
+            data['code']=data['code'].translate(PERSIAN_DIGITS)
+        super().__init__(data, *args, **kwargs)
 class OrderForm(forms.Form):
     quantity=forms.IntegerField(label='تعداد',min_value=1,max_value=100000000)
     target=forms.CharField(label='لینک یا شناسه مقصد',max_length=1500,required=False,widget=forms.TextInput(attrs={'dir':'ltr','placeholder':'https://…'}))

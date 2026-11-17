@@ -365,6 +365,50 @@ class SecurityAndCommerceTests(TransactionTestCase):
             self.assertEqual(Session.objects.get(session_key=session.session_key).expire_date,deadline)
         with patch('django.utils.timezone.now',return_value=deadline+timedelta(seconds=1)):
             self.assertEqual(client.get('/account/').status_code,302)
+
+    def test_guest_order_returns_to_exact_product_after_localized_otp(self):
+        client=Client()
+        url=self.product.get_absolute_url()
+        self.assertRedirects(client.post(url,{'quantity':20,'target':'sample-delivery'}),'/login/',fetch_redirect_response=False)
+        draft=client.session['order_draft']
+        self.assertEqual(draft['product_id'],self.product.pk)
+        self.assertNotIn('target',draft)
+        self.assertContains(client.get('/login/'),'به پلن انتخابی برمی‌گردی')
+        session=client.session
+        otp=OTP.objects.create(phone=self.account.phone,code_hash=digest('123456'),
+                               session_hash=digest(session.session_key),expires_at=timezone.now()+timedelta(minutes=5))
+        session['otp_id']=str(otp.pk);session.save()
+        self.assertRedirects(client.post('/login/verify/',{'code':'۱۲۳٤۵۶'}),url,fetch_redirect_response=False)
+        restored=client.get(url)
+        self.assertEqual(restored.context['form']['quantity'].value(),20)
+        self.assertNotContains(restored,'sample-delivery')
+        self.assertIn('no-store',restored['Cache-Control'])
+        review=client.post(url,{'quantity':20,'target':'sample-delivery'})
+        self.assertTemplateUsed(review,'review.html')
+        self.assertEqual(review.context['total'],price_for(self.product,20)[0])
+        self.assertContains(review,'noindex,nofollow')
+        self.assertIn('no-store',review['Cache-Control'])
+        self.assertNotIn('order_draft',client.session)
+        self.assertFalse(Order.objects.filter(product_id=self.product.pk).exists())
+
+    def test_login_resumes_local_account_destination(self):
+        client=Client()
+        self.assertRedirects(client.get('/account/charge/'),'/login/?next=/account/charge/',fetch_redirect_response=False)
+        client.get('/login/',{'next':'/account/charge/'})
+        session=client.session
+        session['otp_id']=str(uuid.uuid4());session.save()
+        with patch('portal.views.verify_otp',return_value=self.account.phone):
+            response=client.post('/login/verify/',{'code':'123456'})
+        self.assertRedirects(response,'/account/charge/',fetch_redirect_response=False)
+
+    def test_stale_guest_draft_is_not_restored(self):
+        session=self.client.session
+        session['order_draft']={'product_id':self.product.pk,'quantity':20,
+                                'at':(timezone.now()-timedelta(minutes=21)).timestamp()}
+        session.save()
+        response=self.client.get(self.product.get_absolute_url())
+        self.assertFalse(response.context['restored'])
+        self.assertNotIn('order_draft',self.client.session)
     def test_rate_limit(self):
         self.assertTrue(rate_limit('test',2,60));self.assertTrue(rate_limit('test',2,60));self.assertFalse(rate_limit('test',2,60))
     def test_phone_normalization(self):

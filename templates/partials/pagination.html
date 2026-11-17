@@ -1,5 +1,5 @@
 {% if page.has_other_pages %}<nav class="pagination" aria-label="صفحه‌بندی">
-{% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&amp;platform={{ platform|urlencode }}&amp;q={{ q|urlencode }}&amp;category={{ category|urlencode }}&amp;section={{ section|urlencode }}&amp;sort={{ sort|urlencode }}">صفحه قبل</a>{% endif %}
+{% if page.has_previous %}<a href="{% querystring page=page.previous_page_number %}">صفحه قبل</a>{% endif %}
 <span>{{ page.number }} از {{ page.paginator.num_pages }}</span>
-{% if page.has_next %}<a href="?page={{ page.next_page_number }}&amp;platform={{ platform|urlencode }}&amp;q={{ q|urlencode }}&amp;category={{ category|urlencode }}&amp;section={{ section|urlencode }}&amp;sort={{ sort|urlencode }}">صفحه بعد</a>{% endif %}
+{% if page.has_next %}<a href="{% querystring page=page.next_page_number %}">صفحه بعد</a>{% endif %}
 </nav>{% endif %}

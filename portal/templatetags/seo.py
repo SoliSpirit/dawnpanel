@@ -51,8 +51,8 @@ def page_seo(context):
     title=context.get('title') or 'دان پنل | اشتراک هوش مصنوعی و خدمات دیجیتال'
     description=context.get('description') or 'فروشگاه اشتراک هوش مصنوعی و خدمات پیام‌رسان با حساب یکپارچه و پشتیبانی تیکتی در دان پنل.'
     image=product_image(product) if product else post_image(context['post']) if context.get('post') else static('artwork/hero-light.webp')
-    private=request.path.startswith(('/account/','/login/','/admin/','/manage/','/staff/','/payment/'))
-    filtered=bool(request.GET.get('q') or request.GET.get('platform') or request.GET.get('category') or request.GET.get('section') or request.GET.get('sort'))
+    private=context.get('private_page') or request.path.startswith(('/account/','/login/','/admin/','/manage/','/staff/','/payment/'))
+    filtered=any(request.GET.get(key) for key in ('q','platform','category','section','sort','collection'))
     canonical='https://dawnpanel.ir'+(product.get_absolute_url() if product else request.path)
     page=context.get('page')
     if page and page.number>1 and not filtered:

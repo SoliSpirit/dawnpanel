@@ -1,6 +1,8 @@
 import secrets,uuid
 from datetime import timedelta
 from django.utils.encoding import iri_to_uri
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.urls import reverse
 from django.conf import settings
 from django.shortcuts import render,redirect,get_object_or_404
 from django.http import HttpResponse,HttpResponseForbidden,JsonResponse
@@ -12,11 +14,23 @@ from django.db.models import F,Q,Sum
 from django.db import transaction
 from django.views.decorators.http import require_POST,require_GET,require_http_methods
 from django.views.decorators.debug import sensitive_post_parameters
+from django.views.decorators.cache import never_cache
 from django.utils import timezone
 from .models import *
 from .forms import *
 from .services import *
-from .store_catalog import families, category_tiles, filter_families, TAXONOMY
+from .store_catalog import families, category_tiles, filter_families, TAXONOMY, MESSAGING
+
+ORDER_DRAFT_AGE = timedelta(minutes=20)
+
+
+def local_return_path(value):
+    # Only local navigation; never use an arbitrary URL as a login redirect.
+    if (isinstance(value,str) and len(value)<=1500 and value.startswith('/')
+            and not value.startswith('//') and '\\' not in value
+            and url_has_allowed_host_and_scheme(value,allowed_hosts=set())):
+        return value
+    return ''
 
 def with_product_images(products):
     products=list(products)
@@ -26,8 +40,13 @@ def with_product_images(products):
 
 def home(request):
     items=families()
-    subscriptions=[f for f in items if f.section not in {'telegram','rubika','eitaa','bale'}]
-    return render(request,'home.html',{'families':subscriptions[:6],
+    subscriptions=[f for f in items if f.section not in MESSAGING]
+    # Lead with familiar products and include more than a single category.
+    picks=[]
+    for section in ('ai','music','design','business','development','education'):
+        match=next((f for f in reversed(subscriptions) if f.section==section),None)
+        if match: picks.append(match)
+    return render(request,'home.html',{'families':picks,
         'categories':category_tiles(items),'posts':Post.objects.filter(published=True)[:3],
         'title':'دان پنل | اشتراک هوش مصنوعی و خدمات دیجیتال',
         'description':'اشتراک‌ها و خدمات دیجیتال را بر اساس دسته‌بندی پیدا کنید؛ انتخاب پلن و پرداخت در دان‌پنل.'})
@@ -46,51 +65,91 @@ def catalog(request,platform_override=None):
     section=request.GET.get('section','')
     if section not in {row[0] for row in TAXONOMY}: section=''
     if platform_override=='ai': section='ai';platform=''
+    collection=request.GET.get('collection','')
+    if collection not in {'subscriptions','messaging'} or section or platform: collection=''
     category=request.GET.get('category','')
-    q=request.GET.get('q','')[:100]
-    filtered=filter_families(items,section=section,platform=platform,category=category,query=q)
+    q=request.GET.get('q','')[:100].strip()
+    scope=filter_families(items,section=section,platform=platform,collection=collection)
+    category_ids={p.category_id for f in scope for p in f.plans if not platform or p.platform==platform}
+    if category not in {str(pk) for pk in category_ids}: category=''
+    filtered=filter_families(scope,platform=platform,category=category,query=q)
     sort=request.GET.get('sort','')
+    if sort not in {'price','-price'}: sort=''
     if sort in {'price','-price'}:
         filtered.sort(key=lambda f:(f.minimum is None, (f.minimum or 0)*(-1 if sort=='-price' else 1)))
-    label=next((row[1] for row in TAXONOMY if row[0]==section),'همه محصولات')
+    label=next((row[1] for row in TAXONOMY if row[0]==(section or platform)),
+               {'subscriptions':'اشتراک‌ها و ابزارها','messaging':'خدمات پیام‌رسان‌ها'}.get(collection,'همه محصولات'))
     page=Paginator(filtered,12).get_page(request.GET.get('page'))
     return render(request,'catalog.html',{'page':page,'platform':platform,'q':q,'category':category,
-        'section':section,'sort':sort,'categories':category_tiles(items),'section_label':label,
-        'catalog_categories':Category.objects.filter(pk__in=[p.category_id for f in filtered for p in f.plans]),
+        'section':section,'sort':sort,'categories':category_tiles(scope if collection else items),'section_label':label,
+        'collection':collection,'collection_tab':collection or ('messaging' if (section or platform) in MESSAGING else 'subscriptions' if section or platform else ''),
+        'catalog_categories':Category.objects.filter(pk__in=category_ids),
         'title':label+' | فروشگاه دان‌پنل','description':'انتخاب اشتراک و خدمات دیجیتال بر اساس دسته‌بندی؛ مقایسه پلن‌ها و خرید از دان‌پنل.'})
 
+@require_http_methods(['GET','HEAD','POST'])
+@sensitive_post_parameters('target')
 def product(request,pk,slug=None):
     p=get_object_or_404(public_products(),pk=pk)
     if request.method in ('GET','HEAD') and iri_to_uri(request.path)!=p.get_absolute_url():
         return redirect(p,permanent=True)
-    form=OrderForm(request.POST or None,initial={'quantity':p.min_order})
+    draft=request.session.get('order_draft')
+    initial={'quantity':p.min_order}
+    restored=False
+    if draft:
+        if timezone.now().timestamp()-draft['at']>ORDER_DRAFT_AGE.total_seconds():
+            request.session.pop('order_draft',None)
+        elif request.method=='GET' and request.user.is_authenticated and draft['product_id']==p.pk:
+            initial['quantity']=draft['quantity']
+            restored=True
+    form=OrderForm(request.POST if request.method=='POST' else None,initial=initial)
+    if p.min_order==p.max_order:
+        from django.forms import HiddenInput
+        form.fields['quantity'].widget=HiddenInput()
+    else:
+        form.fields['quantity'].widget.attrs.update(min=p.min_order,max=min(p.max_order or 100000000,100000000))
     if p.platform=='ai' or (p.platform=='other' and SourceProduct.objects.filter(product_id=p.pk).exists()):
         form.fields['target'].label='ایمیل یا توضیحات سفارش'
         form.fields['target'].help_text='اطلاعات لازم برای تحویل، مطابق توضیحات محصول.'
         form.fields['target'].widget.attrs['placeholder']='ایمیل یا اطلاعات سفارش'
-    total=None
-    try: pack=price_for(p,p.price_per if p.price_per>=p.min_order and (not p.max_order or p.price_per<=p.max_order) else p.min_order)[1]
-    except BusinessError: pack=None
+    try: minimum_total,pack=price_for(p,p.min_order)
+    except BusinessError: minimum_total=pack=None
+    display_total=minimum_total
+    if restored:
+        try: display_total=price_for(p,initial['quantity'])[0]
+        except BusinessError: pass
     if request.method=='POST' and form.is_valid():
-        if not request.user.is_authenticated: return redirect('login')
         try:
             total,_=price_for(p,form.cleaned_data['quantity'])
             if p.need_link and not form.cleaned_data['target'].strip(): raise BusinessError('اطلاعات مقصد را وارد کنید.')
-            key=str(uuid.uuid4()); pending={'product_id':p.pk,'quantity':form.cleaned_data['quantity'],'target':form.cleaned_data['target'],'quoted_total':total,'key':key}
+            selection={'product_id':p.pk,'quantity':form.cleaned_data['quantity'],'target':form.cleaned_data['target']}
+            if not request.user.is_authenticated:
+                # Keep the selected plan and quantity, not the guest's delivery data.
+                request.session['order_draft']={'product_id':p.pk,'quantity':selection['quantity'],
+                                               'at':timezone.now().timestamp()}
+                request.session['login_return']=p.get_absolute_url()
+                return redirect('login')
+            request.session.pop('order_draft',None)
+            key=str(uuid.uuid4()); pending={**selection,'quoted_total':total,'key':key}
             request.session['checkout']=pending
-            return render(request,'review.html',{'product':p,'pending':pending,'total':total,'title':'تایید سفارش'})
+            response=render(request,'review.html',{'product':p,'pending':pending,'total':total,'title':'تایید سفارش','private_page':True})
+            response['Cache-Control']='private, no-store'
+            return response
         except BusinessError as e: form.add_error(None,str(e))
     items=families()
     family=next((f for f in items if any(plan.pk==p.pk for plan in f.plans)),None)
-    return render(request,'product.html',{'product':p,'family':family,
+    response=render(request,'product.html',{'product':p,'family':family,
         'related':[f for f in items if family and f.section==family.section and f is not family][:4],
-        'form':form,'pack_price':pack,'title':p.name,'description':p.seo_description or (p.name+'؛ مشاهده قیمت، شرایط سفارش و پشتیبانی در دان پنل.')[:160]})
+        'form':form,'pack_price':pack,'display_total':display_total,'restored':restored,
+        'title':p.name,'description':p.seo_description or (p.name+'؛ مشاهده قیمت، شرایط سفارش و پشتیبانی در دان پنل.')[:160]})
+    if restored or request.method=='POST': response['Cache-Control']='private, no-store'
+    return response
 
 @require_POST
 @login_required
 def checkout(request):
     pending=request.session.get('checkout')
-    if not pending or not secrets.compare_digest(str(request.POST.get('key','')),pending['key']):
+    expected=pending.get('key') if pending else None
+    if not expected or not secrets.compare_digest(request.POST.get('key','').encode(),expected.encode()):
         messages.error(request,'درخواست منقضی شده است. سفارش را دوباره بررسی کنید.');return redirect('catalog')
     try:
         order=place_order(request.user.account,**pending)
@@ -100,8 +159,12 @@ def checkout(request):
     except (BusinessError,Account.DoesNotExist) as e:
         messages.error(request,str(e));return redirect('product',pk=pending['product_id'])
 
+@never_cache
+@require_http_methods(['GET','HEAD','POST'])
 def sign_in(request):
-    if request.user.is_authenticated: return redirect('dashboard')
+    destination=local_return_path(request.GET.get('next'))
+    if request.user.is_authenticated: return redirect(destination or 'dashboard')
+    if destination: request.session['login_return']=destination
     if not request.session.session_key: request.session.create()
     form=PhoneForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
@@ -110,7 +173,8 @@ def sign_in(request):
             request.session['otp_id']=str(otp.pk);request.session['otp_phone']=otp.phone
             return redirect('verify')
         except BusinessError as e: form.add_error(None,str(e))
-    return render(request,'auth.html',{'form':form,'title':'ورود یا ثبت‌نام','subtitle':'با شماره موبایل خود وارد شوید. رمز یک‌بارمصرف برای شما پیامک می‌شود.','button':'دریافت کد ورود'})
+    return render(request,'auth.html',{'form':form,'title':'ورود یا ثبت‌نام','subtitle':'با شماره موبایل خود وارد شوید. رمز یک‌بارمصرف برای شما پیامک می‌شود.','button':'دریافت کد ورود',
+        'returning_to_order':bool(request.session.get('order_draft'))})
 
 @require_GET
 def campaign(request,code):
@@ -122,6 +186,9 @@ def campaign(request,code):
     response['X-Robots-Tag']='noindex, nofollow'
     return response
 
+@never_cache
+@sensitive_post_parameters('code')
+@require_http_methods(['GET','HEAD','POST'])
 def verify(request):
     if request.user.is_authenticated: return redirect('dashboard')
     otp_id=request.session.get('otp_id')
@@ -142,10 +209,12 @@ def verify(request):
                     # Keep a fixed deadline even when checkout or chat updates the session.
                     request.session.set_expiry(timezone.now()+timedelta(seconds=settings.SESSION_COOKIE_AGE))
                     request.session.pop('otp_id',None);request.session.pop('otp_phone',None)
-                    return redirect('staff' if user.is_staff else 'dashboard')
+                    destination=local_return_path(request.session.pop('login_return',''))
+                    return redirect(destination or ('staff' if user.is_staff else 'dashboard'))
                 except BusinessError as e: form.add_error(None,str(e))
             else: form.add_error(None,'کد اشتباه، منقضی یا مصرف شده است. پس از پنج تلاش، کد جدید بگیرید.')
-    return render(request,'auth.html',{'form':form,'title':'تایید شماره موبایل','subtitle':'کد پیامک‌شده را وارد کنید. اعتبار کد پنج دقیقه است.','button':'تایید و ورود','verify':True})
+    return render(request,'auth.html',{'form':form,'title':'تایید شماره موبایل','subtitle':'کد پیامک‌شده را وارد کنید. اعتبار کد پنج دقیقه است.','button':'تایید و ورود','verify':True,
+        'returning_to_order':bool(request.session.get('order_draft'))})
 
 @require_POST
 def sign_out(request):

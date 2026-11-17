@@ -3,20 +3,26 @@
 {% block content %}
 <div class="retail-wrap organized-store">
   <header class="store-heading"><div><span class="eyebrow">انتخابی برای هر روز تو</span><h1>فروشگاه <span>دان‌پنل</span></h1><p>از دسته‌بندی شروع کن؛ محصول را پیدا کن، پلن مناسب خودت را انتخاب کن.</p></div><a class="store-text-link" href="/services/">همه محصولات ←</a></header>
+  <nav class="store-collections" aria-label="بخش‌های فروشگاه">
+    <a href="/services/"{% if not collection_tab %} aria-current="true"{% endif %}>همه محصولات</a>
+    <a href="/services/?collection=subscriptions"{% if collection_tab == 'subscriptions' %} aria-current="true"{% endif %}>اشتراک‌ها و ابزارها</a>
+    <a href="/services/?collection=messaging"{% if collection_tab == 'messaging' %} aria-current="true"{% endif %}>خدمات پیام‌رسان‌ها</a>
+  </nav>
   <section aria-label="دسته‌بندی محصولات">{% include 'partials/category_tiles.html' %}</section>
   <div class="store-workspace">
-    <aside class="store-filters"><h2>پیدا کردن محصول</h2>
-      <form method="get"><input type="hidden" name="platform" value="{{ platform }}"><input type="hidden" name="section" value="{{ section }}">
+    <aside class="store-filters"><details open data-store-filters{% if q or category or sort %} data-filter-active{% endif %}><summary>جست‌وجو و فیلترها</summary>
+      <form method="get"><input type="hidden" name="platform" value="{{ platform }}"><input type="hidden" name="section" value="{{ section }}"><input type="hidden" name="collection" value="{{ collection }}">
         <label for="store-query">نام محصول</label><input id="store-query" name="q" value="{{ q }}" placeholder="مثلاً ChatGPT" maxlength="100">
         <label for="store-subcategory">زیر‌دسته</label><select id="store-subcategory" name="category"><option value="">همه زیر‌دسته‌ها</option>{% for item in catalog_categories %}<option value="{{ item.pk }}"{% if category == item.pk|stringformat:'s' %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
         <label for="store-sort">مرتب‌سازی</label><select id="store-sort" name="sort"><option value="">پیشنهاد فروشگاه</option><option value="price"{% if sort == 'price' %} selected{% endif %}>ارزان‌ترین</option><option value="-price"{% if sort == '-price' %} selected{% endif %}>گران‌ترین</option></select>
         <button class="button full" type="submit">نمایش محصولات</button>
       </form>
-      <a class="store-reset" href="/services/{% if section %}?section={{ section }}{% endif %}">پاک‌کردن فیلترها</a>
+      <a class="store-reset" href="/services/{% if section %}?section={{ section }}{% elif platform %}?platform={{ platform }}{% elif collection %}?collection={{ collection }}{% endif %}">پاک‌کردن فیلترها</a>
       <div class="filter-help"><strong>برای انتخاب کمک می‌خواهی؟</strong><p>قبل از خرید، شرایط و نوع تحویل پلن را بررسی کن.</p><a href="/contact/">ارتباط با پشتیبانی ←</a></div>
-    </aside>
+    </details></aside>
     <section class="store-results" aria-label="محصولات">
-      <div class="store-results-heading"><h2>{{ section_label }}</h2><span>{{ page.paginator.count|number }} محصول · صفحه {{ page.number|number }}{% if q %} · «{{ q }}»{% endif %}</span></div>
+      <div class="store-results-heading"><h2>{{ section_label }}</h2><span>{{ page.paginator.count|number }} محصول · صفحه {{ page.number|number }}</span></div>
+      {% if q %}<p class="store-search-terms">نتایج جست‌وجو برای <bdi>«{{ q }}»</bdi></p>{% endif %}
       <div class="family-grid">{% for family in page %}{% include 'partials/family_card.html' %}{% empty %}<div class="empty"><h3>محصولی با این مشخصات پیدا نشد.</h3><p>عبارت جستجو یا فیلترها را تغییر بده.</p><a href="/services/">بازگشت به فروشگاه</a></div>{% endfor %}</div>
       {% include 'partials/pagination.html' %}
     </section>

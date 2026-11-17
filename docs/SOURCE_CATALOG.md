@@ -17,6 +17,14 @@ numeric `category`, search and pagination links still work; `section` adds the
 curated category filter. Counts refer to visible product families, not plans.
 Minimum card prices use actual checkout totals for minimum order quantities.
 
+The storefront also supports `collection=subscriptions` and
+`collection=messaging`. Available subcategories are scoped to the chosen
+collection/platform, not to the current search or subcategory selection.
+Product pages estimate variable-quantity totals using integer rounding; the
+server always recalculates at review and again before debiting the wallet.
+A guest can return to the same plan and quantity after login for up to 20
+minutes; delivery information is not retained in a guest draft.
+
 After migration 0012, backfill the existing parent titles/descriptions:
 
 ```sh

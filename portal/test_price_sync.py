@@ -178,6 +178,30 @@ class PriceSyncTests(TransactionTestCase):
         self.assertEqual(response.context['page'].paginator.count,1)
         self.assertEqual(len(response.context['page'][0].plans),2)
 
+    def test_catalog_normalizes_persian_letters_joiners_and_digits(self):
+        self.product.name='تلگرام پریمیوم ۱۲ ماهه'
+        self.product.save()
+        result=self.client.get('/services/',{'q':'  پريميوم\u200c١٢ تلگرام  '})
+        self.assertEqual(result.context['page'].paginator.count,1)
+
+    def test_subcategory_options_keep_siblings_when_search_is_empty(self):
+        extra=Category.objects.create(name='Sibling')
+        Product.objects.create(name='Sibling item',category=extra,platform='ai',price=500,show_on_website=True)
+        result=self.client.get('/services/',{'section':'ai','category':self.category.pk,'q':'no matching product'})
+        self.assertEqual(result.context['page'].paginator.count,0)
+        self.assertEqual({cat.pk for cat in result.context['catalog_categories']},{extra.pk,self.category.pk})
+
+    def test_messaging_collection_does_not_include_subscriptions(self):
+        messages=Category.objects.create(name='Channels')
+        for index in range(13):
+            Product.objects.create(name='Channel service '+str(index),category=messages,
+                                   platform='rubika',price=500,show_on_website=True)
+        response=self.client.get('/services/',{'collection':'messaging','sort':'price'})
+        self.assertEqual(response.context['page'].paginator.count,13)
+        self.assertContains(response,'collection=messaging&amp;sort=price&amp;page=2')
+        self.assertNotContains(response,self.product.name)
+        self.assertEqual(self.client.get('/services/?collection=subscriptions').context['page'].paginator.count,1)
+
     def test_card_minimum_uses_actual_quantity_total_not_pack(self):
         from .store_catalog import families
         Product.objects.filter(pk=self.product.pk).update(price_per=1000,min_order=100)
