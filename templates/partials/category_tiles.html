@@ -1,3 +1,16 @@
+{% load storefront ui %}
 <div class="store-category-grid">
-{% for item in categories %}<a href="/services/?section={{ item.key }}" class="store-category-tile{% if section == item.key %} selected{% endif %}"{% if section == item.key %} aria-current="page"{% endif %}><span class="category-symbol" aria-hidden="true">{{ item.symbol }}</span><strong>{{ item.name }}</strong><small>{{ item.count }} محصول</small></a>{% endfor %}
+  {% for item in categories %}
+  {% category_cover item.key as cover %}
+  <a href="/services/?section={{ item.key }}" class="store-category-tile{% if section == item.key %} selected{% endif %}"{% if section == item.key %} aria-current="page"{% endif %}>
+    <picture class="category-cover" aria-hidden="true">
+      {% if cover.light %}<source data-theme-light srcset="{{ cover.light }}" media="not all">{% endif %}
+      <img src="{{ cover.image }}" alt="" width="480" height="270" loading="lazy" decoding="async">
+    </picture>
+    <span class="category-tile-content">
+      <strong>{{ item.name }}</strong>
+      <span class="category-tile-meta"><small>{{ item.count|number }} محصول</small><span class="category-tile-arrow" aria-hidden="true">←</span></span>
+    </span>
+  </a>
+  {% endfor %}
 </div>

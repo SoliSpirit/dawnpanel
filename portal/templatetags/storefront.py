@@ -1,6 +1,24 @@
 from django import template
+from django.templatetags.static import static
 from portal.services import price_for, BusinessError
 register = template.Library()
+
+CATEGORY_COVERS = {
+    'ai': ('artwork/ai-480.webp', 'artwork/ai-light-480.webp'),
+    'rubika': ('artwork/products-v1/rubika-dark-480.webp', 'artwork/products-v1/rubika-light-480.webp'),
+    'eitaa': ('artwork/products-v1/eitaa-dark-480.webp', 'artwork/products-v1/eitaa-light-480.webp'),
+    'bale': ('artwork/products-v1/bale-dark-480.webp', 'artwork/products-v1/bale-light-480.webp'),
+    'telegram': ('artwork/categories/telegram.svg', ''),
+    'subscriptions': ('artwork/hero-480.webp', 'artwork/hero-light-480.webp'),
+    **{key: (f'artwork/categories/{key}.webp', '') for key in
+       ('business', 'development', 'music', 'design', 'education', 'software', 'video', 'social')},
+}
+
+
+@register.simple_tag
+def category_cover(key):
+    image, light = CATEGORY_COVERS.get(key, CATEGORY_COVERS['subscriptions'])
+    return {'image': static(image), 'light': static(light) if light else ''}
 
 
 @register.simple_tag

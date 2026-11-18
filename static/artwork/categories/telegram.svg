@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270">
+  <defs>
+    <radialGradient id="bg" cx=".51" cy=".38" r=".67">
+      <stop stop-color="#154687"/><stop offset="1" stop-color="#07142d"/>
+    </radialGradient>
+    <linearGradient id="glass" x2=".88" y2="1">
+      <stop stop-color="#7ae7ff"/><stop offset=".52" stop-color="#2487b5"/><stop offset="1" stop-color="#12438d"/>
+    </linearGradient>
+    <linearGradient id="orbit">
+      <stop stop-color="#79eaff" stop-opacity="0"/><stop offset=".6" stop-color="#79eaff" stop-opacity=".55"/><stop offset="1" stop-color="#79eaff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#bg)" d="M0 0h480v270H0z"/>
+  <g fill="none" stroke="url(#orbit)">
+    <ellipse cx="238" cy="150" rx="194" ry="67" transform="rotate(-14 238 150)"/>
+    <ellipse cx="238" cy="150" rx="171" ry="53" transform="rotate(-14 238 150)"/>
+    <ellipse cx="238" cy="150" rx="149" ry="40" transform="rotate(-14 238 150)"/>
+  </g>
+  <ellipse cx="240" cy="213" rx="91" ry="11" fill="#020d23" opacity=".58"/>
+  <g transform="translate(166 55) scale(3.7)">
+    <rect y="2" width="40" height="40" rx="12" fill="#092650"/>
+    <rect width="40" height="40" rx="12" fill="url(#glass)" stroke="#a9f0ff" stroke-width=".5"/>
+    <path d="m8 19 23-9-5 23-8-7-5 4 1-8 13-9-15 7Z" fill="#fff"/>
+    <path d="m14 22 13-9-9 13-4 4Z" fill="#b7dff1"/>
+  </g>
+  <g fill="#a9f0ff"><circle cx="381" cy="77" r="3"/><circle cx="93" cy="187" r="3"/><circle cx="322" cy="37" r="2"/></g>
+</svg>
