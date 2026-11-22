@@ -1,6 +1,6 @@
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton, LabeledPrice
 from telegram.helpers import escape
-from telegram.error import BadRequest
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler, TypeHandler, PreCheckoutQueryHandler
 import mysql.connector
 from mysql.connector import Error
@@ -4549,7 +4549,13 @@ async def handle_all_inline_callbacks(update: Update, context: ContextTypes.DEFA
             await query.answer("❌ دسته‌بندی پیدا نشد یا غیرفعال است.", show_alert=True)
             return
         cat_name, cat_emoji = category[1], (category[2] if category[2] else "📦")
-        await query.edit_message_text(f"{cat_emoji} {html.escape(str(cat_name))}\n\n👈 لطفا محصول مورد نظر خود را انتخاب کنید.", reply_markup=get_products_inline_keyboard(category_id), parse_mode="HTML")
+        text = f"{cat_emoji} {html.escape(str(cat_name))}\n\n👈 لطفا محصول مورد نظر خود را انتخاب کنید."
+        keyboard = get_products_inline_keyboard(category_id)
+        if query.message.photo:
+            await query.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
+            await discard_product_message(query.message)
+        else:
+            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
         return
 
     if data.startswith("cat_"):
@@ -4568,6 +4574,7 @@ async def handle_all_inline_callbacks(update: Update, context: ContextTypes.DEFA
         return
 
     if data.startswith("prod_"):
+        await query.answer()
         product_id = int(data.rsplit("_", 1)[1])
         product = get_product(product_id)
         if product:
@@ -4584,9 +4591,9 @@ async def handle_all_inline_callbacks(update: Update, context: ContextTypes.DEFA
             categories = get_all_categories()
             cat_name = next((cat[1] for cat in categories if cat[0] == category_id), "")
 
-            message = f"✅ سرویس: {product[2]}\n"
-            if cat_name: message += f"📱 دسته: {cat_name}\n"
-            if description: message += f"ــ ـ ــ  ــ ــ ـ ــ ـ\n📝 {description}\nــ ـ ــ  ــ ــ ـ ــ ـ\n"
+            message = f"✅ سرویس: {html.escape(str(product[2]))}\n"
+            if cat_name: message += f"📱 دسته: {html.escape(str(cat_name))}\n"
+            if description: message += f"ــ ـ ــ  ــ ــ ـ ــ ـ\n📝 {html.escape(str(description))}\nــ ـ ــ  ــ ــ ـ ــ ـ\n"
             message += f"{format_product_price(price_info)}\n"
             if price_info['min_order'] and price_info['max_order']:
                 message += f"⬇️ حداقل: {price_info['min_order']:,} - ⬆️ حداکثر: {price_info['max_order']:,}\n"
@@ -4603,10 +4610,11 @@ async def handle_all_inline_callbacks(update: Update, context: ContextTypes.DEFA
             if user_balance > 0 and max_affordable > 0:
                 affordable = min(max_affordable, price_info['max_order']) if price_info['max_order'] else max_affordable
                 message += f"\n✔️ میتوانید {affordable:,} عدد سفارش دهید.\n"
-                await query.edit_message_text(message, reply_markup=get_product_detail_keyboard(product_id, category_id), parse_mode="HTML")
+                keyboard = get_product_detail_keyboard(product_id, category_id)
             else:
                 message += "\n⚠️ موجودی کافی نیست.\n"
-                await query.edit_message_text(message, reply_markup=get_product_no_balance_keyboard(category_id), parse_mode="HTML")
+                keyboard = get_product_no_balance_keyboard(category_id)
+            await show_product_photo(query, product_id, product[2], message, keyboard)
         return
 
     if data.startswith("sr_"):
@@ -4746,6 +4754,30 @@ async def user_order_detail_callback(update: Update, context: ContextTypes.DEFAU
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به سفارشات", callback_data="ord_1")]]),
         parse_mode="HTML"
     )
+
+async def discard_product_message(message):
+    try:
+        await message.delete()
+    except TelegramError:
+        logger.warning("Could not remove previous catalogue message")
+
+
+async def show_product_photo(query, product_id, name, details, keyboard):
+    try:
+        photo = await asyncio.to_thread(integration.product_photo, product_id)
+        if photo:
+            # Long descriptions exceed Telegram's photo-caption limit.
+            if len(details.encode('utf-16-le')) // 2 <= 1000:
+                await query.message.reply_photo(photo=photo, caption=details, parse_mode='HTML', reply_markup=keyboard)
+            else:
+                await query.message.reply_photo(photo=photo, caption=str(name)[:180])
+                await query.message.reply_text(details, parse_mode='HTML', reply_markup=keyboard)
+            await discard_product_message(query.message)
+            return
+    except Exception:
+        logger.warning("Product photo unavailable for id=%s", product_id)
+    await query.edit_message_text(details, reply_markup=keyboard, parse_mode='HTML')
+
 
 async def order_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

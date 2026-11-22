@@ -59,6 +59,8 @@ def ai_catalog(request):
     return catalog(request,platform_override='ai')
 
 def catalog(request,platform_override=None):
+    if not platform_override and (request.GET.get('platform')=='telegram' or request.GET.get('section')=='telegram'):
+        return redirect(reverse('catalog')+'?collection=messaging')
     items=families()
     platform=platform_override or request.GET.get('platform','')
     if platform not in ['rubika','eitaa','bale','ai','telegram','other']: platform=''
@@ -142,6 +144,15 @@ def product(request,pk,slug=None):
         'form':form,'pack_price':pack,'display_total':display_total,'restored':restored,
         'title':p.name,'description':p.seo_description or (p.name+'؛ مشاهده قیمت، شرایط سفارش و پشتیبانی در دان پنل.')[:160]})
     if restored or request.method=='POST': response['Cache-Control']='private, no-store'
+    return response
+
+
+@require_GET
+def product_cover(request,pk):
+    from .product_art import service_cover
+    product=get_object_or_404(public_products().only('name','platform'),pk=pk)
+    response=HttpResponse(service_cover(pk,product.platform,product.name),content_type='image/jpeg')
+    response['Cache-Control']='public, max-age=300'
     return response
 
 @require_POST

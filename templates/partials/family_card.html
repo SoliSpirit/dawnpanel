@@ -1,7 +1,6 @@
 {% load storefront ui %}
 <article class="family-card" data-family-card>
-  {% family_icon family as brand_icon %}
-  <a class="family-emblem" href="{{ family.url }}" tabindex="-1" aria-hidden="true">{% if brand_icon %}<img src="{{ brand_icon }}" alt="" width="64" height="64" loading="lazy">{% else %}<span>{{ family.name|first }}</span>{% endif %}</a>
+  <a class="family-art-link" href="{{ family.url }}" tabindex="-1" aria-hidden="true">{% include 'partials/family_cover.html' %}</a>
   <div class="family-copy"><span class="family-category">{{ family.label }}</span>
     <h3><a href="{{ family.url }}">{{ family.name }}</a></h3>
     <p>{% if family.summary %}{{ family.summary|truncatechars:105 }}{% elif family.imported %}پلن‌ها و شرایط این اشتراک را مقایسه کن و انتخاب مناسب خودت را پیدا کن.{% else %}{{ family.first|storefront_description|truncatechars:105 }}{% endif %}</p>

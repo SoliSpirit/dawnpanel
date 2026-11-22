@@ -111,7 +111,7 @@ def login_account(phone,campaign_id=None):
 
 def public_products():
     supported=Q(platform__in=['rubika','eitaa','bale','ai']) | Q(
-        platform__in=['telegram','other'],pk__in=SourceProduct.objects.values('product_id'))
+        platform='other',pk__in=SourceProduct.objects.values('product_id'))
     unavailable=SourceProduct.objects.filter(sync_enabled=True,available=False).values('product_id')
     return Product.objects.filter(supported,is_active=True,category__is_active=True,show_on_website=True).exclude(pk__in=unavailable)
 

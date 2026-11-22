@@ -95,6 +95,7 @@ class SupplierImportTests(TransactionTestCase):
             json.dump(SupplierCatalogueTests().sample(),source)
             source.flush()
             call_command('import_source_catalog',source.name,apply=True,publish=True)
-        self.assertEqual(public_products().count(),2)
+        self.assertEqual(public_products().count(),1)
+        self.assertFalse(Product.objects.filter(platform='telegram',show_on_website=True).exists())
         self.assertFalse(Product.objects.filter(show_on_telegram=True).exists())
         self.assertEqual(SourceProduct.objects.count(),2)

@@ -213,7 +213,7 @@ class PriceSyncTests(TransactionTestCase):
         self.category.save()
         Product.objects.filter(pk=self.product.pk).update(platform='other')
         self.assertEqual(families()[0].section,'social')
-        self.assertEqual(self.client.get('/services/?section=telegram').context['page'].paginator.count,0)
+        self.assertRedirects(self.client.get('/services/?section=telegram'),'/services/?collection=messaging')
         self.assertEqual(self.client.get('/services/?section=social').context['page'].paginator.count,1)
 
     def test_unavailable_plan_not_in_group(self):
@@ -264,12 +264,21 @@ class PriceSyncTests(TransactionTestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.price,1000)
 
-    def test_linked_telegram_visible_but_legacy_telegram_stays_private(self):
+    def test_telegram_service_is_hidden_on_web_without_disabling_bot(self):
         self.product.platform='telegram'
+        self.product.show_on_telegram=True
         self.product.save()
-        self.assertTrue(public_products().filter(pk=self.product.pk).exists())
-        self.link.delete()
         self.assertFalse(public_products().filter(pk=self.product.pk).exists())
+        self.assertEqual(self.client.get(self.product.get_absolute_url()).status_code,404)
+        self.assertEqual(self.client.get(f'/product-cover/{self.product.pk}.jpg').status_code,404)
+        self.assertRedirects(self.client.get('/services/?section=telegram'),'/services/?collection=messaging')
+        self.assertTrue(Product.objects.get(pk=self.product.pk).show_on_telegram)
+
+    def test_unbranded_public_product_has_local_cover(self):
+        response=self.client.get(f'/product-cover/{self.product.pk}.jpg')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response['Content-Type'],'image/jpeg')
+        self.assertTrue(response.content.startswith(b'\xff\xd8'))
 
     def test_admin_permissions_and_confirmation(self):
         self.fetch()

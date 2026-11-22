@@ -55,8 +55,10 @@ class Product(models.Model):
     def __str__(self): return self.name
     def clean(self):
         if self.max_order and self.max_order<self.min_order: raise ValidationError('حداکثر سفارش از حداقل کمتر است.')
+        if self.show_on_website and self.platform == 'telegram':
+            raise ValidationError('خدمات تلگرام در فروشگاه وب منتشر نمی‌شوند.')
         if self.show_on_website and self.platform not in ['rubika','eitaa','bale','ai']:
-            if self.platform not in ['telegram','other'] or not self.pk or not SourceProduct.objects.filter(product_id=self.pk).exists():
+            if self.platform != 'other' or not self.pk or not SourceProduct.objects.filter(product_id=self.pk).exists():
                 raise ValidationError('این نوع محصول فقط با اتصال منبع معتبر در فروشگاه منتشر می‌شود.')
         if self.price_currency!='TOMAN' and self.price_amount is None: raise ValidationError('برای قیمت ارزی مبلغ لازم است.')
     @property

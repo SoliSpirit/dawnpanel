@@ -1,5 +1,20 @@
 # Supplier catalogue and price controls
 
+## Product photos and Telegram visibility
+
+The website and Telegram product detail use local photographs/illustrations.
+Operator uploads take precedence. Known subscription families share a lightweight
+JPEG across their plans; unbranded services get a generated card based on
+platform and product, with a bounded in-memory cache and no writes for each view.
+`scripts/build_product_covers.py` rebuilds the tracked brand images.
+
+Telegram service rows are no longer eligible for public website listing, detail
+or checkout. Existing rows, orders and bot visibility remain unchanged; Telegram
+Premium sold as a standalone subscription is distinct and remains in the store.
+Website imports skip publication of Telegram service rows; other eligible items
+can still be published. Art in the bot is applied to products already enabled
+there and does not change their availability.
+
 ## Storefront organization
 
 Subscription plans with the same Premstore parent URL share one display card.

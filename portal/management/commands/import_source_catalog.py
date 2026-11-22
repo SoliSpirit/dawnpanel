@@ -65,7 +65,7 @@ class Command(BaseCommand):
             )
             if row.get('plan_name'):
                 ProductVisual.objects.create(product_id=product.pk,image='',plan_name=row['plan_name'])
-            if options['publish'] and row['available']:
+            if options['publish'] and row['available'] and row['platform'] != 'telegram':
                 product.is_active=True
                 product.show_on_website=True
                 product.full_clean()

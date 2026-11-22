@@ -41,6 +41,21 @@ def family_icon(family):
             return static('platforms/'+key+'.svg')
     return ''
 
+
+@register.simple_tag
+def family_cover(family, product=None):
+    if not product:
+        product = family.first
+    from portal.product_art import brand_cover
+    from django.urls import reverse
+    brand = brand_cover(family.name)
+    visual = product.visual
+    if visual and (visual.image or visual.night_image):
+        dark = (visual.night_image or visual.image).url
+        light = (visual.image or visual.night_image).url
+        return {'image': dark, 'light': light}
+    return {'image': static(brand) if brand else reverse('product_cover', args=[product.pk])}
+
 @register.simple_tag
 def card_price(product):
     # Reuse checkout pricing, including currency rates, profit and rounding.

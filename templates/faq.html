@@ -1,13 +1,39 @@
 {% extends 'base.html' %}
+{% block storefront_assets %}{% include 'partials/storefront_assets.html' %}{% endblock %}
 {% block content %}
-<section class="retail-wrap contact-page">
-  <div class="contact-intro"><span class="eyebrow">راهنمای خرید</span><h1>سوالات متداول دان‌پنل</h1><p>پاسخ پرسش‌های رایج دربارهٔ سفارش، اشتراک و کیف پول.</p></div>
-  <div class="panel prose">
-    <details><summary>از کجا قیمت نهایی سفارش را ببینم؟</summary><p>محصول و تعداد را انتخاب کن. مبلغ نهایی پیش از تأیید و برداشت از کیف پول نمایش داده می‌شود.</p></details>
-    <details><summary>چطور مدت اشتراک و شیوهٔ تحویل را مقایسه کنم؟</summary><p>صفحهٔ هر گزینه را باز کن و مدت اعتبار، شرایط فعال‌سازی و نوع حساب را بخوان. اگر جزئیات مشخص نبود، قبل از سفارش از پشتیبانی بپرس.</p></details>
-    <details><summary>چطور سفارشم را پیگیری کنم؟</summary><p>در <a href="{% url 'orders' %}">سفارش‌های من</a> وضعیت و کد پیگیری را ببین. برای بررسی بیشتر همان کد را در تیکت بنویس.</p></details>
-    <details><summary>اگر پول از حساب کم شد اما کیف پول شارژ نشد چه کار کنم؟</summary><p>شمارهٔ مرجع پرداخت را نگه دار و از طریق <a href="{% url 'contact' %}">راه‌های ارتباط با ما</a> موضوع را اطلاع بده.</p></details>
+<div class="retail-wrap organized-home">
+  <header class="discovery-callout faq-intro">
+    <div><span class="eyebrow">مرکز راهنمای دان‌پنل</span><h1>پرسش‌های متداول</h1><p>از انتخاب پلن و ثبت سفارش تا تحویل اشتراک، شارژ کیف پول و پیگیری مشکلات.</p></div>
+    <nav class="store-collections" aria-label="موضوع پرسش"><a href="#purchase">انتخاب و خرید</a><a href="#delivery">تحویل اشتراک</a><a href="#payments">پرداخت</a><a href="#support">پشتیبانی</a></nav>
+  </header>
+  <div class="family-grid discovery-section">
+    <section class="product-information product-faq" id="purchase">
+      <h2>۱. انتخاب و ثبت سفارش</h2>
+      <details><summary>چطور سفارش ثبت کنم؟</summary><p>در <a href="{% url 'catalog' %}">فروشگاه</a> محصول و پلن را انتخاب کن. پس از ورود با شمارهٔ موبایل، اطلاعات لازم را وارد کن و مبلغ نهایی را در صفحهٔ بررسی سفارش تأیید کن.</p></details>
+      <details><summary>چطور پلن‌ها و مدت اشتراک را مقایسه کنم؟</summary><p>در صفحهٔ محصول هر پلن را جداگانه باز کن. مدت، امکانات، محدودیت منطقه یا دستگاه و روش فعال‌سازی که برای آن پلن درج شده را مقایسه کن.</p></details>
+      <details><summary>اکانت اختصاصی است یا اشتراکی؟ روی حساب خودم فعال می‌شود؟</summary><p>به نوع پلن بستگی دارد. «فعال‌سازی روی حساب شخصی» با «اکانت آماده» یا «عضویت اشتراکی» یکسان نیست. اگر نوع اکانت مشخص نیست، پیش از خرید از پشتیبانی بپرس.</p></details>
+      <details><summary>برای سفارش چه اطلاعاتی لازم است؟</summary><p>فقط اطلاعات خواسته‌شده در فرم همان محصول، مثل ایمیل یا شناسهٔ مقصد را وارد کن. رمز عبور، کد پیامک و کدهای بازیابی را ارسال نکن.</p></details>
+    </section>
+    <section class="product-information" id="delivery">
+      <h2>۲. تحویل و پیگیری</h2>
+      {% include 'partials/faq_delivery.html' %}
+      <div class="product-faq"><details><summary>کد پیگیری و وضعیت سفارش را کجا ببینم؟</summary><p>در <a href="{% url 'orders' %}">سفارش‌های من</a> سفارش را باز کن و کد پیگیری و وضعیتش را ببین. کد پیگیری را هنگام تماس با پشتیبانی همراه داشته باش.</p></details></div>
+    </section>
+    <section class="product-information product-faq" id="payments">
+      <h2>۳. قیمت، پرداخت و کیف پول</h2>
+      <details><summary>با چه روشی پرداخت کنم؟</summary><p>در سایت، مبلغ سفارش از کیف پول دان‌پنل برداشت می‌شود. اگر موجودی کافی نیست، از <a href="{% url 'charge' %}">شارژ کیف پول</a> و درگاه بانکی اقدام کن.</p></details>
+      <details><summary>قیمت نهایی را کجا می‌بینم؟</summary><p>قیمت و تعداد را در صفحهٔ محصول بررسی کن؛ مبلغ نهایی پیش از تأیید و برداشت، دوباره محاسبه و نمایش داده می‌شود.</p></details>
+      <details><summary>پول از حسابم کم شد اما کیف پول شارژ نشد؛ چه کنم؟</summary><p>رسید پرداخت، مبلغ، زمان تقریبی و شمارهٔ مرجع را نگه دار و به پشتیبانی اطلاع بده. پیش از روشن‌شدن وضعیت تراکنش، همان پرداخت را دوباره انجام نده.</p></details>
+      <details><summary>اگر پشتیبانی سفارش را لغو کند، وجه کجا برمی‌گردد؟</summary><p>مطابق <a href="/terms/">قوانین دان‌پنل</a>، در صورت لغو سفارش توسط پشتیبانی، وجه به کیف پول برمی‌گردد. برای بررسی شرایط سفارش خودت، تیکت ثبت کن.</p></details>
+    </section>
+    <section class="product-information product-faq" id="support">
+      <h2>۴. رفع مشکل و پشتیبانی</h2>
+      <details><summary>شرایط ضمانت یا جایگزینی محصول چیست؟</summary><p>شرایط هر محصول و پلن را پیش از خرید بررسی کن. اگر مشکلی پیش آمد، کد پیگیری را بفرست تا پشتیبانی بر اساس شرایط همان سفارش بررسی کند.</p></details>
+      <details><summary>چطور با پشتیبانی تماس بگیرم؟</summary><p>برای پیگیری سفارش از <a href="{% url 'tickets' %}">تیکت</a> استفاده کن. برای پرسش قبل از خرید، گزینه‌های <a href="{% url 'contact' %}">تماس با ما</a> یا گفت‌وگوی سایت را ببین.</p></details>
+      <details><summary>چقدر طول می‌کشد پاسخ بگیرم؟</summary><p>زمان پاسخ به موضوع و حجم درخواست‌ها بستگی دارد. شمارهٔ سفارش و شرح دقیق خطا به بررسی سریع‌تر کمک می‌کند.</p></details>
+      <details><summary>اگر اطلاعات سفارش را اشتباه فرستادم، چه کار کنم؟</summary><p>خرید را تکرار نکن. در اولین فرصت شمارهٔ سفارش و توضیح اصلاح را در تیکت ثبت کن. امکان تغییر به مرحلهٔ انجام سفارش بستگی دارد.</p></details>
+    </section>
   </div>
-  <p><a class="button" href="{% url 'blog' %}">مجله و راهنماهای دان‌پنل</a></p>
-</section>
+  <a class="button" href="{% url 'contact' %}">ارتباط با پشتیبانی ←</a>
+</div>
 {% endblock %}
