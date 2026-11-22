@@ -1,5 +1,6 @@
 from django import template
 from django.templatetags.static import static
+from portal.product_art import artwork_key, gallery_path
 from portal.services import price_for, BusinessError
 register = template.Library()
 
@@ -44,17 +45,16 @@ def family_icon(family):
 
 @register.simple_tag
 def family_cover(family, product=None):
-    if not product:
-        product = family.first
-    from portal.product_art import brand_cover
-    from django.urls import reverse
-    brand = brand_cover(family.name)
+    selected = bool(product)
+    product = product or family.first
     visual = product.visual
     if visual and (visual.image or visual.night_image):
         dark = (visual.night_image or visual.image).url
         light = (visual.image or visual.night_image).url
         return {'image': dark, 'light': light}
-    return {'image': static(brand) if brand else reverse('product_cover', args=[product.pk])}
+    title = product.name if selected or not family.imported else family.name
+    key = artwork_key(product.pk, product.platform, title, family.name)
+    return {'image': static(gallery_path(key)), 'small': static(gallery_path(key, small=True))}
 
 @register.simple_tag
 def card_price(product):
@@ -72,15 +72,8 @@ def product_image(product,theme='light',width=None):
     uploaded=(visual.night_image if theme=='dark' else visual.image) if visual else None
     if uploaded:
         return uploaded.url
-    if product.platform=='ai':
-        name=product.name.casefold()
-        kind='gemini' if ('gemini' in name or 'جمینای' in name) else 'claude' if ('claude' in name or 'کلاد' in name or 'کلود' in name) else 'chatgpt' if ('gpt' in name or 'جی پی تی' in name) else 'ai'
-        if kind in {'chatgpt','gemini'}:
-            return static('artwork/products-v1/'+kind+'-'+theme+('-480' if width==480 else '')+'.webp')
-        return static('artwork/'+kind+('-light' if theme=='light' else '')+('-480' if width==480 else '')+'.webp')
-    if product.platform in {'rubika','bale','eitaa'}:
-        return static('artwork/products-v1/'+product.platform+'-'+theme+('-480' if width==480 else '')+'.webp')
-    return static('artwork/social'+('-light' if theme=='light' else '')+('-480' if width==480 else '')+'.webp')
+    key = artwork_key(product.pk, product.platform, product.name)
+    return static(gallery_path(key, small=width==480))
 
 @register.simple_tag
 def post_image(post,theme='light',width=None):

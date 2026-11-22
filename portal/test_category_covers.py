@@ -5,7 +5,9 @@ from django.urls import reverse
 from io import BytesIO
 from PIL import Image
 
-from .product_art import BRANDS, brand_cover, service_cover
+from hashlib import sha256
+from .product_art import BRANDS, GALLERY_KEYS, artwork_key, gallery_path, gallery_jpeg
+from .service_art import SERVICE_TITLES
 from .store_catalog import TAXONOMY
 from .templatetags.storefront import CATEGORY_COVERS
 
@@ -15,16 +17,35 @@ from .templatetags.storefront import CATEGORY_COVERS
     'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
 })
 class CategoryCoverTests(SimpleTestCase):
-    def test_brand_photos_and_generated_service_photo_are_valid(self):
+    def test_gallery_artwork_resolves_and_has_two_valid_renditions(self):
+        identities=set()
         for _, label, _, _ in BRANDS:
             with self.subTest(brand=label):
-                asset = finders.find(brand_cover(label))
-                self.assertIsNotNone(asset)
-                with Image.open(asset) as image:
-                    self.assertEqual((image.format, image.size), ('JPEG', (540, 360)))
-        with Image.open(BytesIO(service_cover(1, 'telegram', 'Telegram service'))) as image:
+                identities.add(artwork_key(None,'other',label))
+        for platform, items in SERVICE_TITLES.items():
+            for pk,name in items.items():
+                identities.add(artwork_key(pk,platform,name))
+        self.assertEqual(identities, GALLERY_KEYS)
+        fingerprints=set()
+        for key in identities:
+            with self.subTest(illustration=key):
+                for small,size in [(True,(480,320)),(False,(960,640))]:
+                    asset = finders.find(gallery_path(key,small=small))
+                    self.assertIsNotNone(asset)
+                    with Image.open(asset) as image:
+                        self.assertEqual((image.format,image.size),('WEBP',size))
+                        if small:
+                            fingerprints.add(sha256(image.tobytes()).digest())
+        self.assertEqual(len(fingerprints),len(identities))
+
+    def test_distinct_reactions_and_bot_skus_do_not_get_an_unrelated_cover(self):
+        self.assertNotEqual(artwork_key(30,'rubika','ری اکشن چشم 😍'),artwork_key(31,'rubika','ری اکشن چشم 😍'))
+        self.assertIsNone(artwork_key(30,'rubika','Another service'))
+        key=artwork_key(32,'ai',SERVICE_TITLES['ai'][32],'ChatGPT')
+        self.assertNotEqual(key,artwork_key(None,'ai','ChatGPT'))
+        with Image.open(BytesIO(gallery_jpeg(key))) as image:
+            self.assertEqual((image.format,image.size),('JPEG',(960,640)))
             image.verify()
-        self.assertNotEqual(service_cover(1, 'telegram', 'A'), service_cover(2, 'telegram', 'B'))
 
     def test_faq_has_four_sections_and_no_foreign_checkout_links(self):
         response = self.client.get(reverse('faq'))

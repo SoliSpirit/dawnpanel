@@ -12,7 +12,7 @@ from portal.models import Product
 def product_photo(product_id):
     """Serve approved catalogue images without fetching remote URLs."""
     from PIL import Image
-    from portal.product_art import STATIC_ROOT, brand_cover, service_cover, write_jpeg
+    from portal.product_art import artwork_key, gallery_jpeg, write_jpeg
     from portal.models import SourceProduct
     try:
         product = Product.objects.filter(pk=product_id, is_active=True, show_on_telegram=True).first()
@@ -27,8 +27,8 @@ def product_photo(product_id):
             except (OSError, ValueError):
                 pass
         link = SourceProduct.objects.filter(product_id=product_id, source='premstore').first()
-        path = brand_cover(link.family_name if link and link.family_name else product.name)
-        return (STATIC_ROOT / path).read_bytes() if path else service_cover(product.pk, product.platform, product.name)
+        key = artwork_key(product.pk, product.platform, product.name, link.family_name if link else '')
+        return gallery_jpeg(key)
     finally:
         close_old_connections()
 

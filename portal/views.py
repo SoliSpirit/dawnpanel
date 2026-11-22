@@ -149,9 +149,9 @@ def product(request,pk,slug=None):
 
 @require_GET
 def product_cover(request,pk):
-    from .product_art import service_cover
+    from .product_art import artwork_key, gallery_jpeg
     product=get_object_or_404(public_products().only('name','platform'),pk=pk)
-    response=HttpResponse(service_cover(pk,product.platform,product.name),content_type='image/jpeg')
+    response=HttpResponse(gallery_jpeg(artwork_key(pk,product.platform,product.name)),content_type='image/jpeg')
     response['Cache-Control']='public, max-age=300'
     return response
 

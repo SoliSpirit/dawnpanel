@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1536" height="1024" viewBox="0 0 960 640">
+  <defs>
+    <radialGradient id="room" cx="60%" cy="36%" r="84%">
+      <stop stop-color="#416275"/><stop offset=".55" stop-color="#183343"/><stop offset="1" stop-color="#091322"/>
+    </radialGradient>
+    <linearGradient id="fin" x1="0" x2="1" y1="0" y2="1">
+      <stop stop-color="#dafff3"/><stop offset=".24" stop-color="#61dedf"/><stop offset=".64" stop-color="#2285b2"/><stop offset="1" stop-color="#16344d"/>
+    </linearGradient>
+    <linearGradient id="lip"><stop stop-color="#727785"/><stop offset=".25" stop-color="#f8bc8c"/><stop offset=".48" stop-color="#ffe8b7"/><stop offset="1" stop-color="#937270"/></linearGradient>
+    <radialGradient id="lens" cx="34%" cy="28%" r="82%">
+      <stop stop-color="#abfcfb"/><stop offset=".18" stop-color="#45becb"/><stop offset=".49" stop-color="#15566d"/>
+      <stop offset=".72" stop-color="#122a41"/><stop offset=".91" stop-color="#257e8c"/><stop offset="1" stop-color="#73bdb7"/>
+    </radialGradient>
+    <radialGradient id="falloff">
+      <stop stop-color="#06101b" stop-opacity=".9"/><stop offset="1" stop-color="#06101b" stop-opacity="0"/>
+    </radialGradient>
+    <g id="panel">
+      <path d="M5 -221 Q26 -223 40 -208 L68 -76 L43 -58 L-8 -188 Z" fill="#152e3e"/>
+      <path d="M-5 -215 Q4 -229 20 -226 L51 -215 L65 -88 Q65 -73 50 -68 L42 -67 Z" fill="url(#fin)"/>
+      <path d="M-5 -215 Q4 -229 20 -226 L51 -215" fill="none" stroke="#dcffff" stroke-opacity=".9" stroke-width="2.5"/>
+      <path d="M49 -209 L61 -94" fill="none" stroke="#ffb099" stroke-opacity=".75" stroke-width="2"/>
+    </g>
+    <g id="fan">
+      <use xlink:href="#panel"/><use xlink:href="#panel" transform="rotate(18)"/><use xlink:href="#panel" transform="rotate(36)"/><use xlink:href="#panel" transform="rotate(54)"/><use xlink:href="#panel" transform="rotate(72)"/>
+    </g>
+  </defs>
+  <rect width="960" height="640" fill="url(#room)"/>
+  <g fill="none" stroke="#8fe7e0" stroke-opacity=".16">
+    <ellipse cx="488" cy="511" rx="355" ry="49"/><ellipse cx="488" cy="511" rx="299" ry="38"/>
+  </g>
+  <ellipse cx="486" cy="518" rx="265" ry="56" fill="url(#falloff)"/>
+  <g transform="translate(481 304) rotate(-16) scale(1.32 .96)">
+    <circle cy="9" r="199" fill="#14293b"/>
+    <use xlink:href="#fan"/><use xlink:href="#fan" transform="rotate(90)"/><use xlink:href="#fan" transform="rotate(180)"/><use xlink:href="#fan" transform="rotate(270)"/>
+    <circle cy="8" r="87" fill="#0b2332"/>
+    <circle r="87" fill="url(#lip)"/><circle r="76" fill="#233341"/><circle r="72" fill="url(#lens)"/>
+    <circle r="50" fill="none" stroke="#aaf9fa" stroke-opacity=".37"/><circle r="44" fill="none" stroke="#051c35" stroke-width="6"/>
+    <ellipse cx="3" cy="2" rx="27" ry="30" fill="#0a1e30"/>
+    <path d="M-48 -38 Q-20 -65 8 -53 Q-10 -48 -23 -32 Q-39 -18 -48 -38Z" fill="#d5fff2" opacity=".65"/>
+    <circle cx="27" cy="22" r="5" fill="#90e5e4" opacity=".8"/>
+  </g>
+  <g fill="url(#lip)"><circle cx="195" cy="193" r="10"/><circle cx="761" cy="421" r="17"/><circle cx="813" cy="202" r="6"/></g>
+</svg>

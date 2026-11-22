@@ -53,11 +53,20 @@
 }
 @media(prefers-reduced-motion:reduce){.category-cover img{transition:none}.store-category-tile:hover .category-cover img{transform:none}}
 
-.family-art-link,.family-art-hero{display:block;overflow:hidden;background:var(--shop-soft);border:1px solid var(--shop-border);border-radius:16px;flex-shrink:0;aspect-ratio:3/2}
-.family-art-link{width:clamp(104px,11vw,158px)}
+/* Gallery cards: uninterrupted artwork, with a separate information area. */
+.family-card{flex-direction:column;align-items:stretch;padding:0;gap:0}
+.family-art-link,.family-art-hero{display:block;width:100%;overflow:hidden;background:var(--shop-soft);aspect-ratio:3/2}
 .family-art-link picture,.family-art-hero picture,.family-art-link img,.family-art-hero img{display:block;width:100%;height:100%;object-fit:cover}
-.family-art-hero{width:min(42%,270px)}
-.family-product-art>div:last-child{min-width:0;overflow-wrap:anywhere}
+.family-card .family-copy{width:100%;box-sizing:border-box;display:flex;flex-direction:column;padding:18px 20px}
+.family-card .family-category{letter-spacing:0}
+.family-card-bottom{margin-top:auto}
+.family-card .family-copy h3{font-size:17px;margin:4px 0 14px}
+.family-product-heading.family-product-art{display:block;padding:0;overflow:hidden}
+.family-product-art>div:last-child{min-width:0;padding:20px 24px;overflow-wrap:anywhere}
+.family-art-hero{width:100%;max-height:clamp(230px,36vw,440px)}
+.family-art-hero picture,.family-art-hero img{max-height:inherit}
+.family-art-hero img{object-position:50% 48%}
+@media(min-width:1100px){.organized-home .family-grid,.related-families .family-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .faq-intro{margin-top:0}.faq-intro h1{margin:4px 0 8px}.faq-intro .store-collections{margin:0}
 .product-faq p a{color:var(--shop-accent);text-decoration:underline}
-@media(max-width:600px){.family-art-link{width:100px;border-radius:12px}.family-product-heading.family-product-art{display:grid;gap:14px}.family-art-hero{width:100%;max-height:200px}.family-art-hero img{object-fit:contain}}
+@media(max-width:600px){.family-card .family-copy{padding:15px 17px}.family-product-art>div:last-child{padding:15px 18px}.family-art-hero{max-height:none}}

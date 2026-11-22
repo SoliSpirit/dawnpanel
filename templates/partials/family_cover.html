@@ -2,5 +2,8 @@
 {% family_cover family cover_product as artwork %}
 <picture class="theme-picture">
   {% if artwork.light %}<source data-theme-light srcset="{{ artwork.light }}" media="not all">{% endif %}
-  <img src="{{ artwork.image }}" alt="{{ cover_alt|default:'' }}" width="540" height="360" decoding="async" {% if eager_cover %}fetchpriority="high"{% else %}loading="lazy"{% endif %}>
+  <img src="{{ artwork.image }}" alt="{{ cover_alt|default:'' }}" width="960" height="640" decoding="async"
+    {% if artwork.small %}srcset="{{ artwork.small }} 480w, {{ artwork.image }} 960w"
+    sizes="{% if eager_cover %}(max-width: 900px) 94vw, 64vw{% else %}auto, (max-width: 600px) 94vw, (max-width: 1000px) 47vw, 31vw{% endif %}"{% endif %}
+    {% if eager_cover %}fetchpriority="high"{% else %}loading="lazy"{% endif %}>
 </picture>

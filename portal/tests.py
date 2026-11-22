@@ -129,7 +129,9 @@ class SecurityAndCommerceTests(TransactionTestCase):
             self.assertContains(response,day_url);self.assertContains(response,night_url)
             save_product_picture(self.product,Mock(cleaned_data={'remove_night_picture':True}))
             self.assertEqual(product_image(self.product,'light'),day_url)
-            self.assertIn('/artwork/products-v1/rubika-dark.webp',product_image(self.product,'dark'))
+            from django.templatetags.static import static
+            from .product_art import gallery_path
+            self.assertEqual(product_image(self.product,'dark'),static(gallery_path(None)))
             save_product_picture(self.product,Mock(cleaned_data={'remove_picture':True}))
             self.assertFalse(ProductVisual.objects.filter(product_id=self.product.pk).exists())
 

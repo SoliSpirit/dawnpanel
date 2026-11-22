@@ -2,11 +2,16 @@
 
 ## Product photos and Telegram visibility
 
-The website and Telegram product detail use local photographs/illustrations.
-Operator uploads take precedence. Known subscription families share a lightweight
-JPEG across their plans; unbranded services get a generated card based on
-platform and product, with a bounded in-memory cache and no writes for each view.
-`scripts/build_product_covers.py` rebuilds the tracked brand images.
+The website uses full-width, wordless product illustrations. Local 480w and
+960w WebPs in `static/artwork/product-gallery/` are selected via `srcset`;
+the original large PNGs are not required on the server. Operator uploads take
+precedence. Brand families have their own artwork, as do the individual
+messaging services and native bot SKUs in `portal/service_art.py`. The bot uses
+the same selection and sends a JPEG from a bounded in-memory cache. The
+legacy `/product-cover/<id>.jpg` URLs still check website eligibility.
+`scripts/build_product_covers.py --illustrations DIR [--key KEY]` exports
+wordless `<key>.png` originals. Missing originals fail the build rather than
+silently substituting the category image.
 
 Telegram service rows are no longer eligible for public website listing, detail
 or checkout. Existing rows, orders and bot visibility remain unchanged; Telegram
