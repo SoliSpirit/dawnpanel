@@ -1,9 +1,24 @@
 {% load storefront ui %}
-<article class="family-card" data-family-card>
-  <a class="family-art-link" href="{{ family.url }}" tabindex="-1" aria-hidden="true">{% include 'partials/family_cover.html' %}</a>
-  <div class="family-copy"><span class="family-category">{{ family.label }}</span>
-    <h3><a href="{{ family.url }}">{{ family.name }}</a></h3>
-    <div class="family-card-bottom"><div>{% if family.minimum != None %}{% if family.plans|length > 1 %}<small>از</small> {% endif %}<strong>{{ family.minimum|number }}</strong> <small>تومان{% if not family.subscription %} / {{ family.first.min_order }} عدد{% endif %}</small>{% else %}<small>نیازمند استعلام</small>{% endif %}</div>
-    <a href="{{ family.url }}" class="family-open" aria-label="مشاهده {{ family.name }}"><span>{% if family.plans|length > 1 %}{{ family.plans|length }} پلن{% else %}مشاهده{% endif %}</span> ←</a></div>
+<details class="family-card" data-family-card name="store-cards">
+  <summary class="family-toggle">
+    <span class="family-art-link">{% include 'partials/family_cover.html' %}</span>
+    <span class="family-copy">
+      <span class="family-category">{{ family.label }}</span>
+      <strong class="family-title">{{ family.name }}</strong>
+      <span class="family-card-bottom">
+        <span>{% if family.minimum != None %}{% if family.plans|length > 1 %}<small>از</small> {% endif %}<b>{{ family.minimum|number }}</b> <small>تومان{% if not family.subscription %} / {{ family.first.min_order|number }} عدد{% endif %}</small>{% else %}استعلام قیمت{% endif %}</span>
+        <span class="fold-action"><span class="when-folded">{% if family.plans|length > 1 %}{{ family.plans|length }} پلن{% else %}جزئیات{% endif %}</span><span class="when-open">بستن</span><i class="fold-chevron" aria-hidden="true"></i></span>
+      </span>
+    </span>
+  </summary>
+  <div class="family-drawer">
+    {% if family.plans|length > 1 %}
+      <p>برای دیدن شرایط و سفارش، پلن را انتخاب کن.</p>
+      <ul>{% for plan in family.plans %}<li><a href="{{ plan.get_absolute_url }}"><span>{{ plan.visual.plan_name|default:plan.name }}</span><span class="drawer-price">{% if plan.catalog_price != None %}{{ plan.catalog_price|number }} تومان{% else %}استعلام قیمت{% endif %} <b aria-hidden="true">←</b></span></a></li>{% endfor %}</ul>
+    {% else %}
+      {% if family.subscription %}<p>{% if family.first.visual.plan_name %}پلن: {{ family.first.visual.plan_name }}{% else %}شرایط اشتراک را پیش از سفارش ببینید.{% endif %}</p>
+      {% else %}<p>حداقل {{ family.first.min_order|number }}{% if family.first.max_order %} و حداکثر {{ family.first.max_order|number }}{% endif %} عدد در هر سفارش</p>{% endif %}
+      <a class="drawer-order" href="{{ family.url }}">مشاهده و سفارش <span aria-hidden="true">←</span></a>
+    {% endif %}
   </div>
-</article>
+</details>

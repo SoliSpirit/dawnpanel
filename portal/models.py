@@ -2,7 +2,7 @@ import uuid
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 PLATFORMS=[('rubika','روبیکا'),('eitaa','ایتا'),('bale','بله'),('ai','اشتراک هوش مصنوعی'),('telegram','تلگرام'),('other','سایر')]
 class LegacyUser(models.Model):
@@ -66,6 +66,10 @@ class Product(models.Model):
         if not hasattr(self,'_visual_cache'):
             self._visual_cache=ProductVisual.objects.filter(product_id=self.pk).first()
         return self._visual_cache
+    @property
+    def tax_percent(self):
+        policy = getattr(self, 'tax_policy', None)
+        return policy.percent if policy else 0
     def get_absolute_url(self):
         from django.urls import reverse
         from django.utils.text import slugify
@@ -230,6 +234,26 @@ class ProductVisual(models.Model):
     class Meta:
         verbose_name='تصویر محصول'
         verbose_name_plural='تصاویر محصولات'
+
+
+class ProductTax(models.Model):
+    # Managed sidecar: the legacy bot's products table/column order is unchanged.
+    product=models.OneToOneField(Product,primary_key=True,on_delete=models.CASCADE,
+                                 db_constraint=False,related_name='tax_policy')
+    percent=models.DecimalField('درصد مالیات',max_digits=5,decimal_places=2,default=0,
+                                validators=[MinValueValidator(0),MaxValueValidator(100)])
+    class Meta:
+        constraints=[models.CheckConstraint(condition=models.Q(percent__gte=0,percent__lte=100),
+                                            name='product_tax_in_range')]
+
+
+class OrderAmounts(models.Model):
+    """Immutable at purchase; pre-existing orders intentionally have no row."""
+    order=models.OneToOneField(Order,primary_key=True,on_delete=models.DO_NOTHING,
+                               db_constraint=False,related_name='amounts')
+    subtotal=models.PositiveBigIntegerField('مبلغ پیش از مالیات')
+    tax_percent=models.DecimalField('درصد مالیات هنگام خرید',max_digits=5,decimal_places=2)
+    tax_amount=models.PositiveBigIntegerField('مبلغ مالیات')
 
 
 class ChatConversation(models.Model):

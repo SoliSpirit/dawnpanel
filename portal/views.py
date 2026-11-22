@@ -5,7 +5,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.urls import reverse
 from django.conf import settings
 from django.shortcuts import render,redirect,get_object_or_404
-from django.http import HttpResponse,HttpResponseForbidden,JsonResponse
+from django.http import Http404,HttpResponse,HttpResponseForbidden,JsonResponse
 from django.contrib.auth import login,logout
 from django.contrib.auth.decorators import login_required,permission_required
 from django.contrib import messages
@@ -31,12 +31,6 @@ def local_return_path(value):
             and url_has_allowed_host_and_scheme(value,allowed_hosts=set())):
         return value
     return ''
-
-def with_product_images(products):
-    products=list(products)
-    images={image.product_id:image for image in ProductVisual.objects.filter(product_id__in=[p.pk for p in products])}
-    for product in products: product._visual_cache=images.get(product.pk)
-    return products
 
 def home(request):
     items=families()
@@ -72,7 +66,7 @@ def catalog(request,platform_override=None):
     category=request.GET.get('category','')
     q=request.GET.get('q','')[:100].strip()
     scope=filter_families(items,section=section,platform=platform,collection=collection)
-    category_ids={p.category_id for f in scope for p in f.plans if not platform or p.platform==platform}
+    category_ids={p.category_id for f in scope for p in f.search_plans if not platform or p.platform==platform}
     if category not in {str(pk) for pk in category_ids}: category=''
     filtered=filter_families(scope,platform=platform,category=category,query=q)
     sort=request.GET.get('sort','')
@@ -91,7 +85,12 @@ def catalog(request,platform_override=None):
 @require_http_methods(['GET','HEAD','POST'])
 @sensitive_post_parameters('target')
 def product(request,pk,slug=None):
-    p=get_object_or_404(public_products(),pk=pk)
+    items=families()
+    family,p=next(((f,plan) for f in items for plan in f.plans
+                   if plan.pk==pk or any(alias.pk==pk for alias in plan.web_aliases)),(None,None))
+    if p is None: raise Http404
+    if request.method in ('GET','HEAD') and p.pk!=pk:
+        return redirect(p)  # A preference between eligible SKUs is not permanent.
     if request.method in ('GET','HEAD') and iri_to_uri(request.path)!=p.get_absolute_url():
         return redirect(p,permanent=True)
     draft=request.session.get('order_draft')
@@ -100,7 +99,8 @@ def product(request,pk,slug=None):
     if draft:
         if timezone.now().timestamp()-draft['at']>ORDER_DRAFT_AGE.total_seconds():
             request.session.pop('order_draft',None)
-        elif request.method=='GET' and request.user.is_authenticated and draft['product_id']==p.pk:
+        elif (request.method=='GET' and request.user.is_authenticated and
+              draft['product_id'] in {p.pk, *(alias.pk for alias in p.web_aliases)}):
             initial['quantity']=draft['quantity']
             restored=True
     form=OrderForm(request.POST if request.method=='POST' else None,initial=initial)
@@ -109,19 +109,21 @@ def product(request,pk,slug=None):
         form.fields['quantity'].widget=HiddenInput()
     else:
         form.fields['quantity'].widget.attrs.update(min=p.min_order,max=min(p.max_order or 100000000,100000000))
-    if p.platform=='ai' or (p.platform=='other' and SourceProduct.objects.filter(product_id=p.pk).exists()):
+    if p.platform in ('ai','other'):
         form.fields['target'].label='ایمیل یا توضیحات سفارش'
         form.fields['target'].help_text='اطلاعات لازم برای تحویل، مطابق توضیحات محصول.'
         form.fields['target'].widget.attrs['placeholder']='ایمیل یا اطلاعات سفارش'
-    try: minimum_total,pack=price_for(p,p.min_order)
-    except BusinessError: minimum_total=pack=None
-    display_total=minimum_total
-    if restored:
-        try: display_total=price_for(p,initial['quantity'])[0]
-        except BusinessError: pass
+    pricing=quote=None
+    try:
+        pricing=pricing_for(p)
+        quote=pricing.quote(p.min_order)
+        if restored:
+            quote=pricing.quote(initial['quantity'])
+    except BusinessError: pass
     if request.method=='POST' and form.is_valid():
         try:
-            total,_=price_for(p,form.cleaned_data['quantity'])
+            if not pricing: raise BusinessError('قیمت محصول نیاز به بررسی دارد.')
+            quote=pricing.quote(form.cleaned_data['quantity'])
             if p.need_link and not form.cleaned_data['target'].strip(): raise BusinessError('اطلاعات مقصد را وارد کنید.')
             selection={'product_id':p.pk,'quantity':form.cleaned_data['quantity'],'target':form.cleaned_data['target']}
             if not request.user.is_authenticated:
@@ -131,17 +133,15 @@ def product(request,pk,slug=None):
                 request.session['login_return']=p.get_absolute_url()
                 return redirect('login')
             request.session.pop('order_draft',None)
-            key=str(uuid.uuid4()); pending={**selection,'quoted_total':total,'key':key}
+            key=str(uuid.uuid4()); pending={**selection,'quoted_total':quote.total,'quoted_breakdown':quote.breakdown,'key':key}
             request.session['checkout']=pending
-            response=render(request,'review.html',{'product':p,'pending':pending,'total':total,'title':'تایید سفارش','private_page':True})
+            response=render(request,'review.html',{'product':p,'pending':pending,'total':quote.total,'quote':quote,'title':'تایید سفارش','private_page':True})
             response['Cache-Control']='private, no-store'
             return response
         except BusinessError as e: form.add_error(None,str(e))
-    items=families()
-    family=next((f for f in items if any(plan.pk==p.pk for plan in f.plans)),None)
     response=render(request,'product.html',{'product':p,'family':family,
         'related':[f for f in items if family and f.section==family.section and f is not family][:4],
-        'form':form,'pack_price':pack,'display_total':display_total,'restored':restored,
+        'form':form,'pricing':pricing,'quote':quote,'display_total':quote.total if quote else None,'restored':restored,
         'title':p.name,'description':p.seo_description or (p.name+'؛ مشاهده قیمت، شرایط سفارش و پشتیبانی در دان پنل.')[:160]})
     if restored or request.method=='POST': response['Cache-Control']='private, no-store'
     return response
@@ -273,7 +273,7 @@ def orders(request):
 
 @login_required
 def order_detail(request,pk):
-    order=get_object_or_404(Order,pk=pk,user_id=request.user.account.legacy_id)
+    order=get_object_or_404(Order.objects.select_related('amounts'),pk=pk,user_id=request.user.account.legacy_id)
     return render(request,'order.html',{'order':order,'title':'سفارش '+order.tracking_code})
 
 @login_required
@@ -362,7 +362,7 @@ def sitemap(request):
     from xml.sax.saxutils import escape
     from portal.templatetags.storefront import product_image,post_image
     entries=[(path,None,None) for path in ['/','/ai/','/services/','/blog/','/contact/','/faq/','/about/','/terms/','/privacy/']]
-    entries += [(product.get_absolute_url(),None,product_image(product)) for product in with_product_images(public_products())]
+    entries += [(p.get_absolute_url(),None,product_image(p)) for family in families() for p in family.plans]
     entries += [(post.get_absolute_url(),post.updated_at.date().isoformat(),post_image(post)) for post in Post.objects.filter(published=True)]
     body=[]
     for path,modified,image in entries:

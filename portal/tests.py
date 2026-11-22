@@ -44,6 +44,105 @@ class SecurityAndCommerceTests(TransactionTestCase):
     def test_price_rounds_up_and_honors_profit(self):
         self.product.product_profit_percent=Decimal('7.5')
         self.assertEqual(price_for(self.product,11)[0],119)
+
+    def test_review_charge_receipt_and_full_refund_include_order_level_tax(self):
+        Currency.objects.create(code='USD',name='Dollar',rate=1000)
+        self.product.price_currency='USD';self.product.price_amount=Decimal('1.1')
+        self.product.product_profit_percent=Decimal('7.5');self.product.save()
+        ProductTax.objects.create(product_id=self.product.pk,percent='9.5')
+        url=self.product.get_absolute_url()
+        response=self.client.get(url)
+        # ceil(1.1*1000*1.075) = 1183/pack; quantity 11/100 -> 131; tax = ceil(12.445).
+        self.assertEqual(response.context['pricing'].pack,1183)
+        self.assertContains(response,'data-tax-bps="950"')
+        self.assertEqual(response.context['family'].minimum,131)  # minimum quantity 10
+        review=self.client.post(url,{'quantity':11,'target':'test','quoted_total':'1','tax_percent':'0'})
+        self.assertContains(review,'مبلغ پیش از مالیات')
+        self.assertEqual(review.context['total'],144)
+        pending=self.client.session['checkout']
+        self.assertEqual(pending['quoted_breakdown'],{'subtotal':131,'tax_bps':950})
+        self.client.post('/account/checkout/',{'key':pending['key']})
+        order=Order.objects.get()
+        self.assertEqual((order.total_price,order.amounts.tax_amount,order.amounts.tax_percent),(144,13,Decimal('9.50')))
+        self.assertEqual(order.pk,place_order(self.account,**pending).pk)
+        self.assertEqual(list(Ledger.objects.values_list('amount',flat=True)),[-144])
+        ProductTax.objects.filter(product_id=self.product.pk).update(percent=50)
+        self.assertContains(self.client.get(f'/account/orders/{order.pk}/'),'13 تومان')
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(f'/account/orders/{order.pk}/').status_code,404)
+        change_order(None,order.pk,'cancelled','test')
+        with self.assertRaises(BusinessError): change_order(None,order.pk,'cancelled','again')
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance,10000)
+        self.assertEqual(Ledger.objects.get(type='refund').amount,144)
+
+    def test_bot_and_web_reject_changed_breakdown_even_if_final_total_matches(self):
+        # An old zero-tax review for 1000 must not authorize a 25% tax on 800.
+        self.product.price=800;self.product.save()
+        ProductTax.objects.create(product_id=self.product.pk,percent=25)
+        for old_review in (None,{'subtotal':1000,'tax_bps':0}):
+            with self.assertRaises(BusinessError):
+                place_order(self.account,self.product.pk,100,'test',uuid.uuid4(),1000,old_review)
+            with self.assertRaises(BusinessError):
+                place_bot_order(self.wallet.pk,self.product.pk,100,'test',1000,old_review)
+        self.assertFalse(Order.objects.exists())
+        self.assertFalse(Ledger.objects.exists())
+        self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,10000)
+
+    def test_bot_order_uses_identical_invoice_and_snapshot_is_atomic(self):
+        ProductTax.objects.create(product_id=self.product.pk,percent='1.25')
+        pricing=pricing_for(Product.objects.get(pk=self.product.pk))
+        quote=pricing.quote(100)
+        self.assertEqual((quote.subtotal,quote.tax_amount,quote.total),(1000,13,1013))
+        args=(self.wallet.pk,self.product.pk,100,'target',1013,quote.breakdown)
+        with patch.object(OrderAmounts.objects,'create',side_effect=RuntimeError('invoice write failed')):
+            with self.assertRaises(RuntimeError): place_bot_order(*args)
+        self.assertFalse(Order.objects.exists());self.assertFalse(Ledger.objects.exists())
+        self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,10000)
+        pk,_=place_bot_order(*args)
+        self.assertEqual(Order.objects.get(pk=pk).amounts.tax_amount,13)
+        self.assertEqual(Ledger.objects.get(type='withdraw').amount,-1013)
+        change_order(None,pk,'cancelled','test')
+        self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,10000)
+
+    def test_old_order_without_snapshot_displays_its_original_total(self):
+        old=Order.objects.create(user=self.wallet,tracking_code='HISTORY',product_id=self.product.pk,
+            product_name='Old order',quantity=1,unit_price=5200,total_price=5200)
+        ProductTax.objects.create(product_id=self.product.pk,percent=20)
+        receipt=self.client.get(f'/account/orders/{old.pk}/')
+        self.assertContains(receipt,'5,200 تومان')
+        self.assertNotContains(receipt,'مبلغ پیش از مالیات')
+        self.assertFalse(OrderAmounts.objects.exists())
+
+    def test_product_admin_set_reset_and_validate_only_this_products_tax(self):
+        from django.forms.models import model_to_dict
+        url=f'/admin/portal/product/{self.product.pk}/change/'
+        data={key:value if value is not None else '' for key,value in model_to_dict(self.product).items()}
+        self.user.is_staff=True;self.user.save(update_fields=['is_staff'])
+        self.user.user_permissions.add(Permission.objects.get(content_type__app_label='portal',codename='view_product'))
+        self.assertEqual(self.client.post(url,{**data,'tax_percent':20}).status_code,404)
+        self.assertFalse(ProductTax.objects.exists())
+        self.user.user_permissions.add(Permission.objects.get(content_type__app_label='portal',codename='change_product'))
+        self.assertContains(self.client.get(url),'name="tax_percent"')
+        self.assertEqual(self.client.post(url,{**data,'tax_percent':'۹٫۵'}).status_code,302)
+        self.assertEqual(Product.objects.get(pk=self.product.pk).tax_percent,Decimal('9.50'))
+        for invalid in ('-1','100.01','9.555','NaN'):
+            result=self.client.post(url,{**data,'tax_percent':invalid})
+            self.assertEqual(result.status_code,200)
+            self.assertIn('tax_percent',result.context['adminform'].form.errors)
+        self.assertEqual(self.client.post(url,data).status_code,302)
+        self.assertEqual(Product.objects.get(pk=self.product.pk).tax_percent,Decimal('9.50'))
+        self.assertEqual(self.client.post(url,{**data,'tax_percent':'0'}).status_code,302)
+        self.assertEqual(price_for(Product.objects.get(pk=self.product.pk),100)[0],1000)
+        self.assertEqual(Audit.objects.filter(action='product.tax',actor=self.user).count(),2)
+
+    def test_affordability_and_max_charge_use_tax_on_the_whole_quantity(self):
+        from .pricing import Pricing
+        p=Pricing(pack=11,price_per=10,min_order=2,max_order=100,tax_bps=950)
+        for balance in range(25):
+            self.assertEqual(p.affordable(balance),max((n for n in range(2,101) if p.quote(n).total<=balance),default=0))
+        p=Pricing(pack=100000000000,price_per=1,min_order=1,max_order=1,tax_bps=1)
+        with self.assertRaises(BusinessError): p.quote(1)
     def test_invalid_quantity(self):
         for q in [-1,0,1,1001]:
             with self.assertRaises(BusinessError): price_for(self.product,q)

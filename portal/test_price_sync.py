@@ -36,7 +36,7 @@ class PriceSyncTests(TransactionTestCase):
         Product.objects.all().delete()
         Category.objects.all().delete()
         self.category=Category.objects.create(name='Test')
-        self.product=Product.objects.create(name='Test plan',category=self.category,price=1000,price_per=1,
+        self.product=Product.objects.create(pk=1001,name='Test plan',category=self.category,price=1000,price_per=1,
                                             min_order=1,platform='ai',show_on_website=True)
         self.link=SourceProduct.objects.create(source='premstore',external_id='11',
                                                product_id=self.product.pk,last_price=1000,available=True)
@@ -235,6 +235,77 @@ class PriceSyncTests(TransactionTestCase):
         self.assertEqual(len(groups[0].plans),2)
         self.assertFalse(SourceProduct.objects.filter(product_id=legacy.pk).exists())
         self.assertEqual(self.client.get(legacy.get_absolute_url()).status_code,200)
+
+    def reviewed_pair(self):
+        from .service_art import SERVICE_TITLES
+        self.link.external_id='277';self.link.family_name='ChatGPT';self.link.source_url='https://premstore.ir/product/chatgpt/';self.link.save()
+        self.product.name='ChatGPT - Go';self.product.max_order=1;self.product.save()
+        return Product.objects.create(pk=32,name=SERVICE_TITLES['ai'][32],category=Category.objects.create(name='Native'),
+            platform='ai',price=850,min_order=1,max_order=1,show_on_website=True,show_on_telegram=True)
+
+    def test_reviewed_mirror_keeps_old_links_filters_drafts_and_selects_preferred_sku(self):
+        from .models import ProductTax
+        from .store_catalog import families
+        legacy=self.reviewed_pair()
+        ProductTax.objects.create(product_id=self.product.pk,percent=10)
+        f,=families();self.assertEqual([p.pk for p in f.plans],[self.product.pk])
+        self.assertEqual(f.minimum,1100)
+        self.assertRedirects(self.client.get(legacy.get_absolute_url()),self.product.get_absolute_url(),status_code=302)
+        self.assertEqual(self.client.get('/services/',{'q':'کد فعال‌سازی','category':legacy.category_id}).context['page'].paginator.count,1)
+        self.assertNotContains(self.client.get('/sitemap.xml'),legacy.get_absolute_url())
+        self.assertTrue(Product.objects.get(pk=legacy.pk).show_on_telegram)
+        user=User.objects.create_user(username='alias-buyer')
+        self.client.force_login(user)
+        session=self.client.session
+        session['order_draft']={'product_id':legacy.pk,'quantity':1,'at':timezone.now().timestamp()};session.save()
+        self.assertTrue(self.client.get(legacy.get_absolute_url(),follow=True).context['restored'])
+        self.client.post(legacy.get_absolute_url(),{'quantity':1,'target':'test'})
+        pending=self.client.session['checkout']
+        self.assertEqual((pending['product_id'],pending['quoted_total']),(self.product.pk,1100))
+        self.assertFalse(SourceProduct.objects.filter(product_id=legacy.pk).exists())
+
+    def test_no_alias_can_bypass_supplier_stock_and_standalone_fallback_must_be_published(self):
+        from .store_catalog import families
+        legacy=self.reviewed_pair()
+        self.link.available=False;self.link.save()
+        self.assertFalse(public_products().filter(pk__in=[legacy.pk,self.product.pk]).exists())
+        self.assertEqual(self.client.get(legacy.get_absolute_url()).status_code,404)
+        self.link.available=True;self.link.save()
+        self.product.show_on_website=False;self.product.save()
+        self.assertEqual(families()[0].first.pk,legacy.pk)
+        self.assertEqual(self.client.get(legacy.get_absolute_url()).status_code,200)
+
+    def test_different_delivery_and_recycled_ids_do_not_hide_real_variants(self):
+        from .store_catalog import families
+        legacy=self.reviewed_pair()
+        legacy.name='ChatGPT - آماده سفارشی';legacy.save()
+        self.assertEqual({p.pk for p in families()[0].plans},{legacy.pk,self.product.pk})
+
+    def test_rubika_duplicate_is_one_card_and_other_reactions_remain_distinct(self):
+        from .store_catalog import families
+        from .service_art import SERVICE_TITLES
+        def service(pk,source_id,name):
+            return Product.objects.create(pk=pk,category=self.category,name=name,platform='rubika',price=20000,
+                min_order=100,max_order=1000,price_per=1000,show_on_website=True,
+                description=f'شناسه خدمت در سایت قبلی: #{source_id}؛')
+        a=service(30,6,SERVICE_TITLES['rubika'][30])
+        b=service(31,8,a.name)
+        other=service(777,9,'ری اکشن چشم 😁')
+        groups=[f for f in families() if f.section=='rubika']
+        self.assertEqual({f.first.pk for f in groups},{a.pk,other.pk})
+        self.assertRedirects(self.client.get(b.get_absolute_url()),a.get_absolute_url(),status_code=302)
+        a.is_active=False;a.save()
+        self.assertEqual(self.client.get(b.get_absolute_url()).status_code,200)
+
+    def test_supplier_approval_changes_base_only_after_merchant_sets_tax(self):
+        from .models import ProductTax
+        from .services import price_for
+        self.fetch()
+        ProductTax.objects.create(product_id=self.product.pk,percent='9.50')
+        self.assertTrue(apply_proposal(self.link.pk))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.price,1100)
+        self.assertEqual(price_for(self.product,1),(1205,1100))
 
     def test_post_selected_plan_keeps_existing_checkout_contract(self):
         plan=self.add_family_plan()

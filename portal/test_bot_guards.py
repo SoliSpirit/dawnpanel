@@ -36,6 +36,28 @@ class BotProductPhotoTests(SimpleTestCase):
         cleanup.assert_not_awaited()
 
 
+class BotInvoiceTests(SimpleTestCase):
+    def test_final_review_discloses_order_tax_and_pins_the_breakdown(self):
+        import html
+        from .pricing import Pricing
+        tree=ast.parse((Path(settings.BASE_DIR)/'telegram/dawnpanel.py').read_text(encoding='utf-8'))
+        handler=next(n for n in tree.body if isinstance(n,ast.AsyncFunctionDef) and n.name=='finalize_order')
+        for arg in handler.args.args: arg.annotation=None
+        namespace={'html':html,'is_user_banned':lambda _: (False,None),'get_product':lambda _: (15,1,'Product'),
+                   'order_pricing':AsyncMock(return_value=Pricing(1183,100,10,1000,950)),
+                   'get_user_data':lambda _: {'balance':1000},'format_amount':str,
+                   'InlineKeyboardMarkup':lambda rows: rows,'InlineKeyboardButton':lambda *a,**kw: kw}
+        exec(compile(ast.Module(body=[handler],type_ignores=[]),'<bot-invoice>','exec'),namespace)
+        update=SimpleNamespace(effective_user=SimpleNamespace(id=123),effective_message=SimpleNamespace(reply_text=AsyncMock()))
+        context=SimpleNamespace(user_data={'product_id':15,'order_quantity':11})
+        asyncio.run(namespace['finalize_order'](update,context,'test'))
+        review=update.effective_message.reply_text.await_args.args[0]
+        for line in ('مبلغ پیش از مالیات: 131 تومان','مالیات (9.5٪): 13 تومان','144 تومان'):
+            self.assertIn(line,review)
+        self.assertEqual(context.user_data['pending_order_breakdown'],{'subtotal':131,'tax_bps':950})
+        self.assertEqual(context.user_data['pending_order_total_price'],144)
+
+
 class BotReceiptAuthorizationTests(SimpleTestCase):
     def test_receipt_handlers_deny_non_admin_before_any_mutation(self):
         tree=ast.parse((Path(settings.BASE_DIR)/'telegram/dawnpanel.py').read_text(encoding='utf-8'))

@@ -23,12 +23,23 @@ there and does not change their availability.
 ## Storefront organization
 
 Subscription plans with the same Premstore parent URL share one display card.
-Each plan keeps its original Product ID, URL, price, checkout and source-price
-association. Product pages use native plan links, so selection works without
-JavaScript; the selected plan's URL is also the purchase form's action.
+Cards and the detail page's plan picker are native keyboard-operable disclosures.
+Opening a card reveals its order/plan links; choosing a plan opens its page.
+The selected plan's URL is also the purchase form's action.
 Known original merchant ChatGPT/Gemini/Claude plans share their brand's card only
-when exactly one imported parent matches; this creates no supplier association.
-Other merchant products are retained separately rather than guessed into groups.
+when exactly one imported parent matches. Within those cards, the 18 native
+ChatGPT/Gemini plans transcribed in `PLAN_REFERENCE.md` have reviewed Premstore
+variation equivalents (`portal/catalog_aliases.py`). On the website we prefer
+the supplier-linked SKU over its original copy, independently of price. Rubika's
+two original heart-eyes services (#6/#8) likewise share one web listing.
+No generic merging on similar names, prices, emoji, or duration occurs.
+
+Old published mirror URLs temporarily redirect to the preferred plan; old reviews
+remain bound to their original SKU and price. If only the native SKU is published,
+it can appear on its own. A monitored out-of-stock equivalent cannot reappear on
+the web through its mirror. Existing product rows, bot flags, artwork, supplier
+mappings and historical order IDs are retained. Search and category filters
+recognize eligible mirror names; the sitemap only lists the visible choices.
 
 The curated presentation taxonomy lives in `portal/store_catalog.py`. Subscription
 categories are separate from Telegram/Rubika/Eitaa/Bale services. Existing
@@ -44,6 +55,21 @@ Product pages estimate variable-quantity totals using integer rounding; the
 server always recalculates at review and again before debiting the wallet.
 A guest can return to the same plan and quantity after login for up to 20
 minutes; delivery information is not retained in a guest draft.
+
+## Tax and wallet totals
+
+In product management, open **قیمت و تعداد → درصد مالیات**. Rates are per SKU:
+0–100 percent, up to two decimal places. The product editor for a web mirror links
+to the effective storefront SKU. An unset rate is zero. Migration 0013 adds managed
+side tables without changing legacy tables or inferring tax on historical orders.
+
+Web and Telegram use `portal/pricing.py`: convert currency and apply merchant
+profit, ceil to whole toman for the pack, then ceil `pack × quantity / price_per`
+for the order subtotal. Tax is computed **once per order**: ceil `subtotal ×
+rate / 100`. The server stores the reviewed breakdown and rechecks it before
+payment, including when the total is unchanged. The purchase transaction records
+the subtotal, rate and tax with the wallet debit. A cancellation refunds the
+stored inclusive total. Supplier price approval only changes the untaxed base.
 
 After migration 0012, backfill the existing parent titles/descriptions:
 

@@ -282,7 +282,7 @@ def format_product_admin_price_lines(product):
     if code == 'TOMAN':
         return (f"💰 قیمت پایه: {format_amount(amount)} تومان\n"
                 f"📈 سود محصول: {format_profit_percent(get_product_profit_percent(product))}%\n"
-                f"💵 قیمت فروش: {format_amount(apply_product_profit(amount, get_product_profit_percent(product)))} تومان\n")
+                f"💵 قیمت فروش پیش از مالیات: {format_amount(apply_product_profit(amount, get_product_profit_percent(product)))} تومان\n")
     toman = calculate_product_base_toman(product)
     profit = get_product_profit_percent(product)
     sold = apply_product_profit(toman, profit)
@@ -290,7 +290,7 @@ def format_product_admin_price_lines(product):
             f"💱 نرخ فعلی: {format_amount(rate)} تومان برای 1 {html.escape(code)}\n"
             f"💵 معادل قیمت: {format_amount(toman)} تومان\n"
             f"📈 سود محصول: {format_profit_percent(profit)}%\n"
-            f"💵 قیمت فروش: {format_amount(sold)} تومان\n")
+            f"💵 قیمت فروش پیش از مالیات: {format_amount(sold)} تومان\n")
 
 def get_product_currency(product):
     """Return product pricing currency and current Toman rate.
@@ -357,41 +357,17 @@ def calculate_product_base_toman(product):
         return amount
     return amount * rate
 
-def calculate_price_info(product):
-    base_toman = calculate_product_base_toman(product)
-    price_per = product[5] if len(product) > 5 and product[5] else 1
-    min_order = product[6] if len(product) > 6 else 1
-    max_order = product[7] if len(product) > 7 else None
-    need_link = product[8] if len(product) > 8 else 0
-    profit_percent = get_product_profit_percent(product)
-    price = apply_product_profit(base_toman, profit_percent)
-    price_per_unit = calculate_total_price(price, price_per, 1) if price_per > 0 else price
-    code, currency, amount, rate = get_product_currency(product)
-    return {
-        'price': int(price), 'base_price': base_toman, 'profit_percent': float(profit_percent),
-        'price_per': price_per, 'price_per_unit': price_per_unit, 'min_order': min_order or 1,
-        'max_order': max_order, 'need_link': need_link, 'currency_code': code,
-        'currency_symbol': currency.get('symbol') or code, 'currency_amount': amount, 'currency_rate': rate
-    }
-
-def calculate_total_price(base_price, price_per, quantity):
-    """Calculate final payable Tomans with Decimal arithmetic, rounded upward once."""
+async def order_pricing(update, product_id):
+    """Load the same pricing policy as wallet checkout, outside the event loop."""
     try:
-        base = base_price if isinstance(base_price, Decimal) else Decimal(str(base_price))
-        qty = Decimal(str(quantity))
-        per = Decimal(str(price_per))
-        if per <= 0:
-            return 0
-        total = (base * qty) / per
-        return int(total.to_integral_value(rounding=ROUND_CEILING))
-    except (InvalidOperation, TypeError, ValueError):
-        return 0
+        return await asyncio.to_thread(integration.product_pricing, product_id)
+    except integration.BusinessError as e:
+        await update.effective_message.reply_text(str(e), reply_markup=get_main_menu())
 
-def format_product_price(price_info):
-    if price_info['price_per'] > 1:
-        return f"💸 قیمت (به ازای {price_info['price_per']:,} عدد) : {price_info['price']:,} تومان - قیمت هر عدد : {price_info['price_per_unit']:,} تومان"
-    else:
-        return f"💸 قیمت (به ازای 1 عدد) : {price_info['price']:,} تومان"
+def format_product_price(pricing):
+    pack = pricing.amounts(pricing.price_per)
+    tax = f" (با مالیات {pack.tax_percent}٪)" if pack.tax_bps else ""
+    return f"💸 قیمت برای {pricing.price_per:,} عدد: {pack.total:,} تومان{tax}"
 
 # ==================== SMS OTP ====================
 def send_verification_sms(phone_number, code):
@@ -3830,7 +3806,7 @@ def format_admin_product_details(product):
         f"📈 <b>نرخ ارز:</b> {html.escape(format_amount(rate))} تومان\n"
         f"💰 <b>معادل قیمت پایه:</b> {format_amount(calculate_product_base_toman(product))} تومان\n"
         f"📈 <b>سود اختصاصی محصول:</b> {format_profit_percent(get_product_profit_percent(product))}%\n"
-        f"💸 <b>قیمت فروش:</b> {format_amount(apply_product_profit(calculate_product_base_toman(product), get_product_profit_percent(product)))} تومان\n\n"
+        f"💸 <b>قیمت فروش پیش از مالیات:</b> {format_amount(apply_product_profit(calculate_product_base_toman(product), get_product_profit_percent(product)))} تومان\n\n"
         f"🔢 <b>قیمت به ازای:</b> {product[5]} عدد\n"
         f"⬇️ <b>حداقل سفارش:</b> {product[6]}\n"
         f"⬆️ <b>حداکثر سفارش:</b> {max_text}\n\n"
@@ -4578,15 +4554,12 @@ async def handle_all_inline_callbacks(update: Update, context: ContextTypes.DEFA
         product_id = int(data.rsplit("_", 1)[1])
         product = get_product(product_id)
         if product:
-            price_info = calculate_price_info(product)
+            pricing = await order_pricing(update, product_id)
+            if pricing is None: return
             description = product[3] or ""
             category_id = product[1]
 
-            context.user_data.update({
-                'product_id': product[0], 'product_name': product[2], 'product_price': price_info['price_per_unit'],
-                'min_order': price_info['min_order'], 'max_order': price_info['max_order'],
-                'need_link': price_info['need_link'], 'price_per': price_info['price_per'], 'base_price': price_info['price']
-            })
+            context.user_data.update(product_id=product[0],product_name=product[2])
 
             categories = get_all_categories()
             cat_name = next((cat[1] for cat in categories if cat[0] == category_id), "")
@@ -4594,21 +4567,16 @@ async def handle_all_inline_callbacks(update: Update, context: ContextTypes.DEFA
             message = f"✅ سرویس: {html.escape(str(product[2]))}\n"
             if cat_name: message += f"📱 دسته: {html.escape(str(cat_name))}\n"
             if description: message += f"ــ ـ ــ  ــ ــ ـ ــ ـ\n📝 {html.escape(str(description))}\nــ ـ ــ  ــ ــ ـ ــ ـ\n"
-            message += f"{format_product_price(price_info)}\n"
-            if price_info['min_order'] and price_info['max_order']:
-                message += f"⬇️ حداقل: {price_info['min_order']:,} - ⬆️ حداکثر: {price_info['max_order']:,}\n"
-            elif price_info['min_order'] and price_info['min_order'] > 1:
-                message += f"⬇️ حداقل: {price_info['min_order']:,} عدد\n"
-            elif price_info['max_order']:
-                message += f"⬆️ حداکثر: {price_info['max_order']:,} عدد\n"
+            message += f"{format_product_price(pricing)}\n"
+            if pricing.min_order: message += f"⬇️ حداقل: {pricing.min_order:,} عدد\n"
+            if pricing.max_order: message += f"⬆️ حداکثر: {pricing.max_order:,} عدد\n"
 
             user = update.effective_user
             user_data = get_user_data(user.id)
             user_balance = user_data['balance'] if user_data else 0
-            max_affordable = user_balance // price_info['price_per_unit'] if price_info['price_per_unit'] > 0 else 0
+            affordable = pricing.affordable(user_balance)
 
-            if user_balance > 0 and max_affordable > 0:
-                affordable = min(max_affordable, price_info['max_order']) if price_info['max_order'] else max_affordable
+            if affordable:
                 message += f"\n✔️ میتوانید {affordable:,} عدد سفارش دهید.\n"
                 keyboard = get_product_detail_keyboard(product_id, category_id)
             else:
@@ -4791,27 +4759,21 @@ async def order_product_callback(update: Update, context: ContextTypes.DEFAULT_T
     product = get_product(product_id)
     if not product: await query.message.reply_text("❌ محصول یافت نشد.", reply_markup=get_main_menu()); return
 
-    price_info = calculate_price_info(product)
-    context.user_data.update({
-        'product_id': product[0], 'product_name': product[2], 'product_price': price_info['price_per_unit'],
-        'min_order': price_info['min_order'], 'max_order': price_info['max_order'],
-        'need_link': price_info['need_link'], 'price_per': price_info['price_per'], 'base_price': price_info['price']
-    })
+    pricing = await order_pricing(update, product_id)
+    if pricing is None: return
+    context.user_data.update(product_id=product[0],product_name=product[2])
 
     user = update.effective_user
     user_data = get_user_data(user.id)
     user_balance = user_data['balance'] if user_data else 0
-    max_affordable = user_balance // price_info['price_per_unit'] if price_info['price_per_unit'] > 0 else 0
+    affordable = pricing.affordable(user_balance)
 
-    message = f"{product[3]}\n\n" if product[3] else ""
-    message += f"{format_product_price(price_info)}\n"
-    if price_info['min_order'] and price_info['max_order']:
-        message += f"⬇️ حداقل: {price_info['min_order']:,} - ⬆️ حداکثر: {price_info['max_order']:,}\n"
-    elif price_info['min_order'] and price_info['min_order'] > 1: message += f"⬇️ حداقل: {price_info['min_order']:,}\n"
-    elif price_info['max_order']: message += f"⬆️ حداکثر: {price_info['max_order']:,}\n"
+    message = f"{html.escape(product[3])}\n\n" if product[3] else ""
+    message += f"{format_product_price(pricing)}\n"
+    if pricing.min_order: message += f"⬇️ حداقل: {pricing.min_order:,}\n"
+    if pricing.max_order: message += f"⬆️ حداکثر: {pricing.max_order:,}\n"
 
-    if user_balance > 0 and max_affordable > 0:
-        affordable = min(max_affordable, price_info['max_order']) if price_info['max_order'] else max_affordable
+    if affordable:
         message += f"\n✔️ میتوانید {affordable:,} عدد سفارش دهید.\n"
     else: message += "\n⚠️ موجودی کافی نیست.\n"
 
@@ -5074,19 +5036,16 @@ async def handle_inline_order_quantity(update: Update, context: ContextTypes.DEF
     product = get_product(product_id)
     if not product: context.user_data.clear(); await update.message.reply_text("❌ محصول در دسترس نیست.", reply_markup=get_main_menu()); return
 
-    price_info = calculate_price_info(product)
-    context.user_data.update({'product_price': price_info['price_per_unit'], 'min_order': price_info['min_order'],
-                              'max_order': price_info['max_order'], 'price_per': price_info['price_per'], 'base_price': price_info['price']})
-
-    min_order, max_order, need_link = price_info['min_order'], price_info['max_order'], price_info['need_link']
+    pricing = await order_pricing(update, product_id)
+    if pricing is None: return
     user = update.effective_user
     user_data = get_user_data(user.id)
     user_balance = user_data['balance'] if user_data else 0
 
-    if quantity < min_order: await update.message.reply_text(f"❌ حداقل خرید {min_order:,} عدد.", reply_markup=get_back_keyboard()); return
-    if max_order and quantity > max_order: await update.message.reply_text(f"❌ حداکثر خرید {max_order:,} عدد.", reply_markup=get_back_keyboard()); return
-
-    total_price = calculate_total_price(price_info['price'], price_info['price_per'], quantity)
+    try:
+        total_price = pricing.quote(quantity).total
+    except integration.BusinessError as e:
+        await update.message.reply_text(str(e), reply_markup=get_back_keyboard()); return
     if total_price > user_balance:
         shortage = total_price - user_balance
         context.user_data.clear()
@@ -5155,10 +5114,15 @@ async def finalize_order(update: Update, context: ContextTypes.DEFAULT_TYPE, tar
         await update.effective_message.reply_text("❌ محصول در دسترس نیست.", reply_markup=get_main_menu())
         return
 
-    price_info = calculate_price_info(product)
+    pricing = await order_pricing(update, product_id)
+    if pricing is None: return
     product_name = context.user_data.get('product_name', product[2])
     quantity = int(context.user_data.get('order_quantity', 0) or 0)
-    total_price = calculate_total_price(price_info['price'], price_info['price_per'], quantity)
+    try:
+        quote = pricing.quote(quantity)
+    except integration.BusinessError as e:
+        await update.effective_message.reply_text(str(e),reply_markup=get_back_keyboard()); return
+    total_price = quote.total
 
     user_data = get_user_data(user.id)
     user_balance = user_data['balance'] if user_data else 0
@@ -5179,6 +5143,7 @@ async def finalize_order(update: Update, context: ContextTypes.DEFAULT_TYPE, tar
         'pending_order_target': str(target_link or ''),
         'pending_order_quantity': quantity,
         'pending_order_total_price': total_price,
+        'pending_order_breakdown': quote.breakdown,
         'pending_order_product_id': product_id,
         'pending_order_product_name': product_name,
     })
@@ -5190,7 +5155,9 @@ async def finalize_order(update: Update, context: ContextTypes.DEFAULT_TYPE, tar
         f"🔰 <b>نوع سفارش :</b> 🌟 {safe_product_name} 🌟\n"
         f"💠 <b>تعداد :</b> {quantity:,}\n"
         f"🔗 <b>اطلاعات سفارش :</b> {safe_target}\n"
-        f"💸 <b>قیمت فاکتور :</b> {format_amount(total_price)} تومان\n\n"
+        f"مبلغ پیش از مالیات: {quote.subtotal:,} تومان\n"
+        f"مالیات ({quote.tax_percent}٪): {quote.tax_amount:,} تومان\n"
+        f"💸 <b>مبلغ نهایی :</b> {format_amount(total_price)} تومان\n\n"
         "👈 درصورت تایید کردن سفارش امکان لغو سفارش وجود ندارد."
     )
     keyboard = InlineKeyboardMarkup([
@@ -5245,7 +5212,8 @@ async def user_confirm_order_callback(update: Update, context: ContextTypes.DEFA
     tracking_code = None
     try:
         order_id, tracking_code = await asyncio.to_thread(
-            integration.purchase, user.id, product_id, quantity, target_link, total_price
+            integration.purchase, user.id, product_id, quantity, target_link, total_price,
+            context.user_data.get('pending_order_breakdown')
         )
 
         order_row = get_order(order_id)
@@ -5288,6 +5256,8 @@ async def user_confirm_order_callback(update: Update, context: ContextTypes.DEFA
             except Exception:
                 logger.exception("failed sending new order to admin order=%s admin=%s", order_id, admin_id)
 
+    except integration.BusinessError as e:
+        await query.message.reply_text(str(e), reply_markup=get_main_menu())
     except Exception:
         logger.exception("failed creating confirmed user order user=%s product=%s", user.id, product_id)
         try:
@@ -5321,18 +5291,15 @@ async def reorder_order_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("❌ این محصول دیگر در دسترس نیست.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 منوی اصلی", callback_data="apanel_close")]]), parse_mode="HTML")
         return
 
-    price_info = calculate_price_info(product)
-    context.user_data.update({
-        'product_id': product[0], 'product_name': product[2], 'product_price': price_info['price_per_unit'],
-        'min_order': price_info['min_order'], 'max_order': price_info['max_order'],
-        'need_link': price_info['need_link'], 'price_per': price_info['price_per'], 'base_price': price_info['price']
-    })
+    pricing = await order_pricing(update, product_id)
+    if pricing is None: return
+    context.user_data.update(product_id=product[0],product_name=product[2])
     user_data = get_user_data(user_id)
     balance = user_data['balance'] if user_data else 0
-    max_affordable = balance // price_info['price_per_unit'] if price_info['price_per_unit'] > 0 else 0
     prompt = f"🔁 <b>سفارش مجدد</b>\n\n📦 <b>{html.escape(str(product[2]))}</b>\n"
-    if price_info['min_order']: prompt += f"⬇️ حداقل: <b>{price_info['min_order']:,}</b>\n"
-    if price_info['max_order']: prompt += f"⬆️ حداکثر: <b>{price_info['max_order']:,}</b>\n"
+    prompt += f"{format_product_price(pricing)}\n"
+    if pricing.min_order: prompt += f"⬇️ حداقل: <b>{pricing.min_order:,}</b>\n"
+    if pricing.max_order: prompt += f"⬆️ حداکثر: <b>{pricing.max_order:,}</b>\n"
     prompt += f"💰 موجودی شما: <b>{format_amount(balance)} تومان</b>\n\n🔢 <b>تعداد موردنظر را ارسال کنید:</b>"
     await query.edit_message_text(prompt, parse_mode="HTML")
 
@@ -6940,7 +6907,8 @@ def _get_product_add_alert_text(product):
         max_order = product.get("max_order")
     else:
         name = product[2] if len(product) > 2 else ""
-        price = int(calculate_price_info(product)['price']) if product else 0
+        pricing = integration.product_pricing(product[0])
+        price = pricing.amounts(pricing.price_per).total
         min_order = product[6] if len(product) > 6 else 1
         max_order = product[7] if len(product) > 7 else None
 
@@ -8534,7 +8502,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 return
 
             await query.answer(
-                _get_product_add_alert_text(product),
+                await asyncio.to_thread(_get_product_add_alert_text, product),
                 show_alert=True
             )
         except Exception:

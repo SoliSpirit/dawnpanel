@@ -5,6 +5,7 @@ import re
 import unicodedata
 
 from .models import ProductVisual, SourceProduct
+from .catalog_aliases import web_aliases
 from .services import BusinessError, price_for, public_products
 
 
@@ -81,6 +82,10 @@ class Family:
         return min(prices) if prices else None
 
     @property
+    def search_plans(self):
+        return [p for plan in self.plans for p in (plan, *plan.web_aliases)]
+
+    @property
     def label(self):
         return next(row[1] for row in TAXONOMY if row[0] == self.section)
 
@@ -96,12 +101,20 @@ def known_ai_brand(name):
 
 
 def families():
-    products = list(public_products().select_related('category').order_by('id'))
+    products = list(public_products().select_related('category','tax_policy').order_by('id'))
     visuals = {v.product_id:v for v in ProductVisual.objects.filter(product_id__in=[p.pk for p in products])}
     links = {s.product_id:s for s in SourceProduct.objects.filter(product_id__in=[p.pk for p in products])}
-    groups = OrderedDict()
+    aliases = web_aliases(products, links)
     for p in products:
         p._visual_cache = visuals.get(p.pk)
+        p.web_aliases = []
+    for p in products:
+        if p.pk in aliases:
+            aliases[p.pk].web_aliases.append(p)
+    groups = OrderedDict()
+    for p in products:
+        if p.pk in aliases:
+            continue
         p.catalog_price = payable(p)
         link = links.get(p.pk)
         imported = bool(link and link.source == 'premstore')
@@ -152,7 +165,7 @@ def filter_families(items, *, section='', platform='', category='', query='', co
             continue
         if collection and (family.section in MESSAGING) != (collection == 'messaging'):
             continue
-        matches = [p for p in family.plans if (not platform or p.platform == platform)
+        matches = [p for p in family.search_plans if (not platform or p.platform == platform)
                    and (not category or str(p.category_id) == category)]
         if not matches:
             continue

@@ -1,7 +1,7 @@
 from django import template
 from django.templatetags.static import static
 from portal.product_art import artwork_key, gallery_path
-from portal.services import price_for, BusinessError
+from portal.pricing import pricing_for, BusinessError
 register = template.Library()
 
 CATEGORY_COVERS = {
@@ -43,24 +43,39 @@ def family_icon(family):
     return ''
 
 
+def cover_visual(product):
+    for candidate in (product, *getattr(product, 'web_aliases', ())):
+        visual = candidate.visual
+        if visual and (visual.image or visual.night_image):
+            return visual
+
+
+def plan_key(product, family_name=''):
+    if product.platform == 'ai' and getattr(product, 'web_aliases', None):
+        product = product.web_aliases[0]  # use the plan-specific native illustration
+    return artwork_key(product.pk, product.platform, product.name, family_name)
+
+
 @register.simple_tag
 def family_cover(family, product=None):
     selected = bool(product)
     product = product or family.first
-    visual = product.visual
-    if visual and (visual.image or visual.night_image):
+    visual = cover_visual(product)
+    if visual:
         dark = (visual.night_image or visual.image).url
         light = (visual.image or visual.night_image).url
         return {'image': dark, 'light': light}
-    title = product.name if selected or not family.imported else family.name
-    key = artwork_key(product.pk, product.platform, title, family.name)
+    key = (plan_key(product, family.name) if selected or not family.imported
+           else artwork_key(product.pk, product.platform, family.name))
     return {'image': static(gallery_path(key)), 'small': static(gallery_path(key, small=True))}
 
 @register.simple_tag
 def card_price(product):
     # Reuse checkout pricing, including currency rates, profit and rounding.
     try:
-        return format(price_for(product, product.min_order)[1], ',')
+        pricing=pricing_for(product)
+        pricing.quote(product.min_order)
+        return format(pricing.amounts(pricing.price_per).total, ',')
     except BusinessError:
         return None
 
@@ -68,11 +83,11 @@ def card_price(product):
 @register.simple_tag
 def product_image(product,theme='light',width=None):
     from django.templatetags.static import static
-    visual=product.visual
+    visual=cover_visual(product)
     uploaded=(visual.night_image if theme=='dark' else visual.image) if visual else None
     if uploaded:
         return uploaded.url
-    key = artwork_key(product.pk, product.platform, product.name)
+    key = plan_key(product)
     return static(gallery_path(key, small=width==480))
 
 @register.simple_tag

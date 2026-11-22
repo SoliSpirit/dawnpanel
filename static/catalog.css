@@ -53,20 +53,45 @@
 }
 @media(prefers-reduced-motion:reduce){.category-cover img{transition:none}.store-category-tile:hover .category-cover img{transform:none}}
 
-/* Gallery cards: uninterrupted artwork, with a separate information area. */
-.family-card{flex-direction:column;align-items:stretch;padding:0;gap:0}
+/* Native disclosure cards: the whole cover and its caption toggle the drawer. */
+.family-grid{align-items:start}
+.family-card{display:block;padding:0;gap:0;border-radius:18px}
 .family-art-link,.family-art-hero{display:block;width:100%;overflow:hidden;background:var(--shop-soft);aspect-ratio:3/2}
+.family-art-link{aspect-ratio:2.3/1}
 .family-art-link picture,.family-art-hero picture,.family-art-link img,.family-art-hero img{display:block;width:100%;height:100%;object-fit:cover}
-.family-card .family-copy{width:100%;box-sizing:border-box;display:flex;flex-direction:column;padding:18px 20px}
+.family-toggle,.picker-toggle{display:block;list-style:none;cursor:pointer;color:var(--shop-text)}
+.family-toggle::-webkit-details-marker,.picker-toggle::-webkit-details-marker{display:none}
+.family-toggle:focus-visible,.picker-toggle:focus-visible{outline:3px solid var(--shop-accent);outline-offset:-3px;border-radius:16px}
+.family-card[open],.plan-picker[open]{border-color:var(--shop-accent)}
+.family-card .family-copy{width:100%;box-sizing:border-box;display:grid;gap:5px;padding:15px 18px}
 .family-card .family-category{letter-spacing:0}
-.family-card-bottom{margin-top:auto}
-.family-card .family-copy h3{font-size:17px;margin:4px 0 14px}
+.family-title{font-size:16px;line-height:1.7;overflow-wrap:anywhere}
+.family-card-bottom{margin-top:5px;font-variant-numeric:tabular-nums}
+.fold-action,.drawer-order{display:inline-flex;align-items:center;gap:9px;color:var(--shop-accent);font-weight:600;font-size:12px}
+.fold-chevron{display:inline-block;width:8px;height:8px;margin-block-start:-4px;border:solid currentColor;border-width:0 1.75px 1.75px 0;transform:rotate(45deg)}
+.when-open{display:none}details[open]>summary .when-open{display:inline}details[open]>summary .when-folded{display:none}
+details[open]>summary .fold-chevron{transform:rotate(225deg);margin-block-start:4px}
+.family-drawer{border-top:1px solid var(--shop-border);margin-inline:18px;padding:12px 0 14px}
+.family-drawer p{font-size:12px;color:var(--shop-muted);margin:0 0 8px}
+.family-drawer ul{list-style:none;padding:0;margin:0}
+.family-drawer li+li{border-top:1px solid var(--shop-border)}
+.family-drawer li a,.drawer-order{display:flex;align-items:center;min-height:44px;gap:10px;justify-content:space-between}
+.family-drawer li a{font-size:12px;padding:5px 2px;overflow-wrap:anywhere}
+.family-drawer a:hover,.family-drawer a:focus-visible{color:var(--shop-accent);text-decoration:underline}
+.drawer-price{font-variant-numeric:tabular-nums;text-align:end;flex-shrink:0}
+.drawer-price b{color:var(--shop-accent);margin-inline-start:4px}
+.drawer-order{border-radius:10px;padding:6px 14px;background:var(--shop-accent-soft)}
+.picker-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;flex-wrap:wrap}
+.picker-toggle small,.picker-toggle strong{display:block}.picker-toggle small{font-size:11px;color:var(--shop-muted)}
+.plan-picker[open] .plan-options{margin-block-start:16px}
+.purchase-breakdown{display:grid;grid-template-columns:1fr auto;gap:5px;font-size:12px;margin:0 0 14px}.purchase-breakdown dd{margin:0;font-variant-numeric:tabular-nums}
 .family-product-heading.family-product-art{display:block;padding:0;overflow:hidden}
 .family-product-art>div:last-child{min-width:0;padding:20px 24px;overflow-wrap:anywhere}
 .family-art-hero{width:100%;max-height:clamp(230px,36vw,440px)}
 .family-art-hero picture,.family-art-hero img{max-height:inherit}
 .family-art-hero img{object-position:50% 48%}
 @media(min-width:1100px){.organized-home .family-grid,.related-families .family-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(min-width:1280px){.organized-store .family-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .faq-intro{margin-top:0}.faq-intro h1{margin:4px 0 8px}.faq-intro .store-collections{margin:0}
 .product-faq p a{color:var(--shop-accent);text-decoration:underline}
 @media(max-width:600px){.family-card .family-copy{padding:15px 17px}.family-product-art>div:last-child{padding:15px 18px}.family-art-hero{max-height:none}}

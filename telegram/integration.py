@@ -5,8 +5,21 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE','dawn.settings')
 import django
 django.setup()
 from django.db import close_old_connections
-from portal.services import place_bot_order,change_order,verify_payment,BusinessError
+from portal.services import bot_products,place_bot_order,change_order,verify_payment,BusinessError
+from portal.pricing import pricing_for
 from portal.models import Product
+
+
+def product_pricing(product_id):
+    try:
+        product = bot_products().select_related('tax_policy').filter(pk=product_id).first()
+        if product is None:
+            raise BusinessError('محصول در تلگرام در دسترس نیست.')
+        pricing = pricing_for(product)
+        pricing.quote(product.min_order)
+        return pricing
+    finally:
+        close_old_connections()
 
 
 def product_photo(product_id):

@@ -35,6 +35,13 @@ class ProductAdmin(AuditedAdmin):
     change_form_template='admin/portal/product/change_form.html'
     def get_changeform_initial_data(self,request):
         return {'platform':'rubika','show_on_website':True,**super().get_changeform_initial_data(request)}
+    def render_change_form(self,request,context,add=False,change=False,form_url='',obj=None):
+        from .catalog_aliases import PREMSTORE_EQUIVALENTS
+        if obj and obj.pk in (*PREMSTORE_EQUIVALENTS,31):
+            from .store_catalog import families
+            context['web_equivalent']=next((p for family in families() for p in family.plans
+                if any(a.pk==obj.pk for a in p.web_aliases)),None)
+        return super().render_change_form(request,context,add,change,form_url,obj)
     def get_fieldsets(self,request,obj=None):
         fieldsets=super().get_fieldsets(request,obj)
         if obj:return fieldsets
@@ -58,18 +65,32 @@ class ProductAdmin(AuditedAdmin):
         return 'تصویر شب دسته‌بندی نمایش داده می‌شود.'
     def save_model(self,request,obj,form,change):
         super().save_model(request,obj,form,change)
-        save_product_picture(obj,form)
+        if 'picture' in form.cleaned_data: save_product_picture(obj,form)
+        field='tax_percent'
+        if field in form.cleaned_data and form.add_prefix(field) in form.data and field in form.changed_data:
+            before=ProductTax.objects.filter(product_id=obj.pk).values_list('percent',flat=True).first() or 0
+            after=form.cleaned_data[field] or 0
+            if after!=before:
+                if after:
+                    ProductTax.objects.update_or_create(product_id=obj.pk,defaults={'percent':after})
+                else:
+                    ProductTax.objects.filter(product_id=obj.pk).delete()
+                Audit.objects.create(actor=request.user,action='product.tax',object_ref=str(obj.pk),
+                                     details={'old':str(before),'new':str(after)})
     @admin.display(description='محصول',ordering='name')
     def product_label(self,obj):
         return format_html('<strong class="catalog-row-name">{}</strong><small class="catalog-row-category">{}</small>',obj.name,obj.category.name if obj.category else 'بدون دسته‌بندی')
     @admin.display(description='قیمت پایه (تومان)',ordering='price')
     def base_price(self,obj):
         return format_html('<strong>{}</strong><small class="catalog-row-category">به‌ازای {} عدد</small>',format(obj.price,','),format(obj.price_per,','))
-    def get_queryset(self,request):return super().get_queryset(request).select_related('category')
-    list_display=['product_label','platform','base_price','is_active','show_on_website','show_on_telegram']
+    @admin.display(description='مالیات',ordering='tax_policy__percent')
+    def tax_label(self,obj):
+        return f'{obj.tax_percent:g}٪' if obj.tax_percent else 'بدون مالیات'
+    def get_queryset(self,request):return super().get_queryset(request).select_related('category','tax_policy')
+    list_display=['product_label','platform','base_price','tax_label','is_active','show_on_website','show_on_telegram']
     list_editable=['is_active','show_on_website','show_on_telegram']
     list_filter=['platform','is_active','show_on_website','show_on_telegram','category'];search_fields=['name'];list_per_page=30
-    fieldsets=[('معرفی محصول',{'fields':['name','category','platform','plan_name','duration_months','description']}),('قیمت و تعداد',{'fields':['price',('price_per','min_order'),'max_order'],'description':'همه قیمت‌های پایه به تومان هستند. برای اشتراک تکی، تعداد مبنا و حداقل سفارش را روی ۱ قرار دهید.'}),('انتشار در سایت و تلگرام',{'fields':['is_active','show_on_website','show_on_telegram'],'description':'محل نمایش محصول را مستقل انتخاب کنید. محصولات غیرفعال قابل خرید نیستند.'}),('تصاویر روز و شب',{'fields':[('picture','night_picture'),'picture_alt','current_picture','current_night_picture','remove_night_picture','remove_picture']}),('اطلاعات تحویل و سئو',{'fields':['need_link','target_prompt','seo_description']}),('تنظیمات پیشرفته قیمت و ربات',{'fields':['price_currency','price_amount','product_profit_percent','target_type'],'classes':['collapse'],'description':'برای فروش معمولی با تومان نیازی به تغییر این بخش ندارید.'})]
+    fieldsets=[('معرفی محصول',{'fields':['name','category','platform','plan_name','duration_months','description']}),('قیمت و تعداد',{'fields':['price','tax_percent',('price_per','min_order'),'max_order'],'description':'همه قیمت‌های پایه به تومان هستند. برای اشتراک تکی، تعداد مبنا و حداقل سفارش را روی ۱ قرار دهید.'}),('انتشار در سایت و تلگرام',{'fields':['is_active','show_on_website','show_on_telegram'],'description':'محل نمایش محصول را مستقل انتخاب کنید. محصولات غیرفعال قابل خرید نیستند.'}),('تصاویر روز و شب',{'fields':[('picture','night_picture'),'picture_alt','current_picture','current_night_picture','remove_night_picture','remove_picture']}),('اطلاعات تحویل و سئو',{'fields':['need_link','target_prompt','seo_description']}),('تنظیمات پیشرفته قیمت و ربات',{'fields':['price_currency','price_amount','product_profit_percent','target_type'],'classes':['collapse'],'description':'برای فروش معمولی با تومان نیازی به تغییر این بخش ندارید.'})]
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(Category)
 class CategoryAdmin(AuditedAdmin):
@@ -99,6 +120,12 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 @admin.register(Order)
 class OrderAdmin(ReadOnlyAdmin):
     list_display=['tracking_code','product_name','quantity','total_price','status','created_at'];search_fields=['tracking_code','product_name'];list_filter=['status']
+    def get_readonly_fields(self,request,obj=None): return [*super().get_readonly_fields(request,obj),'tax_breakdown']
+    @admin.display(description='جزئیات مالیات هنگام خرید')
+    def tax_breakdown(self,obj):
+        amounts=getattr(obj,'amounts',None)
+        if not amounts: return 'برای این سفارش قدیمی تفکیک مالیات ثبت نشده است.'
+        return f'پیش از مالیات: {amounts.subtotal:,} تومان · مالیات ({amounts.tax_percent:g}٪): {amounts.tax_amount:,} تومان'
 @admin.register(Ledger)
 class LedgerAdmin(ReadOnlyAdmin):
     list_display=['user_id','amount','type','status','created_at'];list_filter=['type','status']

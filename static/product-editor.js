@@ -3,6 +3,7 @@
   const form = document.getElementById('product_form');
   if (!form) return;
   const field = name => form.elements.namedItem(name);
+  if (!field('name')) return;
   const text = (id, value) => { document.getElementById(id).textContent = value; };
   const number = new Intl.NumberFormat('fa-IR');
   function update() {

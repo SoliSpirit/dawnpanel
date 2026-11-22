@@ -30,7 +30,16 @@ def normalize_product_image(upload):
     except (UnidentifiedImageError,OSError,ValueError,Image.DecompressionBombError,Image.DecompressionBombWarning) as error:
         raise forms.ValidationError('فایل تصویر معتبر نیست.') from error
 
+class TaxPercentField(forms.DecimalField):
+    def to_python(self,value):
+        if isinstance(value,str): value=value.replace('٫','.')
+        return super().to_python(value)
+
+
 class ProductImageForm(forms.ModelForm):
+    tax_percent=TaxPercentField(label='درصد مالیات',min_value=0,max_value=100,max_digits=5,
+        decimal_places=2,required=False,initial=0,widget=forms.TextInput(attrs={'inputmode':'decimal','dir':'ltr'}),
+        help_text='از ۰ تا ۱۰۰؛ مثلاً ۹٫۵. روی مبلغ فروش همین محصول پس از سود و محاسبه تعداد اعمال می‌شود. صفر یعنی بدون مالیات.')
     plan_name=forms.CharField(label='نام پلن، مثل Plus یا Pro',max_length=80,required=False)
     duration_months=forms.IntegerField(label='مدت اعتبار به ماه',min_value=1,max_value=120,required=False)
     picture=forms.FileField(label='عکس محصول در حالت روز',required=False,help_text='JPG، PNG یا WebP تا ۵ مگابایت؛ تصویر بهینه و بدون اطلاعات اضافی ذخیره می‌شود.')
@@ -43,6 +52,9 @@ class ProductImageForm(forms.ModelForm):
         fields='__all__'
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
+        if 'name' not in self.fields: return  # Read-only admin view / publication-only form.
+        if self.instance.pk and 'tax_percent' in self.fields:
+            self.initial['tax_percent']=self.instance.tax_percent
         self.fields['category'].queryset=self.fields['category'].queryset.order_by('sort_order','name')
         self.fields['description'].widget.attrs.update(rows=5,placeholder='ویژگی‌ها، مدت اشتراک و شرایط تحویل محصول را بنویسید…')
         self.fields['name'].widget.attrs['placeholder']='مثلاً اشتراک یک‌ماهه…'

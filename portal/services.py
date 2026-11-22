@@ -1,6 +1,6 @@
 import hashlib,hmac,secrets,re,uuid
 from datetime import timedelta
-from decimal import Decimal,ROUND_CEILING
+from decimal import Decimal
 import requests
 from django.conf import settings
 from django.db import transaction,connection
@@ -8,8 +8,7 @@ from django.db.models import F,Q
 from django.utils import timezone
 from django.contrib.auth.models import User
 from .models import *
-
-class BusinessError(ValueError): pass
+from .pricing import BusinessError, ceil_div, pricing_for
 
 
 @transaction.atomic
@@ -110,28 +109,40 @@ def login_account(phone,campaign_id=None):
     return user
 
 def public_products():
+    from .catalog_aliases import unavailable_mirrors
     supported=Q(platform__in=['rubika','eitaa','bale','ai']) | Q(
         platform='other',pk__in=SourceProduct.objects.values('product_id'))
     unavailable=SourceProduct.objects.filter(sync_enabled=True,available=False).values('product_id')
-    return Product.objects.filter(supported,is_active=True,category__is_active=True,show_on_website=True).exclude(pk__in=unavailable)
+    return Product.objects.filter(supported,is_active=True,category__is_active=True,show_on_website=True).exclude(
+        Q(pk__in=unavailable) | unavailable_mirrors())
+
+def bot_products():
+    unavailable=SourceProduct.objects.filter(sync_enabled=True,available=False).values('product_id')
+    return Product.objects.filter(is_active=True,category__is_active=True,show_on_telegram=True).exclude(pk__in=unavailable)
 
 def price_for(product,quantity):
-    if quantity<product.min_order or (product.max_order and quantity>product.max_order) or quantity>100000000: raise BusinessError('تعداد خارج از محدوده مجاز است.')
-    if product.price_per<=0: raise BusinessError('قیمت محصول نیاز به بررسی دارد.')
-    amount=product.price_amount if product.price_amount is not None else Decimal(product.price)
-    if product.price_currency!='TOMAN':
-        with connection.cursor() as c:
-            c.execute('SELECT rate FROM currencies WHERE code=%s AND is_active=1',[product.price_currency]); row=c.fetchone()
-        if not row or row[0]<=0: raise BusinessError('نرخ ارز در دسترس نیست.')
-        amount*=Decimal(row[0])
-    # The bot rounds the pack price upward before calculating the quantity total.
-    pack=(amount*(Decimal(1)+max(Decimal(0),product.product_profit_percent)/100)).to_integral_value(rounding=ROUND_CEILING)
-    total=int((pack*quantity/Decimal(product.price_per)).to_integral_value(rounding=ROUND_CEILING))
-    if total<=0 or total>100000000000: raise BusinessError('مبلغ سفارش نامعتبر است.')
-    return total,int(pack)
+    pricing=pricing_for(product)
+    return pricing.quote(quantity).total,pricing.pack
+
+
+def _charge_order(wallet, product, quantity, target, quoted_total, quoted_breakdown, channel):
+    """Both callers hold the wallet and product locks in an atomic transaction."""
+    pricing=pricing_for(product)
+    quote=pricing.quote(quantity)
+    quote.check_review(quoted_total,quoted_breakdown)
+    if product.need_link and not target.strip(): raise BusinessError('لینک یا شناسه سفارش را وارد کنید.')
+    if len(target)>1500: raise BusinessError('اطلاعات سفارش بیش از حد طولانی است.')
+    if wallet.balance<quote.total: raise BusinessError('موجودی کافی نیست. ابتدا کیف پول را شارژ کنید.')
+    wallet.balance-=quote.total;wallet.save(update_fields=['balance'])
+    order=Order.objects.create(tracking_code='DWN-'+secrets.token_hex(8).upper(),user=wallet,
+        product_id=product.pk,product_name=product.name,target_link=target,quantity=quantity,
+        unit_price=ceil_div(pricing.pack,pricing.price_per),total_price=quote.total)
+    OrderAmounts.objects.create(order=order,subtotal=quote.subtotal,tax_percent=quote.tax_percent,tax_amount=quote.tax_amount)
+    Ledger.objects.create(user=wallet,amount=-quote.total,type='withdraw',description=f'خرید {channel}: {order.tracking_code}')
+    return order
 
 @transaction.atomic
-def place_order(account,product_id,quantity,target,key,quoted_total):
+def place_order(account,product_id,quantity,target,key,quoted_total,quoted_breakdown=None):
     # Lock the wallet first: serializes retries, bot purchases and concurrent website purchases.
     wallet=LegacyUser.objects.select_for_update().get(pk=account.legacy_id)
     if wallet.is_banned or not wallet.is_verified: raise BusinessError('حساب مجاز به ثبت سفارش نیست.')
@@ -140,14 +151,7 @@ def place_order(account,product_id,quantity,target,key,quoted_total):
     if checkout.order_id: return Order.objects.get(pk=checkout.order_id)
     p=public_products().select_for_update().filter(pk=product_id).first()
     if not p: raise BusinessError('محصول در دسترس نیست.')
-    total,pack=price_for(p,quantity)
-    if total!=quoted_total: raise BusinessError('قیمت تغییر کرده است؛ سفارش را دوباره بررسی کنید.')
-    if p.need_link and not target.strip(): raise BusinessError('لینک یا شناسه سفارش را وارد کنید.')
-    if len(target)>1500: raise BusinessError('اطلاعات سفارش بیش از حد طولانی است.')
-    if wallet.balance<total: raise BusinessError('موجودی کافی نیست. ابتدا کیف پول را شارژ کنید.')
-    wallet.balance-=total;wallet.save(update_fields=['balance'])
-    order=Order.objects.create(tracking_code='DWN-'+secrets.token_hex(8).upper(),user=wallet,product_id=p.pk,product_name=p.name,target_link=target,quantity=quantity,unit_price=int((Decimal(pack)/p.price_per).to_integral_value(rounding=ROUND_CEILING)),total_price=total)
-    Ledger.objects.create(user=wallet,amount=-total,type='withdraw',description=f'خرید سایت: {order.tracking_code}')
+    order=_charge_order(wallet,p,quantity,target,quoted_total,quoted_breakdown,'سایت')
     checkout.order_id=order.pk;checkout.save(update_fields=['order_id'])
     return order
 
@@ -223,20 +227,12 @@ def verify_payment(authority):
 
 
 @transaction.atomic
-def place_bot_order(uid,product_id,quantity,target,quoted_total):
+def place_bot_order(uid,product_id,quantity,target,quoted_total,quoted_breakdown=None):
     wallet=LegacyUser.objects.select_for_update().get(pk=uid)
     if wallet.is_banned or not wallet.is_verified: raise BusinessError('حساب مجاز به ثبت سفارش نیست.')
-    p=Product.objects.select_for_update().filter(pk=product_id,is_active=True,category__is_active=True,show_on_telegram=True).first()
+    p=bot_products().select_for_update().filter(pk=product_id).first()
     if not p: raise BusinessError('محصول در تلگرام در دسترس نیست.')
-    if SourceProduct.objects.filter(product_id=p.pk,sync_enabled=True,available=False).exists():
-        raise BusinessError('این محصول فعلاً در منبع موجود نیست.')
-    total,pack=price_for(p,quantity)
-    if total!=quoted_total: raise BusinessError('قیمت تغییر کرده؛ سفارش را دوباره بررسی کنید.')
-    if p.need_link and not str(target).strip(): raise BusinessError('مقصد سفارش لازم است.')
-    if wallet.balance<total: raise BusinessError('موجودی کافی نیست.')
-    wallet.balance-=total;wallet.save(update_fields=['balance'])
-    o=Order.objects.create(tracking_code='DWN-'+secrets.token_hex(8).upper(),user=wallet,product_id=p.pk,product_name=p.name,target_link=str(target)[:1500],quantity=quantity,unit_price=int((Decimal(pack)/p.price_per).to_integral_value(rounding=ROUND_CEILING)),total_price=total)
-    Ledger.objects.create(user=wallet,amount=-total,type='withdraw',description='خرید ربات: '+o.tracking_code)
+    o=_charge_order(wallet,p,quantity,str(target or ''),quoted_total,quoted_breakdown,'ربات')
     return o.pk,o.tracking_code
 
 
