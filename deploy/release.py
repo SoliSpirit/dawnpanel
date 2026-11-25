@@ -13,6 +13,7 @@ import time
 BASE = Path('/opt/dawnpanel')
 SHA = re.compile(r'[0-9a-f]{40}')
 MIN_FREE_BYTES = 1024**3
+PROC = Path('/proc')
 HEALTH = ['curl', '--fail', '--silent', '--max-time', '5', '-H', 'Host: dawnpanel.ir',
           '-H', 'X-Forwarded-Proto: https', 'http://127.0.0.1:18145/healthz/']
 
@@ -38,6 +39,8 @@ def write_pointer(base, name, target):
 
 
 def remove_release_trees(paths, *, dry_run=False):
+    if not paths:
+        return
     # mountinfo also lists bind mounts, which Path.is_mount() can miss.
     mounted = [
         Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), line.split()[4]))
@@ -45,6 +48,20 @@ def remove_release_trees(paths, *, dry_run=False):
     ]
     if any(mount.is_relative_to(path) for path in paths for mount in mounted):
         raise ValueError('A release contains a mount point; nothing pruned')
+    # In particular, an hourly job may still be running from the old release
+    # after gunicorn and the bot have switched. Leave the whole batch for a retry.
+    for pid in PROC.glob('[0-9]*'):
+        try:
+            handles = [pid / 'cwd', pid / 'exe', pid / 'root', *(pid / 'fd').iterdir()]
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        for handle in handles:
+            try:
+                target = handle.readlink()
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if target.is_absolute() and any(target.is_relative_to(path) for path in paths):
+                raise ValueError(f'Release in use by process {pid.name}; nothing pruned')
     for path in paths:
         if not dry_run:
             shutil.rmtree(path)
@@ -52,21 +69,24 @@ def remove_release_trees(paths, *, dry_run=False):
 
 
 def prune_releases(base, *, dry_run=False):
-    """Only called under the deployment lock; never guess the rollback target."""
+    """After a healthy switch, keep only current. Called under the deploy lock."""
     releases = base / 'releases'
     if releases.is_symlink() or not releases.is_dir():
         raise ValueError('Invalid release root')
     current = release_pointer(base, 'current')
-    previous = release_pointer(base, 'previous')
     if not current:
         raise ValueError('No valid current release; nothing pruned')
     candidates = sorted(p for p in releases.iterdir()
                         if SHA.fullmatch(p.name) and not p.is_symlink() and p.is_dir())
-    if not previous and any(p != current for p in candidates):
-        raise ValueError('No recorded rollback release; nothing pruned')
-    stale = [p for p in candidates if p not in {current, previous}]
+    # Older wrappers left this symlink. Never traverse it to remove a target.
+    legacy = base / 'previous'
+    if legacy.exists() and not legacy.is_symlink():
+        raise ValueError('Unexpected previous entry; nothing pruned')
+    stale = [p for p in candidates if p != current]
     remove_release_trees(stale, dry_run=dry_run)
-    print('Kept releases:', current.name, previous.name if previous else '(no previous yet)', flush=True)
+    if not dry_run and legacy.is_symlink():
+        legacy.unlink()
+    print('Active release:', current.name, flush=True)
     return stale
 
 
@@ -138,8 +158,6 @@ def deploy(sha):
             else:
                 raise RuntimeError('Health check failed')
             subprocess.run(['systemctl', 'try-restart', 'dawnpanel-bot'], check=True)
-            if previous:
-                write_pointer(BASE, 'previous', previous)
         except Exception:
             if previous:
                 write_pointer(BASE, 'current', previous)

@@ -28,6 +28,7 @@ jobs:
       - run: npm audit --audit-level=high
       - run: npm run check:build
       - run: python manage.py check
+      - run: python -m unittest deploy.test_release
       - run: python manage.py test portal --noinput
       - run: python -m compileall -q dawn portal telegram
       - run: pip-audit -r requirements.lock
