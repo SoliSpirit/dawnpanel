@@ -30,34 +30,35 @@
     </a>{% endfor %}
   </section>{% endif %}
 
-  {% if perms.portal.view_order or desk_tasks %}<div class="desk-columns">
-    {% if perms.portal.view_order %}{% include 'admin/overview/sales.html' %}{% endif %}
-    {% if desk_tasks %}<section class="desk-panel desk-queue" aria-labelledby="queue-title" id="queue">
-      <div class="desk-panel-head"><div><p class="desk-eyebrow">عملیات فروشگاه</p><h2 id="queue-title">نیاز به رسیدگی</h2></div><span class="desk-total">{{ task_count|fa_number }} مورد</span></div>
-      <ul class="desk-queue-list">{% for task in desk_tasks %}<li><a href="{{ task.href }}" data-tone="{{ task.tone }}">
-        <span class="desk-symbol">{% icon task.icon %}</span><span class="desk-item-name">{{ task.label }}</span>
-        <strong class="desk-count{% if task.count %} has-items{% endif %}">{{ task.count|fa_number }}</strong>{% icon 'chevron' %}
-      </a></li>{% endfor %}</ul>
-      {% if not task_count %}<p class="desk-note">در صف‌های بالا موردی برای رسیدگی نیست.</p>{% endif %}
-    </section>{% endif %}
-  </div>{% endif %}
-
-  {% if perms.portal.view_order or perms.portal.view_ticket %}<div class="desk-columns desk-activity">
-    {% if perms.portal.view_order %}<section class="desk-panel" id="orders" aria-labelledby="orders-title">
-      <div class="desk-panel-head"><div><p class="desk-eyebrow">پیگیری خریدها</p><h2 id="orders-title">آخرین سفارش‌ها</h2></div><a class="desk-link" href="{% url 'admin:portal_order_changelist' %}">همه سفارش‌ها {% icon 'left' %}</a></div>
-      <ul class="desk-orders">{% for order in recent_orders %}<li><a href="{% url 'admin:portal_order_change' order.pk %}">
-        <span class="desk-order-id"><strong>{{ order.product_name }}</strong><bdi>{{ order.tracking_code }}</bdi></span>
-        <span class="desk-status" data-status="{{ order.status }}">{{ order.status_label }}</span>
-        <span class="desk-price">{{ order.total_price|fa_number }} <small>تومان</small></span>
-      </a></li>{% empty %}<li class="desk-empty">{% icon 'bag' %}<strong>هنوز سفارشی ثبت نشده است.</strong><span>اولین خرید فروشگاه اینجا نمایش داده می‌شود.</span></li>{% endfor %}</ul>
-      <div class="desk-panel-foot"><span>کل فروش تکمیل‌شده</span><strong>{{ completed_revenue|fa_number }} تومان</strong></div>
-    </section>{% endif %}
-    {% if perms.portal.view_ticket %}<section class="desk-panel" id="tickets" aria-labelledby="tickets-title">
-      <div class="desk-panel-head"><div><p class="desk-eyebrow">پشتیبانی مشتریان</p><h2 id="tickets-title">آخرین تیکت‌های فعال</h2></div><a class="desk-link" href="{% url 'admin:portal_ticket_changelist' %}">همه تیکت‌ها {% icon 'left' %}</a></div>
-      <ul class="desk-tickets">{% for ticket in recent_tickets %}<li><a href="{% if perms.portal.change_ticket %}{% url 'ticket' ticket.pk %}{% else %}{% url 'admin:portal_ticket_change' ticket.pk %}{% endif %}">
-        <span class="desk-ticket-dot{% if ticket.priority == 'urgent' %} urgent{% endif %}" aria-hidden="true"></span><span><strong>{{ ticket.subject }}</strong><small>شماره {{ ticket.pk|fa_number }} · {{ ticket.get_status_display }}{% if ticket.priority == 'urgent' %} · فوری{% endif %}</small></span>{% icon 'chevron' %}
-      </a></li>{% empty %}<li class="desk-empty">{% icon 'chat' %}<strong>تیکت فعالی وجود ندارد.</strong></li>{% endfor %}</ul>
-    </section>{% endif %}
+  {% if perms.portal.view_order or desk_tasks or perms.portal.view_ticket %}<div class="desk-columns">
+    {% if perms.portal.view_order %}<div class="desk-stack">
+      {% include 'admin/overview/sales.html' %}
+      <section class="desk-panel" id="orders" aria-labelledby="orders-title">
+        <div class="desk-panel-head"><div><p class="desk-eyebrow">پیگیری خریدها</p><h2 id="orders-title">آخرین سفارش‌ها</h2></div><a class="desk-link" href="{% url 'admin:portal_order_changelist' %}">همه سفارش‌ها {% icon 'left' %}</a></div>
+        <ul class="desk-orders">{% for order in recent_orders %}<li><a href="{% url 'admin:portal_order_change' order.pk %}">
+          <span class="desk-order-id"><strong>{{ order.product_name }}</strong><bdi>{{ order.tracking_code }}</bdi></span>
+          <span class="desk-status" data-status="{{ order.status }}">{{ order.status_label }}</span>
+          <span class="desk-price">{{ order.total_price|fa_number }} <small>تومان</small></span>
+        </a></li>{% empty %}<li class="desk-empty">{% icon 'bag' %}<strong>هنوز سفارشی ثبت نشده است.</strong><span>اولین خرید فروشگاه اینجا نمایش داده می‌شود.</span></li>{% endfor %}</ul>
+        <div class="desk-panel-foot"><span>کل فروش تکمیل‌شده</span><strong>{{ completed_revenue|fa_number }} تومان</strong></div>
+      </section>
+    </div>{% endif %}
+    {% if desk_tasks or perms.portal.view_ticket %}<div class="desk-stack">
+      {% if desk_tasks %}<section class="desk-panel desk-queue" aria-labelledby="queue-title" id="queue">
+        <div class="desk-panel-head"><div><p class="desk-eyebrow">عملیات فروشگاه</p><h2 id="queue-title">نیاز به رسیدگی</h2></div><span class="desk-total">{{ task_count|fa_number }} مورد</span></div>
+        <ul class="desk-queue-list">{% for task in desk_tasks %}<li><a href="{{ task.href }}" data-tone="{{ task.tone }}">
+          <span class="desk-symbol">{% icon task.icon %}</span><span class="desk-item-name">{{ task.label }}</span>
+          <strong class="desk-count{% if task.count %} has-items{% endif %}">{{ task.count|fa_number }}</strong>{% icon 'chevron' %}
+        </a></li>{% endfor %}</ul>
+        {% if not task_count %}<p class="desk-note">در صف‌های بالا موردی برای رسیدگی نیست.</p>{% endif %}
+      </section>{% endif %}
+      {% if perms.portal.view_ticket %}<section class="desk-panel" id="tickets" aria-labelledby="tickets-title">
+        <div class="desk-panel-head"><div><p class="desk-eyebrow">پشتیبانی مشتریان</p><h2 id="tickets-title">آخرین تیکت‌های فعال</h2></div><a class="desk-link" href="{% url 'admin:portal_ticket_changelist' %}">همه تیکت‌ها {% icon 'left' %}</a></div>
+        <ul class="desk-tickets">{% for ticket in recent_tickets %}<li><a href="{% if perms.portal.change_ticket %}{% url 'ticket' ticket.pk %}{% else %}{% url 'admin:portal_ticket_change' ticket.pk %}{% endif %}">
+          <span class="desk-ticket-dot{% if ticket.priority == 'urgent' %} urgent{% endif %}" aria-hidden="true"></span><span><strong>{{ ticket.subject }}</strong><small>شماره {{ ticket.pk|fa_number }} · {{ ticket.get_status_display }}{% if ticket.priority == 'urgent' %} · فوری{% endif %}</small></span>{% icon 'chevron' %}
+        </a></li>{% empty %}<li class="desk-empty">{% icon 'chat' %}<strong>تیکت فعالی وجود ندارد.</strong></li>{% endfor %}</ul>
+      </section>{% endif %}
+    </div>{% endif %}
   </div>{% endif %}
 
   <section class="desk-panel desk-tools" id="tools" aria-labelledby="tools-title">

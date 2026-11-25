@@ -45,7 +45,11 @@ body #header #branding {display:flex;align-items:center;gap:12px;width:auto!impo
 #header .dp-profile .dp-popover :is(a,button) {display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;width:100%;min-height:44px;padding:7px 9px;border:0;border-radius:7px;cursor:pointer;color:var(--dp-ink);background:transparent;font:inherit;font-size:13px}
 .dp-profile form {margin:0}.dp-popover .ui-icon,.dp-footer .ui-icon {width:17px;height:17px}
 .dp-mobile {display:none}
-#workspace-rail {position:sticky;top:0;align-self:flex-start;overflow:auto;scrollbar-width:thin;width:226px;flex:0 0 226px;max-height:100vh;min-height:min(100vh,600px);box-sizing:border-box;padding:18px 14px 28px;background:var(--dp-surface);border-inline-end:1px solid var(--dp-line);color:var(--dp-ink)}
+#workspace-rail {align-self:stretch;width:226px;flex:0 0 226px;box-sizing:border-box;background:var(--dp-surface);border-inline-end:1px solid var(--dp-line);color:var(--dp-ink)}
+.dp-rail-frame {position:sticky;top:0;display:flex;flex-direction:column;height:calc(100vh - 68px);height:calc(100dvh - 68px)}
+.dp-rail-scroll {flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;padding:18px 14px 12px}
+.dp-rail-store {display:flex;align-items:center;gap:9px;min-height:46px;flex:none;margin:0 14px;padding-inline:8px;border-top:1px solid var(--dp-line);color:var(--dp-accent);font-size:13px}
+.dp-rail-store .ui-icon {width:17px;height:17px}.dp-rail-store .ui-icon:last-child {margin-inline-start:auto}
 #main>.content {min-width:0}
 .dp-filter {display:flex;align-items:center;gap:8px;padding-inline:10px;background:var(--dp-soft);border:1px solid var(--dp-line);border-radius:10px;color:var(--dp-muted)}
 .dp-filter .ui-icon,.dp-nav-link .ui-icon {width:18px;height:18px;flex:none}
@@ -61,7 +65,7 @@ body #header #branding {display:flex;align-items:center;gap:12px;width:auto!impo
 .dp-footer {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px clamp(16px,2.5vw,38px);min-height:52px;box-sizing:border-box;border-top:1px solid var(--dp-line);background:var(--dp-surface);font-size:12px;color:var(--dp-muted)}
 body:not(.popup) #container>#footer {margin-top:auto;padding:0;flex-shrink:0}
 .dp-footer a {display:inline-flex;gap:6px;align-items:center;color:var(--dp-accent)}
-@media (max-width:900px) {#workspace-rail {width:190px;flex-basis:190px;padding-inline:10px}}
+@media (max-width:900px) {#workspace-rail {width:190px;flex-basis:190px}.dp-rail-scroll {padding-inline:10px}}
 @media (max-width:767px) {
   #workspace-rail,#header .dp-rail-toggle {display:none!important}
   body #header {min-height:62px;padding:8px 15px;gap:10px}

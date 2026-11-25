@@ -1,6 +1,11 @@
 {% load ui %}
 <nav id="workspace-rail" class="dp-rail" aria-label="منوی کناری مدیریت">
-  <label class="dp-filter">{% icon 'search' %}<span class="visually-hidden">جستجو در بخش‌های مدیریت</span><input type="search" id="workspace-filter" placeholder="جستجو در منو…" autocomplete="off"></label>
-  {% include 'admin/overview/navigation.html' %}
-  <p class="dp-no-results" role="status" hidden>بخشی با این نام پیدا نشد.</p>
+  <div class="dp-rail-frame">
+    <div class="dp-rail-scroll">
+      <label class="dp-filter">{% icon 'search' %}<span class="visually-hidden">جستجو در بخش‌های مدیریت</span><input type="search" id="workspace-filter" placeholder="جستجو در منو…" autocomplete="off"></label>
+      {% include 'admin/overview/navigation.html' %}
+      <p class="dp-no-results" role="status" hidden>بخشی با این نام پیدا نشد.</p>
+    </div>
+    <a class="dp-rail-store" href="{% url 'catalog' %}">{% icon 'store' %} مشاهده فروشگاه {% icon 'left' %}</a>
+  </div>
 </nav>

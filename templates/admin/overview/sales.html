@@ -7,7 +7,7 @@
   <div class="desk-sales-caption"><span>{{ report_caption }}</span><span>{% if monthly_buckets %}نمای ماهانه{% else %}نمای روزانه{% endif %}</span></div>
   {{ sales_chart|json_script:'sales-chart-data' }}
   {% if range_order_count %}<div id="sales-visual" class="desk-chart" role="img" aria-label="نمودار فروش تکمیل‌شده به تومان؛ ارقام در جدول زیر نیز در دسترس‌اند."></div>
-  {% else %}<div class="desk-empty desk-chart-empty">{% icon 'plot' %}<strong>در این بازه فروش تکمیل‌شده‌ای ثبت نشده است.</strong><span>بازهٔ دیگری را انتخاب کن یا سفارش‌ها را بررسی کن.</span></div>{% endif %}
+  {% else %}<p class="desk-sales-notice">{% icon 'plot' %}<span>در این بازه سفارشی تکمیل نشده است.</span> <a href="#orders">مشاهده سفارش‌ها</a></p>{% endif %}
   <div class="desk-report-options">
     <details class="desk-disclosure"{% if report_period == 'custom' or report_error %} open{% endif %}><summary>{% icon 'calendar' %} بازهٔ دلخواه {% icon 'chevron' %}</summary>
       <form method="get" action="{% url 'admin:index' %}#sales" class="desk-dates">
