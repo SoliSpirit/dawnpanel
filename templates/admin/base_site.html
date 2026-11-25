@@ -1,10 +1,22 @@
-{% extends 'admin/base.html' %}{% load static %}
+{% extends 'admin/base.html' %}{% load static ui %}
 {% block title %}{{ title }} | مدیریت دان‌پنل{% endblock %}
 {% block dark-mode-vars %}<link rel="stylesheet" href="{% static 'admin/css/dark_mode.css' %}"><script src="{% static 'theme.js' %}"></script>{% endblock %}
-{% block extrahead %}{{ block.super }}<script src="{% static 'workspace.js' %}" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="icon" type="image/svg+xml" href="{% static 'brand/dawn-mark.svg' %}"><script src="{% static 'workspace.js' %}" defer></script>{% endblock %}
 {% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-panel.css' %}"><link rel="stylesheet" href="{% static 'workspace.css' %}"><link rel="stylesheet" href="{% static 'admin-command.css' %}">{% endblock %}
-{% block branding %}<a class="dawn-admin-brand" href="{% url 'admin:index' %}"><img src="{% static 'brand/dawn-mark.svg' %}" width="42" height="42" alt=""><span>دان‌پنل<small>مرکز مدیریت فروشگاه</small></span></a>{% endblock %}
-{% block usertools %}{% if has_permission %}<div class="dawn-admin-tools"><span>خوش آمدید، <strong>{{ user.get_full_name|default:'مدیر فروشگاه' }}</strong></span><button class="theme-toggle" type="button" data-theme-toggle aria-label="تغییر تم"><span data-theme-icon aria-hidden="true">☀</span></button></div>{% endif %}{% endblock %}
-{% block nav-global %}{% if not is_popup %}<details class="command-mobile-menu"><summary>منوی مدیریت</summary><nav aria-label="منوی موبایل مدیریت"><a href="{% url 'admin:index' %}">داشبورد</a>{% for label, models in workspace_groups %}{% if models %}<details><summary>{{ label }}</summary>{% for model in models %}<a href="{{ model.admin_url }}">{{ model.name }}</a>{% endfor %}</details>{% endif %}{% endfor %}</nav></details>{% endif %}{% endblock %}
-{% block footer %}{% if has_permission and not is_popup %}<div class="command-footer"><div class="command-footer-account"><span class="command-footer-avatar" aria-hidden="true">{{ user.first_name|first|default:'د' }}</span><div><strong>{{ user.get_full_name|default:'مدیر فروشگاه' }}</strong><small>حساب مدیریت</small></div><form method="post" action="{% url 'admin:logout' %}">{% csrf_token %}<button type="submit">خروج <span aria-hidden="true">↪</span></button></form></div><span class="command-footer-note">دان‌پنل · مدیریت فروشگاه</span><a class="command-footer-shop" href="{% url 'home' %}">مشاهده فروشگاه <span aria-hidden="true">↖</span></a></div>{% endif %}{% endblock %}
+{% block branding %}
+  {% if is_nav_sidebar_enabled %}<button hidden type="button" class="dp-rail-toggle" aria-label="منوی مدیریت" aria-controls="workspace-rail" aria-expanded="true">{% icon 'layers' %}</button>{% endif %}
+  <a class="dawn-admin-brand" href="{% url 'admin:index' %}"><img src="{% static 'brand/dawn-mark.svg' %}" width="36" height="36" alt=""><span>دان‌پنل</span></a><span class="dp-edition">مدیریت فروشگاه</span>
+{% endblock %}
+{% block usertools %}{% if has_permission %}
+  <div class="dawn-admin-tools">
+    <button class="theme-toggle" type="button" data-theme-toggle aria-label="تغییر تم"><span data-theme-icon aria-hidden="true">☾</span></button>
+    <details class="dp-profile" name="admin-header-menus"><summary><span class="dp-avatar" aria-hidden="true">{{ user.first_name|first|default:'د' }}</span><span class="dp-profile-name">{{ user.get_full_name|default:'حساب مدیریت' }}</span>{% icon 'chevron' %}<span class="visually-hidden">منوی حساب</span></summary>
+      <div class="dp-popover"><strong>{{ user.get_full_name|default:'حساب مدیریت' }}</strong><a href="{% url 'catalog' %}">مشاهده فروشگاه {% icon 'left' %}</a><form method="post" action="{% url 'admin:logout' %}">{% csrf_token %}<button type="submit">خروج از حساب</button></form></div>
+    </details>
+  </div>
+{% endif %}{% endblock %}
+{% block nav-global %}{% if not is_popup %}
+  <details class="dp-mobile" name="admin-header-menus"><summary aria-label="منوی مدیریت">{% icon 'menu' %}<span class="visually-hidden">منوی مدیریت</span></summary><nav class="dp-popover" aria-label="بخش‌های مدیریت">{% include 'admin/overview/navigation.html' %}</nav></details>
+{% endif %}{% endblock %}
+{% block footer %}{% if has_permission and not is_popup %}<div class="dp-footer"><span>دان‌پنل · مدیریت فروشگاه</span><a href="{% url 'catalog' %}">رفتن به فروشگاه {% icon 'left' %}</a></div>{% endif %}{% endblock %}
 {% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">داشبورد</a>{% if title %} ← {{ title }}{% endif %}</div>{% endblock %}

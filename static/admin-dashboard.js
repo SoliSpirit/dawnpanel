@@ -1,38 +1,56 @@
 (() => {
-  'use strict';
-  const period = document.getElementById('report-period');
-  const dateFields = document.querySelector('.command-date-fields');
-  period?.addEventListener('change', () => { dateFields.hidden = period.value !== 'custom'; });
-  const data = document.getElementById('sales-chart-data');
   const host = document.getElementById('sales-visual');
-  if (!data || !host) return;
-  const rows = JSON.parse(data.textContent);
-  const ns = 'http://www.w3.org/2000/svg';
-  const make = (tag, attrs, text) => {
-    const el = document.createElementNS(ns, tag);
-    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value));
-    if (text !== undefined) el.textContent = text;
-    return el;
+  if (!host) return;
+  const rows = JSON.parse(document.getElementById('sales-chart-data').textContent);
+  if (!rows.length) return;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const el = (kind, attrs = {}, text) => {
+    const node = document.createElementNS(svgNS, kind);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+    if (text !== undefined) node.textContent = text;
+    return node;
   };
-  const number = new Intl.NumberFormat('fa-IR', {notation:'compact', maximumFractionDigits:1});
-  const svg = make('svg', {viewBox:'0 0 760 230', 'aria-hidden':'true', focusable:'false'});
-  const peak = Math.max(1, ...rows.map(r => r.amount));
-  for (let i = 0; i <= 4; i++) {
-    const y = 15 + i * 44;
-    svg.append(make('line', {x1:64, y1:y, x2:750, y2:y, class:'chart-grid'}));
-    svg.append(make('text', {x:53, y:y + 4, 'text-anchor':'end', class:'chart-axis'}, number.format(peak === 1 ? 0 : peak * (4-i)/4)));
-  }
-  const gap = 686 / Math.max(1, rows.length);
-  rows.forEach((row, i) => {
-    const height = row.amount / peak * 176;
-    const x = 64 + i * gap;
-    const group = make('g', {});
-    group.append(make('title', {}, row.label + ': ' + new Intl.NumberFormat('fa-IR').format(row.amount) + ' تومان'));
-    group.append(make('rect', {x:x + gap*.18, y:191 - Math.max(2,height), width:gap*.64, height:Math.max(2,height), rx:Math.min(5,gap*.1), class:row.amount ? 'chart-bar' : 'chart-zero'}));
-    if (rows.length <= 8 || i === 0 || i === rows.length-1 || i % Math.ceil(rows.length/6) === 0) {
-      svg.append(make('text', {x:x+gap/2, y:218, 'text-anchor':'middle', class:'chart-axis'}, row.label.slice(5)));
+  const compact = new Intl.NumberFormat('fa-IR', {notation:'compact', maximumFractionDigits:1});
+  const full = new Intl.NumberFormat('fa-IR');
+  let lastWidth;
+  function draw() {
+    const w = Math.floor(host.clientWidth);
+    if (w < 100 || w === lastWidth) return;
+    lastWidth = w;
+    const h = w < 460 ? 155 : 182;
+    const left = w < 400 ? 46 : 62, right = w - 18, top = 15, bottom = h - 27;
+    const peak = Math.max(1, ...rows.map(r => r.amount));
+    const scale = 10 ** Math.floor(Math.log10(peak/3));
+    const step = Math.max(1, [1,2,5,10].find(n => n*scale >= peak/3)*scale);
+    const ceiling = Math.ceil(peak/step)*step;
+    const x = i => rows.length === 1 ? (left+right)/2 : left + i*(right-left)/(rows.length-1);
+    const y = v => bottom - (v/ceiling)*(bottom-top);
+    const svg = el('svg', {viewBox:`0 0 ${w} ${h}`, direction:'ltr', 'aria-hidden':'true', focusable:'false'});
+    const defs = el('defs'), grad = el('linearGradient', {id:'desk-chart-fill',x1:0,x2:0,y1:0,y2:1});
+    grad.append(el('stop', {offset:0,class:'area-stop','stop-opacity':.28}),el('stop',{offset:1,class:'area-stop','stop-opacity':.02}));
+    defs.append(grad); svg.append(defs);
+    for (let v=0; v<=ceiling; v+=step) {
+      svg.append(el('line',{x1:left,x2:right,y1:y(v),y2:y(v),class:'grid'}),
+                 el('text',{x:left-6,y:y(v)+4,'text-anchor':'end'},compact.format(v)));
     }
-    svg.append(group);
-  });
-  host.append(svg);
+    const pts = rows.map((r,i) => [x(i),y(r.amount)]);
+    if (pts.length > 1) {
+      const path = 'M' + pts.map(p=>p.join(',')).join(' L');
+      svg.append(el('path',{d:`${path} L${right},${bottom} L${left},${bottom} Z`,fill:'url(#desk-chart-fill)'}),
+                 el('path',{d:path,class:'trend'}));
+    }
+    const ticks = Math.max(2,Math.floor((right-left)/82));
+    const tickIndexes = new Set(Array.from({length:ticks},(_,n)=>Math.round(n*(rows.length-1)/(ticks-1))));
+    pts.forEach(([px,py],i) => {
+      if (pts.length<=14 || i===pts.length-1) svg.append(el('circle',{cx:px,cy:py,r:3.5,class:'point'}));
+      if (tickIndexes.has(i)) svg.append(el('text',{x:Math.min(w-32,Math.max(33,px)),y:h-6,direction:'rtl','text-anchor':'middle'},rows[i].tick));
+      const a=i ? (px+x(i-1))/2 : left, b=i===pts.length-1 ? right : (px+x(i+1))/2;
+      const hit=el('rect',{x:a,y:top,width:b-a,height:bottom-top,fill:'transparent'});
+      hit.append(el('title',{},`${rows[i].display}: ${full.format(rows[i].amount)} تومان`)); svg.append(hit);
+    });
+    host.replaceChildren(svg);
+  }
+  draw();
+  if ('ResizeObserver' in window) new ResizeObserver(draw).observe(host);
+  else window.addEventListener('resize',draw);
 })();

@@ -1,44 +1,77 @@
-{% extends 'admin/index.html' %}{% load ui static %}
+{% extends 'admin/index.html' %}{% load static ui %}
+{% block bodyclass %}{{ block.super }} desk-page{% endblock %}
+{% block coltype %}colM{% endblock %}
 {% block nav-sidebar %}{% include 'admin/nav_sidebar.html' %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block sidebar %}{% endblock %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-overview.css' %}">{% endblock %}
 {% block extrahead %}{{ block.super }}<script src="{% static 'admin-dashboard.js' %}" defer></script>{% endblock %}
+
 {% block content %}
-<div class="command-dashboard">
-<header class="command-intro"><div><div class="command-kicker"><span class="command-dot"></span> فضای کاری شما <span class="command-date" dir="ltr">{{ dashboard_date|date:'Y/m/d' }}</span></div><h1>داشبورد فروشگاه<span>.</span></h1><p>نمای روشن از فروش، مشتریان و کارهای امروز.</p></div><div class="command-intro-actions">{% if perms.portal.add_product %}<a class="command-button" href="{% url 'admin:portal_product_add' %}"><span aria-hidden="true">＋</span> محصول جدید</a>{% endif %}<a class="command-button secondary" href="{% url 'home' %}">{% icon 'arrow' %} فروشگاه</a></div></header>
+<div class="desk" id="store-overview">
+  <header class="desk-hero">
+    <div class="desk-hero-copy">
+      <time class="desk-hero-date" datetime="{{ dashboard_date|date:'Y-m-d' }}">{% icon 'calendar' %} {{ today_caption }}</time>
+      <h1>داشبورد فروشگاه</h1>
+      <div class="desk-hero-actions">
+        {% if perms.portal.add_product %}<a class="desk-button primary" href="{% url 'admin:portal_product_add' %}">{% icon 'plus' %} افزودن محصول</a>
+        {% elif perms.portal.change_order or perms.portal.change_ticket %}<a class="desk-button primary" href="{% url 'staff' %}">{% icon 'inbox' %} میز رسیدگی</a>
+        {% elif perms.portal.add_post %}<a class="desk-button primary" href="{% url 'admin:portal_post_add' %}">{% icon 'plus' %} نوشتن مقاله</a>{% endif %}
+        {% if task_count and perms.portal.add_product %}<a class="desk-button ghost" href="#queue">{% icon 'inbox' %} صف رسیدگی · {{ task_count|fa_number }}</a>
+        {% else %}<a class="desk-button ghost" href="{% url 'catalog' %}">{% icon 'store' %} مشاهده فروشگاه</a>{% endif %}
+      </div>
+    </div>
+  </header>
 
-<div class="command-metrics">{% for metric in dashboard_metrics %}<a class="command-metric" href="{% url metric.url %}"><div><span>{{ metric.label }}</span><i>{% icon metric.icon %}</i></div><strong>{{ metric.count|number }}</strong><footer><span>مشاهده جزئیات</span><span aria-hidden="true">↖</span></footer></a>{% endfor %}</div>
+  {% if dashboard_metrics %}<section class="desk-metrics" aria-label="خلاصه فروشگاه">
+    {% for m in dashboard_metrics %}<a class="desk-metric" data-tone="{{ m.tone }}" href="{{ m.href }}">
+      <span class="desk-metric-label"><span class="desk-symbol">{% icon m.icon %}</span>{{ m.label }}</span>
+      <span class="desk-metric-value"><bdi>{{ m.value|fa_number }}</bdi> <small>{{ m.unit }}</small></span>
+    </a>{% endfor %}
+  </section>{% endif %}
 
-<div class="command-main-grid">
-{% if perms.portal.view_order %}<section class="command-card command-report" aria-labelledby="sales-title"><div class="command-card-heading"><div><span class="command-overline">عملکرد فروش</span><h2 id="sales-title">روند درآمد فروشگاه</h2></div><span class="command-pill">{% if monthly_buckets %}نمای ماهانه{% else %}نمای روزانه{% endif %}</span></div>
-<form method="get" class="command-filter"><label class="visually-hidden" for="report-period">بازه گزارش</label><select id="report-period" name="period"><option value="today"{% if report_period == 'today' %} selected{% endif %}>امروز</option><option value="week"{% if report_period == 'week' %} selected{% endif %}>۷ روز گذشته</option><option value="month"{% if report_period == 'month' %} selected{% endif %}>۳۰ روز گذشته</option><option value="year"{% if report_period == 'year' %} selected{% endif %}>یک سال گذشته</option><option value="custom"{% if report_period == 'custom' %} selected{% endif %}>بازه دلخواه</option></select><div class="command-date-fields"{% if report_period != 'custom' %} hidden{% endif %}><label for="report-start">از</label><input type="date" id="report-start" name="start" value="{{ report_start|date:'Y-m-d' }}"><label for="report-end">تا</label><input type="date" id="report-end" name="end" value="{{ report_end|date:'Y-m-d' }}"></div><button type="submit">اعمال بازه {% icon 'arrow' %}</button></form>
-{% if report_error %}<p class="command-error" role="alert">{{ report_error }}</p>{% endif %}
-<div class="command-report-total"><strong>{{ range_sales|number }}</strong><span>تومان</span><small>مجموع فروش تکمیل‌شده در بازهٔ انتخابی</small></div>
-{{ sales_chart|json_script:'sales-chart-data' }}
-<div id="sales-visual" class="command-chart" aria-label="نمودار فروش تکمیل‌شده" role="img"></div>
-<div class="command-chart-note"><span><i></i> مبلغ فروش تکمیل‌شده</span><span dir="ltr">{{ report_start|date:'Y/m/d' }} — {{ report_end|date:'Y/m/d' }}</span></div>
-{% if not range_sales %}<p class="command-zero-note">در این بازه فروش تکمیل‌شده‌ای ثبت نشده است؛ نمودار مقدار صفر را نشان می‌دهد.</p>{% endif %}
-<details class="command-data"><summary>جدول دقیق گزارش</summary><div class="command-table-scroll"><table><thead><tr><th>تاریخ</th><th>فروش (تومان)</th></tr></thead><tbody>{% for row in sales_chart %}<tr><td dir="ltr">{{ row.label }}</td><td>{{ row.amount|number }}</td></tr>{% endfor %}</tbody></table></div></details>
-</section>{% endif %}
-<aside class="command-today command-card"><div class="command-card-heading"><div><span class="command-overline">در یک نگاه</span><h2>امروز در دان‌پنل</h2></div>{% icon 'spark' %}</div>
-{% if perms.portal.view_order %}<div class="command-today-value"><span>فروش تکمیل‌شده امروز</span><strong>{{ today_sales|number }} <small>تومان</small></strong></div><a class="command-today-row" href="{% url 'admin:portal_order_changelist' %}"><span>{% icon 'clock' %} سفارش‌های در جریان</span><b>{{ pending_orders_count|number }}</b></a>{% endif %}
-{% if perms.portal.view_account %}<a class="command-today-row" href="{% url 'admin:portal_account_changelist' %}"><span>{% icon 'user' %} ثبت‌نام جدید امروز</span><b>{{ new_customers_today|number }}</b></a>{% endif %}
-<div class="command-today-bottom"><span class="command-orbit">{% icon 'grid' %}</span><strong>کار بعدی، یک کلیک فاصله.</strong><p>از منوی کناری وارد بخش دلخواه شو؛ هر بخش فقط با دسترسی مجاز نمایش داده می‌شود.</p></div></aside>
-</div>
+  {% if perms.portal.view_order or desk_tasks %}<div class="desk-columns">
+    {% if perms.portal.view_order %}{% include 'admin/overview/sales.html' %}{% endif %}
+    {% if desk_tasks %}<section class="desk-panel desk-queue" aria-labelledby="queue-title" id="queue">
+      <div class="desk-panel-head"><div><p class="desk-eyebrow">عملیات فروشگاه</p><h2 id="queue-title">نیاز به رسیدگی</h2></div><span class="desk-total">{{ task_count|fa_number }} مورد</span></div>
+      <ul class="desk-queue-list">{% for task in desk_tasks %}<li><a href="{{ task.href }}" data-tone="{{ task.tone }}">
+        <span class="desk-symbol">{% icon task.icon %}</span><span class="desk-item-name">{{ task.label }}</span>
+        <strong class="desk-count{% if task.count %} has-items{% endif %}">{{ task.count|fa_number }}</strong>{% icon 'chevron' %}
+      </a></li>{% endfor %}</ul>
+      {% if not task_count %}<p class="desk-note">در صف‌های بالا موردی برای رسیدگی نیست.</p>{% endif %}
+    </section>{% endif %}
+  </div>{% endif %}
 
-<section class="command-shortcuts" aria-label="دسترسی سریع">
-{% if perms.portal.view_sourceproduct %}<a href="{% url 'admin:portal_sourceproduct_changelist' %}?review_status__exact=pending"><i>{% icon 'wallet' %}</i><span><strong>تأیید قیمت منابع</strong><small>{{ supplier_pending_count|number }} پیشنهاد · {{ supplier_conflict_count|number }} تعارض</small></span><b aria-hidden="true">↖</b></a>{% endif %}
-{% if perms.portal.view_sourcesyncsettings %}<a href="{% url 'admin:portal_sourcesyncsettings_changelist' %}"><i>{% icon 'clock' %}</i><span><strong>دریافت خودکار قیمت</strong><small>دریافت اکنون، فاصله و تأیید تغییرات</small></span><b aria-hidden="true">↖</b></a>{% endif %}
-{% if perms.portal.view_product %}<a href="{% url 'admin:portal_product_changelist' %}"><i>{% icon 'grid' %}</i><span><strong>محصولات</strong><small>قیمت، تصاویر و انتشار</small></span><b aria-hidden="true">↖</b></a>{% endif %}
-{% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'staff' %}"><i>{% icon 'clock' %}</i><span><strong>میز رسیدگی</strong><small>سفارش‌ها و تیکت‌ها</small></span><b aria-hidden="true">↖</b></a>{% endif %}
-{% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}"><i>{% icon 'chat' %}</i><span><strong>گفتگوی آنلاین</strong><small>ارتباط با مشتریان</small></span><b aria-hidden="true">↖</b></a>{% endif %}
-{% if perms.portal.add_post %}<a href="{% url 'admin:portal_post_add' %}"><i>{% icon 'book' %}</i><span><strong>نوشتن مقاله</strong><small>مجله و راهنمای خرید</small></span><b aria-hidden="true">↖</b></a>{% endif %}
-</section>
+  {% if perms.portal.view_order or perms.portal.view_ticket %}<div class="desk-columns desk-activity">
+    {% if perms.portal.view_order %}<section class="desk-panel" id="orders" aria-labelledby="orders-title">
+      <div class="desk-panel-head"><div><p class="desk-eyebrow">پیگیری خریدها</p><h2 id="orders-title">آخرین سفارش‌ها</h2></div><a class="desk-link" href="{% url 'admin:portal_order_changelist' %}">همه سفارش‌ها {% icon 'left' %}</a></div>
+      <ul class="desk-orders">{% for order in recent_orders %}<li><a href="{% url 'admin:portal_order_change' order.pk %}">
+        <span class="desk-order-id"><strong>{{ order.product_name }}</strong><bdi>{{ order.tracking_code }}</bdi></span>
+        <span class="desk-status" data-status="{{ order.status }}">{{ order.status_label }}</span>
+        <span class="desk-price">{{ order.total_price|fa_number }} <small>تومان</small></span>
+      </a></li>{% empty %}<li class="desk-empty">{% icon 'bag' %}<strong>هنوز سفارشی ثبت نشده است.</strong><span>اولین خرید فروشگاه اینجا نمایش داده می‌شود.</span></li>{% endfor %}</ul>
+      <div class="desk-panel-foot"><span>کل فروش تکمیل‌شده</span><strong>{{ completed_revenue|fa_number }} تومان</strong></div>
+    </section>{% endif %}
+    {% if perms.portal.view_ticket %}<section class="desk-panel" id="tickets" aria-labelledby="tickets-title">
+      <div class="desk-panel-head"><div><p class="desk-eyebrow">پشتیبانی مشتریان</p><h2 id="tickets-title">آخرین تیکت‌های فعال</h2></div><a class="desk-link" href="{% url 'admin:portal_ticket_changelist' %}">همه تیکت‌ها {% icon 'left' %}</a></div>
+      <ul class="desk-tickets">{% for ticket in recent_tickets %}<li><a href="{% if perms.portal.change_ticket %}{% url 'ticket' ticket.pk %}{% else %}{% url 'admin:portal_ticket_change' ticket.pk %}{% endif %}">
+        <span class="desk-ticket-dot{% if ticket.priority == 'urgent' %} urgent{% endif %}" aria-hidden="true"></span><span><strong>{{ ticket.subject }}</strong><small>شماره {{ ticket.pk|fa_number }} · {{ ticket.get_status_display }}{% if ticket.priority == 'urgent' %} · فوری{% endif %}</small></span>{% icon 'chevron' %}
+      </a></li>{% empty %}<li class="desk-empty">{% icon 'chat' %}<strong>تیکت فعالی وجود ندارد.</strong></li>{% endfor %}</ul>
+    </section>{% endif %}
+  </div>{% endif %}
 
-<div class="command-bottom-grid">
-{% if perms.portal.view_order %}<section class="command-card"><div class="command-card-heading"><div><span class="command-overline">جریان فروش</span><h2>آخرین سفارش‌ها</h2></div><a href="{% url 'admin:portal_order_changelist' %}">مشاهده همه ↖</a></div><div class="command-table-scroll"><table><thead><tr><th>محصول و کد پیگیری</th><th>مبلغ / تومان</th><th>وضعیت</th><th><span class="visually-hidden">جزئیات</span></th></tr></thead><tbody>{% for order in recent_orders %}<tr><td><strong>{{ order.product_name }}</strong><small dir="ltr">{{ order.tracking_code }}</small></td><td>{{ order.total_price|number }}</td><td><span class="command-status" data-status="{{ order.status }}">{{ order.status_label }}</span></td><td><a class="command-row-link" href="{% url 'admin:portal_order_change' order.pk %}" aria-label="جزئیات سفارش {{ order.tracking_code }}">↖</a></td></tr>{% empty %}<tr><td colspan="4"><div class="command-empty">{% icon 'grid' %}<strong>هنوز سفارشی ثبت نشده</strong><p>با ثبت اولین سفارش، جزئیات آن اینجا قرار می‌گیرد.</p></div></td></tr>{% endfor %}</tbody></table></div><div class="command-card-footer">مجموع فروش تکمیل‌شده <strong>{{ completed_revenue|number }} تومان</strong></div></section>{% endif %}
-{% if perms.portal.view_ticket %}<section class="command-card"><div class="command-card-heading"><div><span class="command-overline">همراه مشتریان</span><h2>تیکت‌های باز</h2></div><a href="{% url 'admin:portal_ticket_changelist' %}">همه تیکت‌ها ↖</a></div>{% for ticket in recent_tickets %}<a class="command-ticket" href="{% if perms.portal.change_ticket %}{% url 'ticket' ticket.pk %}{% else %}{% url 'admin:portal_ticket_change' ticket.pk %}{% endif %}"><i>{% icon 'chat' %}</i><span><strong>{{ ticket.subject }}</strong><small>#{{ ticket.pk }} · {{ ticket.get_status_display }}</small></span><b aria-hidden="true">↖</b></a>{% empty %}<div class="command-empty">{% icon 'headset' %}<strong>تیکت بازی وجود ندارد</strong><p>درخواست‌های جدید مشتریان اینجا نمایش داده می‌شوند.</p></div>{% endfor %}</section>{% endif %}</div>
-
-<section class="command-modules"><div class="command-section-heading"><h2>تمام بخش‌های مدیریت</h2><p>هر دسته را باز کن و وارد بخش موردنظر شو.</p></div><div class="command-module-grid">{% for label, models in workspace_groups %}{% if models %}<details><summary><span>{% icon 'grid' %} {{ label }}</span><b>{{ models|length }}</b></summary><div>{% for model in models %}<a href="{{ model.admin_url }}">{{ model.name }} <span aria-hidden="true">↖</span></a>{% endfor %}</div></details>{% endif %}{% endfor %}</div></section>
+  <section class="desk-panel desk-tools" id="tools" aria-labelledby="tools-title">
+    <div class="desk-panel-head"><div><p class="desk-eyebrow">دسترسی سریع</p><h2 id="tools-title">ابزارهای مدیریت</h2></div>{% icon 'grid' %}</div>
+    <div class="desk-tool-links">
+      {% if perms.portal.view_product %}<a href="{% url 'admin:portal_product_changelist' %}">{% icon 'box' %} محصولات و مالیات</a>{% endif %}
+      {% if perms.portal.view_sourcesyncsettings %}<a href="{% url 'admin:portal_sourcesyncsettings_changelist' %}">{% icon 'tag' %} تنظیمات قیمت منابع</a>{% endif %}
+      {% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'staff' %}">{% icon 'inbox' %} میز رسیدگی</a>{% endif %}
+      {% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}">{% icon 'chat' %} گفتگوی آنلاین</a>{% endif %}
+      {% if perms.portal.add_post %}<a href="{% url 'admin:portal_post_add' %}">{% icon 'book' %} نوشتن مقاله</a>{% endif %}
+    </div>
+    <div class="desk-tool-groups">{% for label, models in workspace_groups %}{% if models %}<details name="desk-tools"><summary>{{ label }}<span>{{ models|length|fa_number }} {% icon 'chevron' %}</span></summary>
+      <ul>{% for model in models %}<li><a href="{{ model.admin_url }}">{{ model.name }} {% icon 'left' %}</a></li>{% endfor %}</ul>
+    </details>{% endif %}{% endfor %}</div>
+  </section>
 </div>
 {% endblock %}

@@ -366,6 +366,34 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.assertIn(len(response.context['sales_chart']),[12,13])
         self.assertEqual(sum(row['amount'] for row in response.context['sales_chart']),order.total_price)
 
+    def test_overview_groups_completed_sales_at_tehran_nowruz_midnight(self):
+        from datetime import date, datetime, timezone as tz
+        from .admin_overview import sales_report
+        for minute in (29,30):
+            order=self.buy()
+            Order.objects.filter(pk=order.pk).update(status='completed',
+                completed_at=datetime(2025,3,20,20,minute,tzinfo=tz.utc))
+        report=sales_report({'period':'custom','start':'2025-02-01','end':'2025-05-05'}, date(2025,5,5))
+        self.assertTrue(report['monthly_buckets'])
+        self.assertEqual([(r['display'],r['amount']) for r in report['sales_chart'] if r['amount']],
+                         [('اسفند ۱۴۰۳',1000),('فروردین ۱۴۰۴',1000)])
+        self.assertEqual(report['range_order_count'],2)
+
+    def test_dashboard_support_queue_does_not_include_answered_or_financial_work(self):
+        self.user.is_staff=True;self.user.save()
+        self.user.user_permissions.add(Permission.objects.get(content_type__app_label='portal',codename='view_ticket'))
+        for status in ('open','answered','closed'):
+            Ticket.objects.create(user=self.other,subject='نمونه '+status,status=status)
+        self.buy()
+        page=self.client.get('/admin/')
+        items=page.context['desk_tasks']
+        self.assertEqual([(t['href'],t['count']) for t in items],[('/admin/portal/ticket/?status__exact=open',1)])
+        self.assertEqual(len(page.context['recent_tickets']),2)
+        self.assertNotContains(page,'sales-chart-data')
+        self.assertNotContains(page,'/admin/portal/order/')
+        self.assertNotContains(page,'/admin/portal/sourceproduct/')
+        self.assertEqual(self.client.get(items[0]['href']).context['cl'].result_count,1)
+
     def test_admin_can_add_website_product_with_independent_bot_visibility(self):
         self.user.is_staff=True;self.user.is_superuser=True;self.user.save()
         response=self.client.get('/admin/portal/product/add/')

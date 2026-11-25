@@ -1,14 +1,9 @@
 from functools import wraps
-from django.apps import apps
 from django.contrib.admin import AdminSite
 from django.contrib.admin.apps import AdminConfig
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.shortcuts import redirect
-from django.db.models import Sum
-from django.db.models.functions import TruncDate, TruncMonth
-from django.utils import timezone
-from datetime import date, datetime, time, timedelta
 
 
 class DawnAdminConfig(AdminConfig):
@@ -57,67 +52,5 @@ class DawnAdminSite(AdminSite):
         return sorted(app_list,key=lambda app:app['app_label']!='portal')
 
     def index(self,request,extra_context=None):
-        metrics=[]
-        for model,label,url in [('Product','محصول','admin:portal_product_changelist'),('Order','سفارش','admin:portal_order_changelist'),('Ticket','تیکت باز','admin:portal_ticket_changelist'),('Account','حساب کاربری','admin:portal_account_changelist')]:
-            if request.user.has_perm('portal.view_'+model.lower()):
-                rows=apps.get_model('portal',model).objects.all()
-                if model=='Ticket': rows=rows.exclude(status='closed')
-                metrics.append({'label':label,'count':rows.count(),'url':url})
-        icons={'Product':'grid','Order':'clock','Ticket':'headset','Account':'user'}
-        for metric,model in zip(metrics,[m for m in ['Product','Order','Ticket','Account'] if request.user.has_perm('portal.view_'+m.lower())]):
-            metric['icon']=icons[model]
-        context={'dashboard_metrics':metrics,'dashboard_date':timezone.localdate()}
-        if request.user.has_perm('portal.view_sourceproduct'):
-            sources=apps.get_model('portal','SourceProduct').objects
-            context['supplier_pending_count']=sources.filter(review_status='pending').count()
-            context['supplier_conflict_count']=sources.filter(review_status='conflict').count()
-        if request.user.has_perm('portal.view_order'):
-            orders=apps.get_model('portal','Order').objects.all()
-            context.update(recent_orders=orders[:6],pending_orders_count=orders.filter(status__in=['pending','confirmed','approved','processing']).count(),completed_revenue=orders.filter(status='completed').aggregate(total=Sum('total_price'))['total'] or 0)
-        if request.user.has_perm('portal.view_ticket'):
-            context['recent_tickets']=apps.get_model('portal','Ticket').objects.select_related('user').exclude(status='closed')[:5]
-        today=timezone.localdate()
-        period=request.GET.get('period','week')
-        days={'today':1,'week':7,'month':30,'year':365}
-        start,end=today-timedelta(days=days.get(period,7)-1),today
-        if period=='custom':
-            try:
-                start,end=(date.fromisoformat(request.GET.get(k,'')) for k in ('start','end'))
-                if not date(2000,1,1)<=start<=end<=today or (end-start).days>365:raise ValueError
-            except ValueError:
-                start,end=today-timedelta(days=6),today
-                context['report_error']='بازه معتبر تا ۳۶۶ روز و حداکثر تا امروز انتخاب کنید.'
-        elif period not in days:period='week'
-        context.update(report_start=start,report_end=end,report_period=period)
-        def midnight(day):
-            return timezone.make_aware(datetime.combine(day,time.min))
-        if request.user.has_perm('portal.view_account'):
-            context['new_customers_today']=apps.get_model('portal','Account').objects.filter(
-                created_at__gte=midnight(today),created_at__lt=midnight(today+timedelta(days=1))).count()
-        if request.user.has_perm('portal.view_order'):
-            completed=orders.filter(status='completed')
-            context['today_sales']=completed.filter(completed_at__gte=midnight(today),
-                completed_at__lt=midnight(today+timedelta(days=1))).aggregate(total=Sum('total_price'))['total'] or 0
-            trunc=TruncMonth if (end-start).days>60 else TruncDate
-            # Convert in Python: MariaDB installations may lack named timezone tables.
-            # Filter by aware boundaries so the database still uses its datetime index.
-            grouped={}
-            for row in completed.filter(completed_at__gte=midnight(start),
-                    completed_at__lt=midnight(end+timedelta(days=1))).order_by().values(
-                        'completed_at','total_price').iterator():
-                day=timezone.localtime(row['completed_at']).date()
-                if trunc is TruncMonth:day=day.replace(day=1)
-                grouped[day]=grouped.get(day,0)+row['total_price']
-            rows=[{'day':day,'total':amount} for day,amount in sorted(grouped.items())]
-            peak=max([1]+[row['total'] for row in rows])
-            for row in rows:row['bar']=max(0,min(100,round(row['total']*100/peak)))
-            # Fill the selected interval, including periods without completed sales.
-            totals={row['day'].strftime('%Y-%m' if trunc is TruncMonth else '%Y-%m-%d'):row['total'] for row in rows}
-            chart=[]
-            cursor=start.replace(day=1) if trunc is TruncMonth else start
-            while cursor<=end:
-                key=cursor.strftime('%Y-%m' if trunc is TruncMonth else '%Y-%m-%d')
-                chart.append({'label':key,'amount':totals.get(key,0)})
-                cursor=(cursor.replace(year=cursor.year+1,month=1) if cursor.month==12 else cursor.replace(month=cursor.month+1)) if trunc is TruncMonth else cursor+timedelta(days=1)
-            context.update(sales_rows=rows,range_sales=sum(row['total'] for row in rows),monthly_buckets=trunc is TruncMonth,sales_chart=chart)
-        return super().index(request,{**context,**(extra_context or {})})
+        from .admin_overview import dashboard_context
+        return super().index(request,{**dashboard_context(request),**(extra_context or {})})

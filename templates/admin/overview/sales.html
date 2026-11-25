@@ -1,0 +1,28 @@
+{% load ui %}<section class="desk-panel desk-sales" aria-labelledby="sales-title" id="sales">
+  <div class="desk-panel-head"><div><p class="desk-eyebrow">گزارش مالی</p><h2 id="sales-title">روند فروش</h2></div>
+    <nav class="desk-periods" aria-label="بازه گزارش فروش">{% for key,label,days in periods %}
+      <a href="?period={{ key }}#sales"{% if report_period == key %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}</nav>
+  </div>
+  <div class="desk-sales-total"><span><bdi>{{ range_sales|fa_number }}</bdi> <small>تومان</small></span><span class="desk-pill">{{ range_order_count|fa_number }} سفارش تکمیل‌شده</span></div>
+  <div class="desk-sales-caption"><span>{{ report_caption }}</span><span>{% if monthly_buckets %}نمای ماهانه{% else %}نمای روزانه{% endif %}</span></div>
+  {{ sales_chart|json_script:'sales-chart-data' }}
+  {% if range_order_count %}<div id="sales-visual" class="desk-chart" role="img" aria-label="نمودار فروش تکمیل‌شده به تومان؛ ارقام در جدول زیر نیز در دسترس‌اند."></div>
+  {% else %}<div class="desk-empty desk-chart-empty">{% icon 'plot' %}<strong>در این بازه فروش تکمیل‌شده‌ای ثبت نشده است.</strong><span>بازهٔ دیگری را انتخاب کن یا سفارش‌ها را بررسی کن.</span></div>{% endif %}
+  <div class="desk-report-options">
+    <details class="desk-disclosure"{% if report_period == 'custom' or report_error %} open{% endif %}><summary>{% icon 'calendar' %} بازهٔ دلخواه {% icon 'chevron' %}</summary>
+      <form method="get" action="{% url 'admin:index' %}#sales" class="desk-dates">
+        <input type="hidden" name="period" value="custom"><p>تاریخ‌های این فرم میلادی هستند.</p>
+        <label>از تاریخ<input type="date" dir="ltr" name="start" min="2000-01-01" max="{{ dashboard_date|date:'Y-m-d' }}" value="{{ report_start|date:'Y-m-d' }}" required></label>
+        <label>تا تاریخ<input type="date" dir="ltr" name="end" min="2000-01-01" max="{{ dashboard_date|date:'Y-m-d' }}" value="{{ report_end|date:'Y-m-d' }}" required></label>
+        <button type="submit">نمایش گزارش</button>
+      </form>
+      {% if report_error %}<p class="desk-error" role="alert">{{ report_error }}</p>{% endif %}
+    </details>
+    <details class="desk-disclosure"><summary>{% icon 'layers' %} جدول مبالغ {% icon 'chevron' %}</summary>
+      <div class="desk-data-scroll" tabindex="0" role="region" aria-label="جدول مبالغ فروش">
+        <table><thead><tr><th scope="col">تاریخ</th><th scope="col">فروش (تومان)</th></tr></thead><tbody>{% for row in sales_chart %}
+          <tr><td>{{ row.display }}</td><td>{{ row.amount|fa_number }}</td></tr>{% endfor %}</tbody></table>
+      </div>
+    </details>
+  </div>
+</section>
