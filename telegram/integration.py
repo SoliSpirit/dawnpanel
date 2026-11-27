@@ -46,9 +46,10 @@ def bot_currency_record(row):
     row['manual_rate']=row['rate']
     try:
         rates=resolve(row['code'],row['type'],row['manual_rate'],policy)
+        row['approved_buy_basis']=row['manual_rate'] if row['fx_source']=='manual' else policy.market_bid
         row['rate'],row['buy_rate']=rates.sell,rates.buy
     except RateError:
-        row['rate']=row['buy_rate']=None
+        row['rate']=row['buy_rate']=row['approved_buy_basis']=None
     return row
 
 

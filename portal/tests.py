@@ -749,7 +749,7 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.product.price_per=1;self.product.product_profit_percent=10;self.product.save()
         ProductTax.objects.create(product=self.product,percent=10)
         with patch('portal.exchange_rates.fetch_source',return_value={'USDTIRT':book(now)}):
-            self.assertEqual(refresh_rates(bootstrap=True),{'USDT':''})
+            self.assertEqual(refresh_rates([currency.pk],bootstrap=True),{'USDT':''})
         self._grant_list_permissions('change_currency')
         path='/admin/portal/currency/review/'
         with self.assertRaises(BusinessError):pricing_for(self.product)
@@ -810,6 +810,7 @@ class SecurityAndCommerceTests(TransactionTestCase):
         from .exchange_rates import currency_rates,refresh_rates,Rates
         from .test_exchange_rates import book
         cur=Currency.objects.create(name='Stars',code='STAR',type='telegram',rate=3000,is_active=False)
+        CurrencyPricing.objects.create(currency=cur,source='manual')
         coin=Currency.objects.create(name='Tether',code='USDT',rate=280000)
         url='/admin/portal/currency/review/'
         self._grant_list_permissions('view_currency')
@@ -837,6 +838,58 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.assertEqual(currency_rates(Currency.objects.get(pk=coin.pk)),Rates(269000,286000))
         self.client.post(url,fresh)
         self.assertEqual(Audit.objects.filter(action='currency.publish').count(),2)
+
+    def test_denapanel_stars_from_bootstrap_through_review_and_expiry(self):
+        from .exchange_rates import Rates, RateError, currency_rates, refresh_rates, source_link
+        from .test_exchange_rates import dena_page,stars_html
+        cur=Currency.objects.create(code='STAR',type='telegram',name='استارز',rate=3000,is_active=False)
+        self._grant_list_permissions('change_currency')
+        url=f'/admin/portal/currency/review/?rows={cur.pk}'
+        with patch('portal.supplier_clients.read_json',return_value=dena_page(stars_html().replace('1161','1239'))):
+            self.assertTrue(refresh_rates([cur.pk],bootstrap=True)['STAR'])
+        self.assertFalse(CurrencyPricing.objects.filter(currency=cur).exists())
+        with patch('portal.supplier_clients.read_json',return_value=dena_page(stars_html())):
+            self.assertEqual(refresh_rates([cur.pk],bootstrap=True),{'STAR':''})
+        p=CurrencyPricing.objects.get(currency=cur)
+        self.assertEqual((p.source,p.candidate_bid,p.candidate_ask,p.buy_less,p.market_bid,p.published_at),
+                         ('denapanel',4560,4560,0,None,None))
+        self.assertNotContains(self.client.get('/rates/'),'STAR')
+        page=self.client.get(url)
+        for text in ('۴٬۵۶۰٬۰۰۰','۱٬۰۰۰','۴٬۵۶۰ تومان','۴٬۱۰۴',source_link('denapanel','STAR')):
+            self.assertContains(page,text)
+        # Reject approval of a quote that changed after the operator opened the page.
+        outdated=self._fx_selection(cur)
+        with patch('portal.supplier_clients.read_json',return_value=dena_page(stars_html('4,560,500 تومان'))):
+            self.client.post(url,{'_fetch':1})
+        self.client.post(url,outdated)
+        p.refresh_from_db();cur.refresh_from_db()
+        self.assertEqual((p.published_at,cur.is_active,cur.rate),(None,False,3000))
+        digits=f'r{cur.pk}-'
+        reviewed=self._fx_selection(cur)
+        reviewed.update({digits+'active':'on',digits+'less':'0'})
+        self.assertContains(self.client.post(url,reviewed),'کسریِ خرید مثبت وارد کنید')
+        cur.refresh_from_db();self.assertFalse(cur.is_active)
+        reviewed.update({digits+'basis_buy':'۴۶۰۰',digits+'basis_sell':'۴۶۰۰',digits+'less':'۱۲٫۵',digits+'extra':'۲'})
+        self.assertRedirects(self.client.post(url,reviewed),'/admin/portal/currency/',fetch_redirect_response=False)
+        p.refresh_from_db();cur.refresh_from_db()
+        self.assertEqual((cur.is_active,cur.rate,p.market_bid,p.market_ask),(True,3000,4600,4600))
+        self.assertEqual(currency_rates(cur),Rates(4025,4692))
+        approval=p.published_at
+        self.assertContains(self.client.get('/rates/'),'۴٬۰۲۵')
+        with patch('portal.supplier_clients.read_json',return_value=dena_page(stars_html('5,000,000 تومان'))):
+            self.client.post(url,{'_fetch':1})
+        p.refresh_from_db();observed=p.candidate_at
+        with patch('portal.supplier_clients.read_json',return_value=dena_page(stars_html().replace('data-status="1"','data-status="0"'))):
+            self.client.post(url,{'_fetch':1})
+        p.refresh_from_db();cur.refresh_from_db()
+        self.assertEqual((p.published_at,p.candidate_at,p.candidate_bid,p.market_bid),(approval,observed,5000,4600))
+        self.assertContains(self.client.get(url),'در دسترس نیست')
+        self.assertEqual(currency_rates(cur),Rates(4025,4692))
+        with self.assertRaises(RateError):currency_rates(cur,now=observed+timedelta(minutes=11))
+        CurrencyPricing.objects.filter(pk=cur.pk).update(published_at=observed-timedelta(hours=25))
+        with self.assertRaises(RateError):currency_rates(Currency.objects.get(pk=cur.pk),now=observed)
+        self.assertEqual(Audit.objects.filter(action='currency.publish',object_ref='STAR').count(),1)
+        self.assertFalse(Ledger.objects.exists())
 
     def test_crypto_request_is_a_ticket_and_requires_separate_verified_settlement(self):
         with patch('portal.crypto_topups.method_open',return_value=True):

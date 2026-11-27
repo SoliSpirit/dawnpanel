@@ -12,15 +12,16 @@
     <div class="fx-review-actions"><label hidden data-all-label><input type="checkbox" data-select-all> انتخاب همهٔ این صفحه</label>
       <button class="button default" type="submit" name="_publish" value="1">تأیید و انتشار انتخاب‌ها</button>
       <button class="button" type="submit" name="_preview" value="1">محاسبهٔ انتخاب‌ها</button></div>
-    <div class="fx-card-grid">{% for c in cards %}<article class="fx-card">
+    <div class="fx-card-grid">{% for c in cards %}<article class="fx-card"{% if c.row.code == 'STAR' %} data-discount-required{% endif %}>
       <header><div><strong>{{ c.row.name }}</strong> <bdi>{{ c.row.code }}</bdi></div>
         {% if not c.error %}<label><input name="selected" type="checkbox" value="{{ c.row.pk|unlocalize }}"{% if c.form.is_bound %} checked{% endif %}> انتخاب</label>{% endif %}</header>
-      <p>مرجع: {{ c.source }}{% if c.at %} · {{ c.at|date:'j F، H:i' }}{% endif %} · {% if c.row.is_active %}فعال{% else %}غیرفعال{% endif %}</p>
+      <p>مرجع: {% if c.source_url %}<a href="{{ c.source_url }}" target="_blank" rel="noopener noreferrer">{{ c.source }}</a>{% else %}{{ c.source }}{% endif %}{% if c.at %} · زمان مشاهده: <time datetime="{{ c.at|date:'c' }}">{{ c.at|date:'j F، H:i' }}</time>{% endif %} · {% if c.row.is_active %}فعال{% else %}غیرفعال{% endif %}</p>
       <p>نرخ فعلی: {% if c.current %}خرید {{ c.current.buy|fa_number }} · فروش {{ c.current.sell|fa_number }} تومان{% else %}نرخ قابل استفاده ندارد{% endif %}</p>
       {% if c.error %}<p class="errornote">{{ c.error }}</p>
       {% else %}
-        {% if not c.manual %}<p>پیشنهاد منبع (تومان): خرید <bdi>{{ c.bid }}</bdi> · فروش <bdi>{{ c.ask }}</bdi></p>{% endif %}
-        {% if c.row.code == 'STAR' %}<p class="fx-tip">استارز مرجع صرافی ندارد. برای شارژ، نرخ خرید پایین‌تر از پایه ثبت می‌شود.{% if c.suggest %} کسری ۱۰٪ فقط پیشنهاد اولیه است.{% endif %}</p>{% endif %}
+        {% if c.pack_price %}<p>قیمت دناپنل برای {{ c.pack_size|fa_number }} ستاره: <bdi>{{ c.pack_price|fa_number }}</bdi> تومان؛ هر ستاره <strong>{{ c.bid|fa_decimal }} تومان</strong>.</p>
+        {% elif not c.manual %}<p>پیشنهاد منبع (تومان): خرید <bdi>{{ c.bid }}</bdi> · فروش <bdi>{{ c.ask }}</bdi></p>{% endif %}
+        {% if c.row.code == 'STAR' %}<p class="fx-tip">برای شارژ کیف پول، کسریِ خرید از پایهٔ مصوب هر ستاره کم می‌شود.{% if c.suggest %} کسری ۱۰٪ فقط پیشنهاد اولیه است.{% endif %}</p>{% endif %}
         {{ c.form.stamp }}{{ c.form.stamp.errors }}{{ c.form.non_field_errors }}
         <div class="fx-card-fields">{% for field in c.form.visible_fields %}{% if field.name != 'active' %}
           <div>{{ field.label_tag }}{{ field }}{{ field.errors }}</div>

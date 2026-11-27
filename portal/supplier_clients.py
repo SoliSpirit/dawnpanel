@@ -5,8 +5,11 @@ from html.parser import HTMLParser
 
 import requests
 
-from .source_catalog import catalogue_rows
+from .source_catalog import catalogue_rows, DENA_PRICE_COLUMN
 from .source_links import product_page
+
+
+DENA_CATALOGUE_URL = 'https://denapanel.ir/wp-admin/admin-ajax.php'
 
 
 class SupplierError(ValueError):
@@ -15,7 +18,7 @@ class SupplierError(ValueError):
 
 def read_json(url, *, data=None, deadline=None):
     if not url.startswith(('https://premstore.ir/wp-json/wc/store/v1/products',
-                           'https://denapanel.ir/wp-admin/admin-ajax.php')):
+                           DENA_CATALOGUE_URL)):
         raise SupplierError('نشانی منبع مجاز نیست.')
     try:
         method = 'POST' if data else 'GET'
@@ -47,8 +50,9 @@ def read_json(url, *, data=None, deadline=None):
 
 
 class DenaTable(HTMLParser):
-    def __init__(self):
+    def __init__(self, service_id=None):
         super().__init__()
+        self.service_id = service_id
         self.rows = []
         self.row = None
         self.cell = None
@@ -61,6 +65,8 @@ class DenaTable(HTMLParser):
             self.heading = True
             self.category = ''
         if tag == 'tr' and 'data-service-id' in attrs:
+            if self.service_id is not None and attrs['data-service-id'] != self.service_id:
+                return
             self.row = {
                 'id': attrs['data-service-id'], 'name': attrs.get('data-service-name', ''),
                 'category_id': attrs.get('data-category', ''), 'category_name': self.category.strip(),
@@ -68,6 +74,8 @@ class DenaTable(HTMLParser):
             }
         elif self.row is not None and tag == 'td':
             self.cell = attrs.get('data-title', '')
+            if self.cell == DENA_PRICE_COLUMN and self.cell in self.row['cells']:
+                raise SupplierError('ستون قیمت سرویس دناپنل تکراری است.')
             self.row['cells'][self.cell] = ''
         elif self.row is not None and tag == 'a':
             url = product_page('denapanel', attrs.get('href'), self.row['id'])
@@ -93,7 +101,7 @@ class DenaTable(HTMLParser):
             self.row = None
 
 
-def fetch_catalogue(source, *, deadline=None):
+def fetch_catalogue(source, *, deadline=None, dena_service_id=None):
     snapshot = {'premstore': {'products': [], 'variations': []}, 'denapanel': {'services': []}}
     if source == 'premstore':
         for kind, key in [('', 'products'), ('variation', 'variations')]:
@@ -109,12 +117,13 @@ def fetch_catalogue(source, *, deadline=None):
             else:
                 raise SupplierError('فهرست پریم‌استور بیش از حد مجاز صفحه دارد.')
     elif source == 'denapanel':
-        parser = DenaTable()
+        # Read every page even for one ID so duplicate matches cannot be accepted.
+        parser = DenaTable(dena_service_id)
         page = 1
         while page <= 10:
-            response = read_json('https://denapanel.ir/wp-admin/admin-ajax.php',
+            response = read_json(DENA_CATALOGUE_URL,
                                  data={'action': 'kando_get_categories', 'page': page}, deadline=deadline)
-            if not isinstance(response, dict) or not response.get('success'):
+            if not isinstance(response, dict) or response.get('success') is not True:
                 raise SupplierError('ساختار فهرست دناپنل تغییر کرده است.')
             try:
                 data = response['data']
@@ -125,10 +134,18 @@ def fetch_catalogue(source, *, deadline=None):
                 raise SupplierError('ساختار فهرست دناپنل تغییر کرده است.') from None
             if not isinstance(body,str) or current != page or not page <= total <= 10:
                 raise SupplierError('صفحه‌بندی دناپنل معتبر نیست.')
-            parser.feed(body)
+            try:
+                parser.feed(body)
+            except (AssertionError, ValueError) as exc:
+                if isinstance(exc, SupplierError):
+                    raise
+                raise SupplierError('جدول سرویس‌های دناپنل قابل خواندن نیست.') from None
             if page == total:
                 break
             page += 1
+        parser.close()
+        if dena_service_id is not None and len(parser.rows) != 1:
+            raise SupplierError('شناسهٔ سرویس در فهرست دناپنل یافت نشد یا تکراری است.')
         snapshot['denapanel']['services'] = parser.rows
     else:
         raise SupplierError('منبع ناشناخته است.')

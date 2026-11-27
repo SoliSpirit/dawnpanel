@@ -16,8 +16,9 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 
-from .exchange_rates import SOURCES, MAX_RATE, RateError, resolve, spread, supported, valid_age, refresh_rates
+from .exchange_rates import SOURCES, MAX_RATE, RateError, resolve, spread, supported, valid_age, refresh_rates, source_link
 from .models import Audit, Currency, CurrencyPricing
+from .source_catalog import DENA_PRICE_PER
 
 
 def decimal_text(value):
@@ -80,7 +81,7 @@ class RateReviewForm(forms.Form):
             raise forms.ValidationError('واحد تومان با نرخ یک و بدون حاشیه محاسبه می‌شود.')
         try:self.preview=spread(bid,ask,data['mode'],data['extra'],data['less'])
         except RateError as exc:raise forms.ValidationError(str(exc)) from None
-        if self.row.code=='STAR' and self.preview.buy>=bid:
+        if self.row.code=='STAR' and (data['less']<=0 or self.preview.buy>=bid):
             self.add_error('less','برای استارز، کسریِ خرید مثبت وارد کنید تا نرخ شارژ از پایه کمتر باشد.')
         return data
 
@@ -130,6 +131,8 @@ class FxReviewMixin:
             try:proposed=spread(bid,ask,mode,extra,less)
             except RateError:pass
         return {'row':row,'form':form,'current':current,'preview':proposed,'bid':decimal_text(bid),'ask':decimal_text(ask),
+                'source_url':source_link(src,row.code),'pack_size':DENA_PRICE_PER,
+                'pack_price':bid*DENA_PRICE_PER if src=='denapanel' and bid is not None else None,
                 'manual':manual,'at':at,'suggest':suggest,'error':error,'source':SOURCES[src][0] if src in SOURCES else 'دستی'}
 
     @transaction.atomic

@@ -2121,14 +2121,16 @@ def get_star_rate_toman():
     نرخ STAR نیز باید عدد صحیح مثبت باشد.
     """
     currency = get_currency('STAR')
-    if not currency:
+    if not currency or currency.get('type')!='telegram':
         return None
     try:
         rate = Decimal(str(currency.get('buy_rate')))
+        basis = Decimal(str(currency.get('approved_buy_basis')))
+        sell = Decimal(str(currency.get('rate')))
     except (InvalidOperation, TypeError, ValueError):
         return None
-    if (not rate.is_finite() or rate <= 0 or rate != rate.to_integral_value()
-            or rate >= (currency.get('manual_rate') or 0) or rate >= (currency.get('rate') or 0)):
+    if (not all(value.is_finite() for value in (rate,basis,sell))
+            or not 0<rate<basis or rate>=sell or rate!=rate.to_integral_value()):
         return None
     return rate
 

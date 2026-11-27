@@ -6,6 +6,10 @@ from urllib.parse import unquote
 from .source_links import product_page
 
 
+DENA_PRICE_PER = 1000
+DENA_PRICE_COLUMN = f'قیمت هر {DENA_PRICE_PER} عدد'
+
+
 class PlainText(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -88,7 +92,8 @@ def catalogue_rows(snapshot):
             })
     for entry in snapshot['denapanel']['services']:
         cells = entry['cells']
-        price_match = re.fullmatch(r'([\d,]+)\s*تومان', cells.get('قیمت هر 1000 عدد', ''))
+        price_match = re.fullmatch(r'(\d+|\d{1,3}(?:,\d{3})+)\s*تومان',
+                                   cells.get(DENA_PRICE_COLUMN, '').replace('٬', ','))
         limits_match = re.fullmatch(r'([\d,]+)/([\d,]+)', cells.get('حداقل/حداکثر', ''))
         if not price_match or not limits_match:
             raise ValueError('Invalid Dena service price or limits: ' + entry['id'])
@@ -102,7 +107,7 @@ def catalogue_rows(snapshot):
         result.append({
             'source': 'denapanel', 'external_id': entry['id'],
             'category': entry.get('category_name') or 'خدمات تلگرام ' + entry['category_id'],
-            'name': entry['name'], 'price': price, 'price_per': 1000,
+            'name': entry['name'], 'price': price, 'price_per': DENA_PRICE_PER,
             'min_order': minimum, 'max_order': maximum, 'url': url, 'item_url': url,
             'available': entry.get('status') == '1',
             'description': plain_text(entry.get('description')),

@@ -2,6 +2,7 @@ from django import template
 from django.utils.safestring import mark_safe
 from django.utils.html import format_html
 from django.templatetags.static import static
+from decimal import Decimal, InvalidOperation
 register=template.Library()
 @register.filter
 def number(value):
@@ -12,6 +13,16 @@ def number(value):
 @register.filter
 def fa_number(value):
     return str(number(value)).translate(str.maketrans('0123456789,', '۰۱۲۳۴۵۶۷۸۹٬'))
+
+
+@register.filter
+def fa_decimal(value):
+    """Keep fractional toman on indicative per-unit references."""
+    try:text=format(Decimal(value),',f')
+    except (InvalidOperation,TypeError,ValueError):return ''
+    if '.' in text:text=text.rstrip('0').rstrip('.')
+    return text.translate(str.maketrans('0123456789,.','۰۱۲۳۴۵۶۷۸۹٬٫'))
+
 @register.simple_tag
 def platform_icon(name):
     if name=='other':return icon('grid')

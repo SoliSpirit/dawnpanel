@@ -9,7 +9,7 @@ from django.utils.html import format_html
 
 from .exchange_rates import RateError, resolve, spread, supported, source_link, refresh_rates
 from .models import Currency, CurrencyPricing
-from .templatetags.ui import fa_number
+from .templatetags.ui import fa_decimal, fa_number
 from .fx_review import FxReviewMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse
@@ -37,7 +37,7 @@ class AdjustmentField(forms.DecimalField):
 
 class CurrencyForm(forms.ModelForm):
     fx_source=forms.ChoiceField(label='مرجع نرخ',choices=CurrencyPricing.SOURCES,initial='manual',
-        help_text='نوبیتکس برای بازار مستقیم رمزارز به ریال؛ نرخ‌آرا برای دلار نقدی و ارزهای پشتیبانی‌شده. دریافت خودکار هر دو دقیقه بررسی می‌شود.')
+        help_text='نوبیتکس برای رمزارز، نرخ‌آرا برای ارز نقدی و دناپنل برای استارز تلگرام است. قیمت هر ستاره از قیمت ۱٬۰۰۰ عدد در فهرست دناپنل به دست می‌آید.')
     spread_mode=forms.ChoiceField(label='نوع حاشیه',choices=CurrencyPricing.SPREADS,initial='fixed')
     sell_extra=AdjustmentField(label='افزودنیِ فروش به مشتری')
     buy_less=AdjustmentField(label='کسریِ خرید از مشتری',
@@ -51,6 +51,10 @@ class CurrencyForm(forms.ModelForm):
 
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
+        if self.instance.pk or self.is_bound:
+            code=self.data.get(self.add_prefix('code'),'').strip().upper() if self.is_bound else self.instance.code
+            kind=self.data.get(self.add_prefix('type'),'') if self.is_bound else self.instance.type
+            self.fields['fx_source'].choices=[(src,label) for src,label in CurrencyPricing.SOURCES if supported(code,kind,src)]
         self.policy=getattr(self.instance,'fx',None) if self.instance.pk else None
         if self.policy:
             self.initial.update(fx_source=self.policy.source,spread_mode=self.policy.spread_mode,
@@ -79,7 +83,7 @@ class CurrencyForm(forms.ModelForm):
         if bid is not None and ask is not None:
             try:
                 effective=spread(bid,ask,mode,extra,less)
-                if code=='STAR' and data.get('is_active') and effective.buy>=bid:
+                if code=='STAR' and data.get('is_active') and (less<=0 or effective.buy>=bid):
                     self.add_error('buy_less','برای فعال کردن شارژ با استارز، کسری خرید مثبت لازم است.')
             except RateError as exc:self.add_error(None,str(exc))
         return data
@@ -122,16 +126,12 @@ class CurrencyRatesAdminMixin(FxReviewMixin):
         p=getattr(obj,'fx',None)
         if not p or p.source=='manual':return f'دستی · {fa_number(obj.rate)}'
         label=p.get_source_display()
-        last='دریافتی ثبت نشده'
+        last='در انتظار تأیید' if p.candidate_at else 'دریافتی ثبت نشده'
         if p.quote_key==f'{p.source}:{obj.code}' and p.market_ask is not None:
-            def localized(amount):
-                text=format(amount,',f')
-                if '.' in text:text=text.rstrip('0').rstrip('.')
-                return text.translate(str.maketrans('0123456789,.','۰۱۲۳۴۵۶۷۸۹٬٫'))
-            if p.source=='nerkhara':
-                last=localized(p.market_ask)
+            if p.source in ('nerkhara','denapanel') and p.market_bid==p.market_ask:
+                last=f'پایهٔ مصوب: {fa_decimal(p.market_ask)} تومان'
             else:
-                last=f'خرید {localized(p.market_bid)} · فروش {localized(p.market_ask)}'
+                last=f'پایهٔ خرید {fa_decimal(p.market_bid)} · پایهٔ فروش {fa_decimal(p.market_ask)}'
         return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>'
                            '<small class="catalog-row-category">{}</small>',source_link(p.source,obj.code),label,last)
 

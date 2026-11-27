@@ -214,7 +214,8 @@ class Currency(models.Model):
 
 class CurrencyPricing(models.Model):
     """Merchant policy and last verified book. The legacy rate stays the manual base."""
-    SOURCES=[('manual','نرخ پایهٔ دستی'),('nobitex','نوبیتکس · بازار رمزارز'),('nerkhara','نرخ‌آرا · بازار آزاد ارز')]
+    SOURCES=[('manual','نرخ پایهٔ دستی'),('nobitex','نوبیتکس · بازار رمزارز'),('nerkhara','نرخ‌آرا · بازار آزاد ارز'),
+             ('denapanel','دناپنل · استارز تلگرام')]
     SPREADS=[('fixed','مبلغ ثابت به تومان'),('percent','درصد از نرخ مرجع')]
     currency=models.OneToOneField(Currency,primary_key=True,on_delete=models.CASCADE,
                                   db_constraint=False,related_name='fx')

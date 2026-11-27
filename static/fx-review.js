@@ -22,6 +22,10 @@
     const get=name=>card.querySelector(`[name$="-${name}"]`)?.value;
     try {
       const bid=number(get('basis_buy')),ask=number(get('basis_sell')??get('basis_buy')),extra=number(get('extra')),less=number(get('less'));
+      if (card.hasAttribute('data-discount-required') && less===0n) {
+        output.textContent='برای شارژ استارز، کسریِ خرید مثبت وارد کن.';
+        return;
+      }
       const pct=get('mode')==='percent', denom=pct?100n*scale*scale:scale;
       const low=pct?bid*(100n*scale-less):bid-less, high=pct?ask*(100n*scale+extra):ask+extra;
       if (ask<bid || low<denom || (!pct && (extra%scale || less%scale))) throw Error();
