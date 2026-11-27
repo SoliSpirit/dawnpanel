@@ -141,6 +141,26 @@ price. Currency-priced products, changed quantity units, or product edits after
 the proposal was fetched produce conflicts and are not overwritten.
 Fetch/apply/reject events are audited.
 
+In **بررسی قیمت محصولات**, the link under the last observed price opens the
+supplier's product page: the selected variation at Premstore or the matching
+service detail at Dena. The optional `item_url` is separate from the parent
+`source_url` used to group plans in the storefront. Neither is fetched by the
+monitor. An explicitly out-of-stock plan may still quote a price. A missing ID
+in a valid catalogue is labelled separately; a failed response retains the
+previous observation.
+
+Use **بررسی مجدد** for one row, select checkboxes and choose the recheck action,
+or use **بررسی مجدد همهٔ نتایج** for all pages of the current search/filter.
+Each source is fetched once per operation. A manual recheck can observe a paused
+item; it does not enable its schedule, apply a new sale price or postpone a
+full scheduled run. Remaining stock/approval rules still apply.
+
+In either price monitoring or Products, click **سود فروش** on a row, or select
+products and use **تنظیم درصد سود انتخاب‌ها**. Enter a percentage or `0` for no
+markup. This sets the merchant's existing per-SKU percentage on the selected
+products only, including native products without a supplier. Price proposals
+with a pre-edit merchant baseline still require a fresh check.
+
 Missing/unavailable supplier items retain the merchant's stored price but are
 excluded from public purchasing while synchronization is enabled. A network error
 retains last successful observations; no automatic deactivation is inferred

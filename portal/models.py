@@ -302,6 +302,7 @@ class SourceProduct(models.Model):
     external_id=models.CharField(max_length=80)
     product_id=models.PositiveBigIntegerField(unique=True)
     source_url=models.URLField(max_length=1000,blank=True)
+    item_url=models.URLField('صفحهٔ قیمت در منبع',max_length=2000,blank=True,default='')
     family_name=models.CharField('نام خانواده محصول',max_length=500,blank=True,default='')
     family_summary=models.TextField('معرفی خانواده محصول',blank=True,default='')
     last_price=models.PositiveBigIntegerField()
@@ -313,7 +314,7 @@ class SourceProduct(models.Model):
     review_status=models.CharField('وضعیت قیمت',max_length=20,default='new',choices=[
         ('new','دریافت نشده'),('pending','منتظر تأیید'),('applied','اعمال شده'),
         ('unchanged','بدون تغییر'),('conflict','نیازمند بررسی'),('rejected','رد شده'),
-        ('unavailable','ناموجود در منبع')])
+        ('unavailable','ناموجود در منبع'),('missing','شناسه در فهرست منبع پیدا نشد')])
     updated_at=models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -323,6 +324,12 @@ class SourceProduct(models.Model):
 
     def __str__(self):
         return f'{self.source} / {self.external_id}'
+
+    @property
+    def evidence_url(self):
+        from .source_links import product_page
+        return (product_page(self.source,self.item_url,self.external_id)
+                or product_page(self.source,self.source_url,self.external_id))
 
 
 class SourceSyncSettings(models.Model):

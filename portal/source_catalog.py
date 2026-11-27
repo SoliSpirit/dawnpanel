@@ -3,6 +3,7 @@ import html
 import re
 from html.parser import HTMLParser
 from urllib.parse import unquote
+from .source_links import product_page
 
 
 class PlainText(HTMLParser):
@@ -68,12 +69,17 @@ def catalogue_rows(snapshot):
                     raise ValueError('Variant has no plan label')
             categories = product.get('categories', [])
             category = categories[0]['name'] if categories else 'اشتراک‌ها'
+            stock = entry.get('is_in_stock')
+            if type(stock) is not bool:
+                raise ValueError('Missing or invalid Premstore stock status')
+            parent_url = product_page('premstore', product.get('permalink'))
             result.append({
                 'source': 'premstore', 'external_id': str(entry['id']),
                 'category': html.unescape(category),
                 'name': html.unescape(product['name']) + (' - ' + label if label else ''),
                 'price': price, 'price_per': 1, 'min_order': 1, 'max_order': 1,
-                'url': product['permalink'], 'available': bool(entry.get('is_in_stock')),
+                'url': parent_url, 'item_url': product_page('premstore', entry.get('permalink')) or parent_url,
+                'available': stock,
                 'description': plain_text(entry.get('description') or product.get('short_description')),
                 'platform': 'ai' if category == 'هوش مصنوعی' else 'other',
                 'plan_name': label[:80],
@@ -90,11 +96,14 @@ def catalogue_rows(snapshot):
         price = int(price_match[1].replace(',', ''))
         if not 0 < price <= 100_000_000_000 or not 0 < minimum <= maximum <= 100_000_000:
             raise ValueError('Invalid Dena service values: ' + entry['id'])
+        if entry.get('status') not in ('0','1'):
+            raise ValueError('Missing or invalid Dena stock status')
+        url = product_page('denapanel', entry.get('url'), entry['id'])
         result.append({
             'source': 'denapanel', 'external_id': entry['id'],
             'category': entry.get('category_name') or 'خدمات تلگرام ' + entry['category_id'],
             'name': entry['name'], 'price': price, 'price_per': 1000,
-            'min_order': minimum, 'max_order': maximum, 'url': entry.get('url', ''),
+            'min_order': minimum, 'max_order': maximum, 'url': url, 'item_url': url,
             'available': entry.get('status') == '1',
             'description': plain_text(entry.get('description')),
             'platform': 'telegram', 'plan_name': '',

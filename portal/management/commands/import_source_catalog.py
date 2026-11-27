@@ -59,7 +59,7 @@ class Command(BaseCommand):
             )
             SourceProduct.objects.create(
                 source=row['source'], external_id=row['external_id'],
-                product_id=product.pk, source_url=row['url'], last_price=row['price'],
+                product_id=product.pk, source_url=row['url'], item_url=row['item_url'], last_price=row['price'],
                 available=row['available'],
                 family_name=row.get('family_name',''),family_summary=row.get('family_summary',''),
             )

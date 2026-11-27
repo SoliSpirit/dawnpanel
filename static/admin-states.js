@@ -1,6 +1,25 @@
 (() => {
   const form = document.getElementById('changelist-form');
   if (!form) return;
+  // A catalogue check can take a few seconds. Keep a normal form submission:
+  // disabled submitters lose their name/value in the native POST.
+  let checking;
+  form.addEventListener('submit', event => {
+    const button=event.submitter;
+    if (checking) {event.preventDefault(); return;}
+    if (event.defaultPrevented || !button || !(button.name==='_dp_recheck' ||
+        (button.name==='index' && form.querySelector('select[name="action"]')?.value==='recheck_selected'))) return;
+    checking=button;
+    button.dataset.originalText=button.textContent;
+    button.textContent='در حال بررسی منبع…';
+    button.setAttribute('aria-busy','true');
+  });
+  window.addEventListener('pageshow', () => {
+    if (checking) {
+      checking.textContent=checking.dataset.originalText;
+      checking.removeAttribute('aria-busy'); checking=null;
+    }
+  });
   const table = document.getElementById('result_list');
   document.getElementById('searchbar')?.setAttribute('placeholder', 'جستجو در این فهرست…');
   // Labeled cards keep every control in reach on a phone. Sorting and Django's

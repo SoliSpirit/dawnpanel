@@ -30,6 +30,7 @@
 {% block filters %}{% endblock %}
 {% block result_list %}
   <div class="dp-list-meta"><strong>{{ cl.result_count|fa_number }} {{ opts.verbose_name }}</strong><span>{% if state_list_editable and not is_popup %}{% icon 'check-circle' %} ذخیره با یک کلیک{% else %}{% icon 'shield' %} فقط نمایش{% endif %}</span></div>
+  {% if can_recheck_all and cl.result_count and not is_popup %}<div class="dp-price-all"><button class="dp-price-button" type="submit" name="_dp_recheck" value="results" formnovalidate>بررسی مجدد همهٔ نتایج ({{ cl.result_count|fa_number }})</button><small>فقط قیمت و موجودی از منبع خوانده می‌شود.</small></div>{% endif %}
   {{ block.super }}
   {% if not cl.result_count %}<p class="dp-list-empty">ردیفی برای نمایش نیست.</p>{% endif %}
 {% endblock %}

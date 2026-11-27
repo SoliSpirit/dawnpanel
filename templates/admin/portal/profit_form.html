@@ -1,0 +1,13 @@
+{% extends 'admin/base_site.html' %}{% load static ui %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-lists.css' %}">{% endblock %}
+{% block content %}
+<form method="post" class="dp-profit-form">{% csrf_token %}
+  <input type="hidden" name="_dp_profit_selection" value="{{ selection }}">
+  <strong>{{ count|fa_number }} محصول انتخاب شده</strong>
+  <ul>{% for name,rate in sample %}<li>{{ name }} <small>· سود فعلی: {{ rate }}</small></li>{% endfor %}</ul>
+  {% if count > 8 %}<p>۸ نمونه از {{ count|fa_number }} محصول انتخاب‌شده</p>{% endif %}
+  {{ form.as_p }}
+  <button class="button default" type="submit">ذخیرهٔ سود برای {{ count|fa_number }} محصول</button>
+  <a href="{{ return_url }}">انصراف</a>
+</form>
+{% endblock %}

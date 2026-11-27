@@ -41,6 +41,28 @@ class SupplierCatalogueTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             catalogue_rows(snapshot)
 
+    def test_variation_stock_and_evidence_are_independent_of_price_and_parent(self):
+        snap=self.sample()
+        variant=snap['premstore']['variations'][0]
+        url='https://premstore.ir/product/example/?attribute_pa_plan=pro'
+        variant.update(is_in_stock=False,is_purchasable=True,permalink=url)
+        row=catalogue_rows(snap)[0]
+        self.assertEqual((row['price'],row['available'],row['item_url'],row['url']),
+                         (500,False,url,'https://premstore.ir/product/example/'))
+        for ambiguous in (None,'false',0):
+            variant['is_in_stock']=ambiguous
+            with self.assertRaises(ValueError):catalogue_rows(snap)
+
+    def test_dena_records_the_matching_public_detail_not_an_order_or_another_service(self):
+        from .supplier_clients import DenaTable
+        from .source_links import product_page
+        table=DenaTable()
+        table.feed('<tr data-service-id="21" data-status="1"><td><a href="/service/2/other/">a</a>'
+                   '<a href="/service/21/plan/">b</a><a href="/dashboard/orders/new/?service-id=21">c</a></td></tr>')
+        self.assertEqual(table.rows[0]['url'],'https://denapanel.ir/service/21/plan/')
+        for url in ('https://example.net/product/a/', 'https://premstore.ir/product/a/?add-to-cart=1','#','javascript:void(0)'):
+            self.assertEqual(product_page('premstore',url),'')
+
     def test_duplicate_identifier_fails_closed(self):
         snapshot = self.sample()
         snapshot['denapanel']['services'].append(snapshot['denapanel']['services'][0])

@@ -7,7 +7,7 @@
 <input type="hidden" name="action" value="{{ action_name }}">
 <input type="hidden" name="confirm" value="yes">
 <table><thead><tr><th>محصول</th><th>منبع</th><th>قیمت پایه هنگام دریافت</th><th>قیمت پیشنهادی</th><th>وضعیت</th></tr></thead><tbody>
-{% for row in rows %}<tr><td>{{ row.product_name|default:row.product_id }}<input type="hidden" name="_selected_action" value="{{ row.pk }}"><input type="hidden" name="observed_{{ row.pk }}" value="{{ row.observed_at|date:'c' }}"></td><td>{{ row.source }}</td><td>{{ row.price_baseline.price|default_if_none:'—'|number }}</td><td>{{ row.proposed_price|default_if_none:'—'|number }}</td><td>{{ row.get_review_status_display }}</td></tr>{% endfor %}
+{% for row in rows %}<tr><td>{{ row.product_name|default:row.product_id }}<input type="hidden" name="_selected_action" value="{{ row.pk }}"><input type="hidden" name="observed_{{ row.pk }}" value="{{ row.observed_at|date:'c' }}"></td><td>{% if row.evidence_url %}<a href="{{ row.evidence_url }}" target="_blank" rel="noopener noreferrer">{{ row.source }} · مشاهدهٔ منبع</a>{% else %}{{ row.source }}{% endif %}</td><td>{{ row.price_baseline.price|default_if_none:'—'|number }}</td><td>{{ row.proposed_price|default_if_none:'—'|number }}</td><td>{{ row.get_review_status_display }}</td></tr>{% endfor %}
 </tbody></table>
 <div class="submit-row"><input type="submit" value="{% if is_approval %}تأیید و اعمال{% else %}رد پیشنهادها{% endif %}"> <a href="{% url 'admin:portal_sourceproduct_changelist' %}">انصراف</a></div>
 </form></section>

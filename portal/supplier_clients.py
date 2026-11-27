@@ -1,23 +1,31 @@
 """Read public catalogues from fixed hosts; never follow supplier-provided URLs."""
 import json
+import time
 from html.parser import HTMLParser
 
 import requests
 
 from .source_catalog import catalogue_rows
+from .source_links import product_page
 
 
 class SupplierError(ValueError):
     pass
 
 
-def read_json(url, *, data=None):
+def read_json(url, *, data=None, deadline=None):
     if not url.startswith(('https://premstore.ir/wp-json/wc/store/v1/products',
                            'https://denapanel.ir/wp-admin/admin-ajax.php')):
         raise SupplierError('نشانی منبع مجاز نیست.')
     try:
         method = 'POST' if data else 'GET'
-        with requests.request(method, url, data=data, timeout=(8, 25),
+        timeout = (8,25)
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise SupplierError('مهلت دریافت از منبع تمام شد.')
+            timeout = (min(4,remaining/2),min(8,remaining/2))
+        with requests.request(method, url, data=data, timeout=timeout,
                               allow_redirects=False, stream=True,
                               headers={'User-Agent': 'DawnPanel-Catalog/1.0','Cache-Control':'no-cache'}) as response:
             if response.status_code != 200:
@@ -25,6 +33,8 @@ def read_json(url, *, data=None):
             chunks = []
             size = 0
             for chunk in response.iter_content(65536):
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise SupplierError('مهلت دریافت از منبع تمام شد.')
                 size += len(chunk)
                 if size > 10_000_000:
                     raise SupplierError('حجم پاسخ منبع بیش از حد مجاز است.')
@@ -59,6 +69,10 @@ class DenaTable(HTMLParser):
         elif self.row is not None and tag == 'td':
             self.cell = attrs.get('data-title', '')
             self.row['cells'][self.cell] = ''
+        elif self.row is not None and tag == 'a':
+            url = product_page('denapanel', attrs.get('href'), self.row['id'])
+            if url:
+                self.row['url'] = url
         if self.row is not None and 'data-desc' in attrs:
             self.row['description'] = attrs['data-desc']
 
@@ -79,14 +93,14 @@ class DenaTable(HTMLParser):
             self.row = None
 
 
-def fetch_catalogue(source):
+def fetch_catalogue(source, *, deadline=None):
     snapshot = {'premstore': {'products': [], 'variations': []}, 'denapanel': {'services': []}}
     if source == 'premstore':
         for kind, key in [('', 'products'), ('variation', 'variations')]:
             for page in range(1, 11):
                 rows = read_json(
                     'https://premstore.ir/wp-json/wc/store/v1/products'
-                    f'?per_page=100&page={page}' + ('&type=variation' if kind else ''))
+                    f'?per_page=100&page={page}' + ('&type=variation' if kind else ''), deadline=deadline)
                 if not isinstance(rows, list):
                     raise SupplierError('ساختار فهرست پریم‌استور تغییر کرده است.')
                 snapshot['premstore'][key].extend(rows)
@@ -99,15 +113,20 @@ def fetch_catalogue(source):
         page = 1
         while page <= 10:
             response = read_json('https://denapanel.ir/wp-admin/admin-ajax.php',
-                                 data={'action': 'kando_get_categories', 'page': page})
+                                 data={'action': 'kando_get_categories', 'page': page}, deadline=deadline)
             if not isinstance(response, dict) or not response.get('success'):
                 raise SupplierError('ساختار فهرست دناپنل تغییر کرده است.')
-            data = response['data']
-            pagination = data['pagination']
-            if int(pagination['current_page']) != page or not page <= int(pagination['total_pages']) <= 10:
+            try:
+                data = response['data']
+                pagination = data['pagination']
+                current, total = int(pagination['current_page']), int(pagination['total_pages'])
+                body = data['html']
+            except (KeyError,TypeError,ValueError):
+                raise SupplierError('ساختار فهرست دناپنل تغییر کرده است.') from None
+            if not isinstance(body,str) or current != page or not page <= total <= 10:
                 raise SupplierError('صفحه‌بندی دناپنل معتبر نیست.')
-            parser.feed(data['html'])
-            if page == int(pagination['total_pages']):
+            parser.feed(body)
+            if page == total:
                 break
             page += 1
         snapshot['denapanel']['services'] = parser.rows

@@ -35,8 +35,16 @@ class TaxPercentField(forms.DecimalField):
         if isinstance(value,str): value=value.replace('٫','.')
         return super().to_python(value)
 
+class ProfitPercentField(TaxPercentField):
+    def __init__(self,**kwargs):
+        super().__init__(label='درصد سود فروش',min_value=0,max_digits=10,decimal_places=4,
+            widget=forms.TextInput(attrs={'inputmode':'decimal','dir':'ltr','placeholder':'مثلاً ۱۲٫۵'}),
+            help_text='درصدی که به قیمت پایه اضافه می‌شود، پیش از مالیات. برای فروش بدون سود، صفر وارد کن.',
+            **kwargs)
+
 
 class ProductImageForm(forms.ModelForm):
+    product_profit_percent=ProfitPercentField(initial=0)
     tax_percent=TaxPercentField(label='درصد مالیات',min_value=0,max_value=100,max_digits=5,
         decimal_places=2,required=False,initial=0,widget=forms.TextInput(attrs={'inputmode':'decimal','dir':'ltr'}),
         help_text='از ۰ تا ۱۰۰؛ مثلاً ۹٫۵. روی مبلغ فروش همین محصول پس از سود و محاسبه تعداد اعمال می‌شود. صفر یعنی بدون مالیات.')

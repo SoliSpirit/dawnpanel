@@ -141,6 +141,114 @@ class PriceSyncTests(TransactionTestCase):
         self.link.refresh_from_db()
         self.assertIsNone(self.link.proposed_price)
 
+    def _tools_staff(self,*perms):
+        editor=User.objects.create_user(username='price-tools',is_staff=True)
+        editor.user_permissions.add(*Permission.objects.filter(content_type__app_label='portal',codename__in=perms))
+        self.client.force_login(editor)
+        return editor
+
+    def test_targeted_check_records_evidence_but_never_applies_a_price_or_resets_schedule(self):
+        self.config.enabled=True;self.config.require_approval=False
+        self.config.last_success=self.config.last_attempt=timezone.now()-timedelta(minutes=15)
+        self.config.save()
+        self.link.source_url='https://premstore.ir/product/example/'
+        self.link.sync_enabled=False;self.link.save()
+        missing=SourceProduct.objects.create(source='premstore',external_id='12',product_id=2002,last_price=800,available=True)
+        untouched=SourceProduct.objects.create(source='premstore',external_id='13',product_id=2003,last_price=200,available=True)
+        url=self.link.source_url+'?attribute_pa_plan=pro'
+        self.rows[0].update(available=False,item_url=url)
+        with patch('portal.price_sync.fetch_catalogue',return_value=self.rows) as fetcher:
+            result=sync_source('premstore',link_ids=[self.link.pk,missing.pk])
+        fetcher.assert_called_once()
+        self.assertEqual((result['checked'],result['unavailable'],result['missing']),(2,1,1))
+        self.link.refresh_from_db();missing.refresh_from_db();untouched.refresh_from_db()
+        self.assertEqual((self.link.review_status,self.link.last_price,self.link.evidence_url,self.link.proposed_price),
+                         ('unavailable',1100,url,None))
+        self.assertEqual(self.link.source_url,'https://premstore.ir/product/example/')
+        self.assertEqual((missing.review_status,missing.available,missing.last_price),('missing',False,800))
+        self.assertIsNone(untouched.observed_at)
+        self.assertFalse(self.link.sync_enabled)
+        self.rows[0]['available']=True
+        SourceProduct.objects.filter(pk=self.link.pk).update(sync_enabled=True)
+        with patch('portal.price_sync.fetch_catalogue',return_value=self.rows):
+            result=sync_source('premstore',link_ids=[self.link.pk])
+        self.assertEqual((result['pending'],result['applied']),(1,0))
+        self.product.refresh_from_db();self.assertEqual(self.product.price,1000)
+        config=SourceSyncSettings.objects.get(pk=self.config.pk)
+        self.assertEqual((config.running_until,config.last_attempt,config.last_success),
+                         (None,self.config.last_attempt,self.config.last_success))
+        self.link.refresh_from_db()
+        with patch('portal.price_sync.fetch_catalogue',side_effect=SupplierError('ارتباط ناموفق')):
+            with self.assertRaises(SupplierError):sync_source('premstore',link_ids=[self.link.pk])
+        self.assertEqual(SourceProduct.objects.get(pk=self.link.pk).observed_at,self.link.observed_at)
+
+    def test_recheck_one_group_and_filtered_all_fetch_each_source_once(self):
+        self._tools_staff('change_sourceproduct','change_product')
+        dena=Product.objects.create(name='Second plan',category=self.category,price=1200)
+        other=SourceProduct.objects.create(source='denapanel',external_id='11',product_id=dena.pk,last_price=1200)
+        third=SourceProduct.objects.create(source='premstore',external_id='12',product_id=3000,last_price=900,available=True)
+        def get_rows(source,**_):
+            return self.rows if source=='premstore' else [{'external_id':'11','price':1300,'price_per':1,'available':True}]
+        url='/admin/portal/sourceproduct/'
+        with patch('portal.price_sync.fetch_catalogue',side_effect=get_rows) as fetcher:
+            self.assertEqual(self.client.post(url,{'_dp_recheck':other.pk}).status_code,302)
+            self.assertEqual(fetcher.call_count,1)
+            self.assertIsNone(SourceProduct.objects.get(pk=self.link.pk).observed_at)
+            fetcher.reset_mock()
+            self.client.post(url,{'action':'recheck_selected','_selected_action':[other.pk,self.link.pk]})
+            self.assertEqual({c.args[0] for c in fetcher.call_args_list},{'denapanel','premstore'})
+            self.assertEqual(fetcher.call_count,2)
+            fetcher.reset_mock()
+            self.client.post(url+'?q=Test%20plan',{'_dp_recheck':'results'})
+            self.assertEqual(fetcher.call_count,1)
+            self.assertEqual(fetcher.call_args.args[0],'premstore')
+        self.assertIsNone(SourceProduct.objects.get(pk=third.pk).observed_at)
+
+    def test_profit_edits_are_scoped_validated_and_used_once_in_quotes(self):
+        from decimal import Decimal
+        from .pricing import pricing_for
+        from .models import Audit,ProductTax
+        self._tools_staff('change_product','change_sourceproduct')
+        ProductTax.objects.create(product=self.product,percent=10)
+        other=Product.objects.create(name='No source',category=self.category,price=1000)
+        keep=Product.objects.create(name='Keep',category=self.category,price=1000,product_profit_percent=3)
+        base='/admin/portal/product/'
+        self.fetch()
+        opened=self.client.post(base,{'action':'set_profit','_selected_action':[self.product.pk,other.pk]})
+        self.assertEqual(opened.context['count'],2)
+        token={'_dp_profit_selection':opened.context['selection']}
+        for invalid in ('','-1','NaN','0.00001','1000000'):
+            res=self.client.post(base,{**token,'percent':invalid})
+            self.assertIn('percent',res.context['form'].errors)
+        self.assertEqual(self.client.post(base,{**token,'percent':'۱۲٫۵'}).status_code,302)
+        self.product.refresh_from_db();other.refresh_from_db();keep.refresh_from_db()
+        self.assertEqual((self.product.price,self.product.product_profit_percent,other.product_profit_percent,keep.product_profit_percent),
+                         (1000,Decimal('12.5'),Decimal('12.5'),3))
+        self.assertEqual(pricing_for(self.product).quote(1).total,1238)
+        self.assertEqual(Audit.objects.filter(action='product.profit').count(),2)
+        self.assertFalse(apply_proposal(self.link.pk))  # fetched with the previous markup
+        self.client.post(base,{**token,'percent':99})
+        self.product.refresh_from_db();self.assertEqual(self.product.product_profit_percent,Decimal('12.5'))
+        url='/admin/portal/sourceproduct/'
+        opened=self.client.post(url,{'_dp_profit':self.link.pk})
+        self.assertEqual(opened.context['count'],1)
+        self.client.post(url,{'_dp_profit_selection':opened.context['selection'],'percent':'۰'})
+        self.product.refresh_from_db();other.refresh_from_db();self.link.refresh_from_db()
+        self.assertEqual((self.product.product_profit_percent,other.product_profit_percent,self.link.last_price),(0,Decimal('12.5'),1100))
+
+    def test_one_source_action_needs_both_permissions_and_csrf(self):
+        from django.test import Client
+        url='/admin/portal/sourceproduct/'
+        user=self._tools_staff('change_sourceproduct')
+        with patch('portal.price_sync.fetch_catalogue') as fetch:
+            self.assertEqual(self.client.post(url,{'_dp_recheck':self.link.pk}).status_code,404)
+            self.assertEqual(self.client.post(url,{'_dp_profit':self.link.pk}).status_code,404)
+            user.user_permissions.add(Permission.objects.get(content_type__app_label='portal',codename='change_product'))
+            secure=Client(enforce_csrf_checks=True);secure.force_login(user)
+            self.assertEqual(secure.post(url,{'_dp_recheck':'results'}).status_code,403)
+            self.assertEqual(secure.post(url,{'_dp_profit':self.link.pk}).status_code,403)
+            fetch.assert_not_called()
+
     def add_family_plan(self):
         from .models import ProductVisual
         self.link.source_url='https://premstore.ir/product/example/'

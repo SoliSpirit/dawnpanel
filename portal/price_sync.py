@@ -8,6 +8,7 @@ from django.utils import timezone
 from .models import Audit, Product, SourceProduct, SourceSyncSettings
 from .services import BusinessError
 from .supplier_clients import fetch_catalogue
+from .source_links import product_page
 
 
 def price_signature(product):
@@ -50,7 +51,16 @@ def apply_proposal(pk, actor=None, *, automatic=False, expected_observed_at=None
     return True
 
 
-def sync_source(source, *, due_only=False, actor=None):
+def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=None):
+    """A targeted recheck observes exactly these mappings, including paused ones.
+
+    It never moves the full-catalog schedule or applies a merchant price.
+    """
+    targeted = link_ids is not None
+    if targeted:
+        link_ids = sorted(set(link_ids))
+        if not link_ids or due_only:
+            raise BusinessError('ردیفی برای بررسی دستی انتخاب نشده است.')
     SourceSyncSettings.objects.get_or_create(source=source)
     now = timezone.now()
     # A persisted lease serializes CLI, scheduler and admin fetches across workers.
@@ -63,26 +73,42 @@ def sync_source(source, *, due_only=False, actor=None):
             return {'skipped':True}
         lease = now + timedelta(minutes=30)
         config.running_until = lease
-        config.last_attempt = now
-        config.save(update_fields=['running_until','last_attempt'])
+        if not targeted:
+            config.last_attempt = now
+        config.save(update_fields=['running_until'] if targeted else ['running_until','last_attempt'])
     try:
-        rows = fetch_catalogue(source)
+        rows = fetch_catalogue(source, deadline=deadline)
         indexed = {str(row['external_id']): row for row in rows}
         pending = applied = 0
+        present = missing = sold_out = 0
+        observed = timezone.now()
         with transaction.atomic():
-            links = SourceProduct.objects.select_for_update().filter(source=source,sync_enabled=True).order_by('pk')
+            scope = SourceProduct.objects.filter(source=source)
+            scope = scope.filter(pk__in=link_ids) if targeted else scope.filter(sync_enabled=True)
+            links = list(scope.select_for_update().order_by('pk'))
+            if not SourceSyncSettings.objects.select_for_update().filter(source=source,running_until=lease).exists():
+                raise BusinessError('مهلت بررسی پایان یافته است؛ دوباره تلاش کنید.')
+            products = Product.objects.in_bulk([link.product_id for link in links])
             for link in links:
                 row = indexed.get(link.external_id)
-                product = Product.objects.filter(pk=link.product_id).first()
+                product = products.get(link.product_id)
                 link.proposed_price = None
-                link.observed_at = now
+                link.observed_at = link.updated_at = observed
                 link.available = bool(row and row['available'])
-                if not row or not row['available']:
+                if row:
+                    # Even an out-of-stock plan can have a freshly quoted price.
+                    link.last_price = row['price']
+                    link.item_url = product_page(source,row.get('item_url') or row.get('url'),link.external_id)
+                    present += int(link.available)
+                if not row:
+                    link.review_status = 'missing'
+                    missing += 1
+                elif not row['available']:
                     link.review_status = 'unavailable'
+                    sold_out += 1
                 elif not product:
                     link.review_status = 'conflict'
                 else:
-                    link.last_price = row['price']
                     baseline = price_signature(product)
                     baseline['source_price_per'] = str(row['price_per'])
                     # Preserve a rejected observation until source price changes.
@@ -100,19 +126,24 @@ def sync_source(source, *, due_only=False, actor=None):
                         link.proposed_price = row['price']
                         link.review_status = 'pending'
                         pending += 1
-                link.save()
+            SourceProduct.objects.bulk_update(links, ['proposed_price','observed_at','updated_at','available',
+                'last_price','item_url','review_status','price_baseline'],batch_size=100)
         # No network I/O inside row locks or financial transactions.
-        if config.enabled and not config.require_approval:
-            for pk in SourceProduct.objects.filter(source=source,review_status='pending',observed_at=now).values_list('pk',flat=True):
-                applied += bool(apply_proposal(pk,actor,automatic=True,expected_observed_at=now))
-        SourceSyncSettings.objects.filter(source=source,running_until=lease).update(
-            running_until=None,last_success=timezone.now(),last_error='')
-        Audit.objects.create(actor=actor,action='source.price.fetch',object_ref=source,
-                             details={'received':len(rows),'pending':pending,'applied':applied})
-        return {'received':len(rows),'pending':pending,'applied':applied}
+        if not targeted and config.enabled and not config.require_approval:
+            for p in links:
+                if p.review_status == 'pending':
+                    applied += bool(apply_proposal(p.pk,actor,automatic=True,expected_observed_at=observed))
+        result={'received':len(rows),'checked':len(links),'available':present,'unavailable':sold_out,
+                'missing':missing,'pending':pending,'applied':applied}
+        with transaction.atomic():
+            SourceSyncSettings.objects.filter(source=source,running_until=lease).update(running_until=None,
+                **({} if targeted else {'last_success':timezone.now(),'last_error':''}))
+            Audit.objects.create(actor=actor,action='source.price.recheck' if targeted else 'source.price.fetch',
+                object_ref=source,details={**result,**({'links':link_ids} if targeted else {})})
+        return result
     except Exception:
-        SourceSyncSettings.objects.filter(source=source,running_until=lease).update(
-            running_until=None,last_error='دریافت یا ثبت قیمت‌ها ناموفق بود؛ دوباره بررسی کنید.')
+        SourceSyncSettings.objects.filter(source=source,running_until=lease).update(running_until=None,
+            **({} if targeted else {'last_error':'دریافت یا ثبت قیمت‌ها ناموفق بود؛ دوباره بررسی کنید.'}))
         raise
 
 

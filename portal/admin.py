@@ -6,6 +6,7 @@ from django.utils.html import format_html
 from django.urls import reverse
 from .services import BusinessError
 from .admin_states import StateListMixin
+from .admin_pricing import PriceToolsAdminMixin
 
 @admin.register(Campaign)
 class CampaignAdmin(StateListMixin,admin.ModelAdmin):
@@ -47,7 +48,8 @@ class WebsiteFlagFilter(admin.SimpleListFilter):
         return queryset
 
 @admin.register(Product)
-class ProductAdmin(StateListMixin,AuditedAdmin):
+class ProductAdmin(PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
+    actions=['set_profit','recheck_selected']
     state_fields=('is_active','show_on_website','show_on_telegram')
     state_labels={'is_active':'وضعیت فروش','show_on_telegram':'نمایش در ربات'}
     state_ordering={'show_on_website':'_web_enabled'}
@@ -59,6 +61,11 @@ class ProductAdmin(StateListMixin,AuditedAdmin):
         return {'platform':'rubika','show_on_website':True,**super().get_changeform_initial_data(request)}
     def render_change_form(self,request,context,add=False,change=False,form_url='',obj=None):
         from .catalog_aliases import PREMSTORE_EQUIVALENTS
+        source_admin=self.admin_site.get_model_admin(SourceProduct)
+        if obj and source_admin.has_view_or_change_permission(request):
+            link=source_admin.get_queryset(request).filter(product_id=obj.pk).first()
+            if link and source_admin.has_view_or_change_permission(request,link):
+                context['pricing_source']=link
         if obj and obj.pk in (*PREMSTORE_EQUIVALENTS,31):
             from .store_catalog import families
             context['web_equivalent']=next((p for family in families() for p in family.plans
@@ -125,9 +132,9 @@ class ProductAdmin(StateListMixin,AuditedAdmin):
             obj=copy(obj)
             obj.show_on_website=False
         super().validate_activation(obj,field)
-    list_display=['product_label','platform','base_price','tax_label','is_active','show_on_website','show_on_telegram']
+    list_display=['product_label','platform','base_price','profit_label','tax_label','is_active','show_on_website','show_on_telegram']
     list_filter=['platform','is_active',WebsiteFlagFilter,'show_on_telegram','category'];search_fields=['name'];list_per_page=30
-    fieldsets=[('معرفی محصول',{'fields':['name','category','platform','plan_name','duration_months','description']}),('قیمت و تعداد',{'fields':['price','tax_percent',('price_per','min_order'),'max_order'],'description':'همه قیمت‌های پایه به تومان هستند. برای اشتراک تکی، تعداد مبنا و حداقل سفارش را روی ۱ قرار دهید.'}),('انتشار در سایت و تلگرام',{'fields':['is_active','show_on_website','show_on_telegram'],'description':'محل نمایش محصول را مستقل انتخاب کنید. محصولات غیرفعال قابل خرید نیستند.'}),('تصاویر روز و شب',{'fields':[('picture','night_picture'),'picture_alt','current_picture','current_night_picture','remove_night_picture','remove_picture']}),('اطلاعات تحویل و سئو',{'fields':['need_link','target_prompt','seo_description']}),('تنظیمات پیشرفته قیمت و ربات',{'fields':['price_currency','price_amount','product_profit_percent','target_type'],'classes':['collapse'],'description':'برای فروش معمولی با تومان نیازی به تغییر این بخش ندارید.'})]
+    fieldsets=[('معرفی محصول',{'fields':['name','category','platform','plan_name','duration_months','description']}),('قیمت و تعداد',{'fields':['price','product_profit_percent','tax_percent',('price_per','min_order'),'max_order'],'description':'همه قیمت‌های پایه به تومان هستند. برای اشتراک تکی، تعداد مبنا و حداقل سفارش را روی ۱ قرار دهید.'}),('انتشار در سایت و تلگرام',{'fields':['is_active','show_on_website','show_on_telegram'],'description':'محل نمایش محصول را مستقل انتخاب کنید. محصولات غیرفعال قابل خرید نیستند.'}),('تصاویر روز و شب',{'fields':[('picture','night_picture'),'picture_alt','current_picture','current_night_picture','remove_night_picture','remove_picture']}),('اطلاعات تحویل و سئو',{'fields':['need_link','target_prompt','seo_description']}),('تنظیمات پیشرفته قیمت و ربات',{'fields':['price_currency','price_amount','target_type'],'classes':['collapse'],'description':'برای فروش معمولی با تومان نیازی به تغییر این بخش ندارید.'})]
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(Category)
 class CategoryAdmin(StateListMixin,AuditedAdmin):
@@ -247,21 +254,39 @@ class SourceSyncSettingsAdmin(StateListMixin,AuditedAdmin):
 
 
 @admin.register(SourceProduct)
-class SourceProductAdmin(StateListMixin,AuditedAdmin):
+class SourceProductAdmin(PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
     state_fields=('sync_enabled',)
-    indicator_fields=('available',)
-    state_words={'available':('موجود','ناموجود')}
-    list_hint='دریافت قیمت هر محصول را از همین فهرست روشن یا خاموش کن. موجودی از تأمین‌کننده خوانده می‌شود.'
-    list_display=['product_label','source_label','source_item','supplier_price','proposed_price',
-                  'review_status','available','sync_enabled','observed_at']
+    list_hint='روی لینک زیر قیمت بزن تا صفحهٔ منبع را ببینی. برای بررسی مجدد یا تنظیم سود چند محصول، ردیف‌ها را انتخاب کن.'
+    state_labels={'sync_enabled':'پایش خودکار'}
+    list_display=['product_label','source_item','supplier_price','observation','profit_label','sync_enabled','check_time']
     list_display_links=('source_item',)  # product_label already links to the product editor.
     list_filter=['source','review_status','sync_enabled','available']
-    search_fields=['external_id','=product_id']
+    search_fields=['product_name','family_name','external_id','=product_id']
     list_per_page=30
-    fields=['source','external_id','product_id','source_url','family_name','family_summary','sync_enabled','last_price',
+    fields=['source','external_id','product_id','source_page','family_name','family_summary','sync_enabled','last_price',
             'proposed_price','review_status','available','observed_at']
     readonly_fields=[field for field in fields if field not in {'sync_enabled','family_name','family_summary'}]
-    actions=['approve_prices','reject_prices']
+    actions=['recheck_selected','set_profit','approve_prices','reject_prices']
+
+    @admin.display(description='نتیجهٔ بررسی',ordering='review_status')
+    def observation(self,obj):
+        from .templatetags.ui import fa_number
+        label=obj.get_review_status_display()
+        if obj.review_status in ('unavailable','missing'):
+            return label
+        detail='موجود در منبع' if obj.available else 'ناموجود در منبع'
+        if obj.proposed_price:
+            detail+=f' · پیشنهاد: {fa_number(obj.proposed_price)} تومان'
+        return format_html('{}<small class="catalog-row-category">{}</small>',label,detail)
+
+    @admin.display(description='آخرین بررسی',ordering='observed_at')
+    def check_time(self,obj):
+        if not obj.observed_at:return '—'
+        from django.utils import formats, timezone
+        value=timezone.localtime(obj.observed_at)
+        return format_html('<time datetime="{}" title="{}">{}<small class="catalog-row-category">{}</small></time>',
+                           value.isoformat(),formats.date_format(value,'DATETIME_FORMAT'),formats.date_format(value,'j F'),
+                           formats.time_format(value,'H:i'))
 
     def has_add_permission(self,request):
         return False
@@ -276,14 +301,21 @@ class SourceProductAdmin(StateListMixin,AuditedAdmin):
     def source_label(self,obj):
         return dict(SourceSyncSettings._meta.get_field('source').choices).get(obj.source,obj.source)
 
-    @admin.display(description='شناسه منبع',ordering='external_id')
+    @admin.display(description='منبع / شناسه',ordering='external_id')
     def source_item(self,obj):
-        return obj.external_id
+        return format_html('{} <small dir="ltr">#{}</small>',self.source_label(obj),obj.external_id)
 
-    @admin.display(description='آخرین قیمت منبع',ordering='last_price')
+    @admin.display(description='صفحهٔ منبع')
+    def source_page(self,obj):
+        url=obj.evidence_url
+        if not url: return 'لینک محصول ارائه نشده'
+        return format_html('<a class="dp-source-page" href="{}" target="_blank" rel="noopener noreferrer">مشاهده در {}</a>',url,self.source_label(obj))
+
+    @admin.display(description='آخرین قیمت منبع (تومان)',ordering='last_price')
     def supplier_price(self,obj):
         from .templatetags.ui import fa_number
-        return fa_number(obj.last_price)
+        return format_html('<strong>{}</strong><small class="catalog-row-category">{}</small>',
+                           fa_number(obj.last_price),self.source_page(obj))
 
     @admin.display(description='محصول')
     def product_label(self,obj):
@@ -294,7 +326,8 @@ class SourceProductAdmin(StateListMixin,AuditedAdmin):
     def get_queryset(self,request):
         from django.db.models import OuterRef,Subquery
         return super().get_queryset(request).annotate(
-            product_name=Subquery(Product.objects.filter(pk=OuterRef('product_id')).values('name')[:1]))
+            product_name=Subquery(Product.objects.filter(pk=OuterRef('product_id')).values('name')[:1]),
+            profit=Subquery(Product.objects.filter(pk=OuterRef('product_id')).values('product_profit_percent')[:1]))
 
     def review_prices(self,request,queryset,action):
         from django.contrib import messages
