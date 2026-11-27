@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 PLATFORMS=[('rubika','روبیکا'),('eitaa','ایتا'),('bale','بله'),('ai','اشتراک هوش مصنوعی'),('telegram','تلگرام'),('other','سایر')]
+WEB_PLATFORMS=('rubika','eitaa','bale','ai')
 class LegacyUser(models.Model):
     user_id=models.BigIntegerField(primary_key=True)
     full_name=models.CharField(max_length=255,blank=True,null=True)
@@ -53,13 +54,24 @@ class Product(models.Model):
     seo_description=models.CharField('توضیح سئو',max_length=160,blank=True,default='')
     class Meta: managed=False;db_table='products';verbose_name='محصول';verbose_name_plural='محصولات'
     def __str__(self): return self.name
+    @staticmethod
+    def web_eligible():
+        return models.Q(platform__in=WEB_PLATFORMS) | models.Q(
+            platform='other',pk__in=SourceProduct.objects.values('product_id'))
+
+    def web_publication_error(self):
+        if self.platform=='telegram':
+            return 'خدمات تلگرام در فروشگاه وب منتشر نمی‌شوند.'
+        if self.platform not in WEB_PLATFORMS:
+            linked=getattr(self,'_has_source',None)
+            if self.platform=='other' and self.pk and linked is None:
+                linked=SourceProduct.objects.filter(product_id=self.pk).exists()
+            if self.platform!='other' or not linked:
+                return 'این نوع محصول فقط با اتصال منبع معتبر در فروشگاه منتشر می‌شود.'
+        return ''
     def clean(self):
         if self.max_order and self.max_order<self.min_order: raise ValidationError('حداکثر سفارش از حداقل کمتر است.')
-        if self.show_on_website and self.platform == 'telegram':
-            raise ValidationError('خدمات تلگرام در فروشگاه وب منتشر نمی‌شوند.')
-        if self.show_on_website and self.platform not in ['rubika','eitaa','bale','ai']:
-            if self.platform != 'other' or not self.pk or not SourceProduct.objects.filter(product_id=self.pk).exists():
-                raise ValidationError('این نوع محصول فقط با اتصال منبع معتبر در فروشگاه منتشر می‌شود.')
+        if self.show_on_website and (error:=self.web_publication_error()): raise ValidationError(error)
         if self.price_currency!='TOMAN' and self.price_amount is None: raise ValidationError('برای قیمت ارزی مبلغ لازم است.')
     @property
     def visual(self):

@@ -53,6 +53,11 @@ class ProductImageForm(forms.ModelForm):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         if 'name' not in self.fields: return  # Read-only admin view / publication-only form.
+        if 'show_on_website' in self.fields:
+            self.fields['show_on_website'].help_text='خدمات نوع تلگرام فقط در ربات قابل نمایش‌اند.'
+            if self.instance.pk and self.instance.show_on_website and (reason:=self.instance.web_publication_error()):
+                self.initial['show_on_website']=False
+                self.fields['show_on_website'].help_text=reason+' با ذخیرهٔ این فرم، علامت قدیمیِ سایت هم اصلاح می‌شود.'
         if self.instance.pk and 'tax_percent' in self.fields:
             self.initial['tax_percent']=self.instance.tax_percent
         self.fields['category'].queryset=self.fields['category'].queryset.order_by('sort_order','name')

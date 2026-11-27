@@ -371,6 +371,54 @@ class PriceSyncTests(TransactionTestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.price,1100)
 
+    def test_inline_monitoring_respects_permissions_and_price_approval(self):
+        self.fetch()
+        user=User.objects.create_user(username='price-monitor',is_staff=True)
+        user.user_permissions.add(*Permission.objects.filter(content_type__app_label='portal',
+            codename__in=['change_sourceproduct','change_sourcesyncsettings']))
+        self.client.force_login(user)
+        def submit(obj,field,on):
+            return self.client.post(f'/admin/portal/{obj._meta.model_name}/',
+                                    {'_dp_state':f'{obj.pk}:{field}:{int(on)}'},HTTP_ACCEPT='application/json')
+        for obj,field,on in [(self.link,'sync_enabled',False),(self.config,'enabled',True)]:
+            self.assertEqual(submit(obj,field,on).status_code,404)
+        user.user_permissions.add(Permission.objects.get(content_type__app_label='portal',codename='change_product'))
+        for obj,field in [(self.link,'sync_enabled'),(self.config,'enabled')]:
+            for on in (not getattr(obj,field),getattr(obj,field)):
+                result=submit(obj,field,on)
+                self.assertEqual(result.status_code,200,result.content)
+                self.assertIs(getattr(type(obj).objects.get(pk=obj.pk),field),on)
+        for obj,field in [(self.link,'available'),(self.config,'require_approval')]:
+            self.assertEqual(submit(obj,field,False).status_code,400)
+        self.config.refresh_from_db();self.link.refresh_from_db();self.product.refresh_from_db()
+        self.assertTrue(self.config.require_approval and self.link.available)
+        self.assertEqual((self.config.interval_minutes,self.link.proposed_price,self.link.review_status,self.product.price),
+                         (60,1100,'pending',1000))
+
+    @skipUnless(connection.vendor=='mysql','Requires real row locking')
+    def test_parallel_state_requests_record_a_single_transition(self):
+        from django.test import Client
+        from .models import Audit
+        user=User.objects.create_user(username='stock-editor',is_staff=True)
+        user.user_permissions.add(Permission.objects.get(content_type__app_label='portal',codename='change_product'))
+        self.client.force_login(user)
+        cookie=self.client.cookies['sessionid'].value
+        gate=Barrier(2,timeout=10)
+        def send(_):
+            close_old_connections()
+            try:
+                client=Client();client.cookies['sessionid']=cookie
+                gate.wait()
+                return client.post('/admin/portal/product/',{'_dp_state':f'{self.product.pk}:is_active:0'},
+                                   HTTP_ACCEPT='application/json').status_code
+            finally:
+                close_old_connections()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(list(pool.map(send,range(2))),[200,200])
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.is_active)
+        self.assertEqual(Audit.objects.get(action='product.update').details,{'fields':['is_active'],'old':True,'new':False})
+
     @skipUnless(connection.vendor=='mysql','Requires real row locking')
     def test_concurrent_proposal_approval_applies_once(self):
         from .models import Audit

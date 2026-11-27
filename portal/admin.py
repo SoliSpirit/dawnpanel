@@ -5,9 +5,11 @@ from .product_media import ProductImageForm,save_product_picture
 from django.utils.html import format_html
 from django.urls import reverse
 from .services import BusinessError
+from .admin_states import StateListMixin
 
 @admin.register(Campaign)
-class CampaignAdmin(admin.ModelAdmin):
+class CampaignAdmin(StateListMixin,admin.ModelAdmin):
+    state_fields=('active',)
     list_display=['name','share_link','clicks','registrations','active']
     readonly_fields=['share_link','clicks','registrations']
     search_fields=['name','code']
@@ -29,8 +31,28 @@ class AuditedAdmin(admin.ModelAdmin):
     def save_model(self,request,obj,form,change):
         super().save_model(request,obj,form,change)
         Audit.objects.create(actor=request.user,action=self.model._meta.model_name+('.update' if change else '.create'),object_ref=str(obj.pk),details={'fields':list(form.changed_data)})
+
+class WebsiteFlagFilter(admin.SimpleListFilter):
+    title='نمایش در سایت'
+    parameter_name='show_on_website__exact'
+
+    def lookups(self,request,model_admin):
+        return [('1','روشن'),('0','خاموش'),('blocked','غیرقابل انتشار در سایت')]
+
+    def queryset(self,request,queryset):
+        if self.value() in ('1','0'):
+            return queryset.filter(Product.web_eligible(),show_on_website=self.value()=='1')
+        if self.value()=='blocked':
+            return queryset.exclude(Product.web_eligible())
+        return queryset
+
 @admin.register(Product)
-class ProductAdmin(AuditedAdmin):
+class ProductAdmin(StateListMixin,AuditedAdmin):
+    state_fields=('is_active','show_on_website','show_on_telegram')
+    state_labels={'is_active':'وضعیت فروش','show_on_telegram':'نمایش در ربات'}
+    state_ordering={'show_on_website':'_web_enabled'}
+    state_words={'show_on_website':('روشن','خاموش'), 'show_on_telegram':('روشن','خاموش')}
+    list_hint='فروش محصول و نمایش آن در سایت و ربات را جداگانه تنظیم کن. هر تغییر همان لحظه ذخیره می‌شود.'
     form=ProductImageForm
     change_form_template='admin/portal/product/change_form.html'
     def get_changeform_initial_data(self,request):
@@ -86,18 +108,44 @@ class ProductAdmin(AuditedAdmin):
     @admin.display(description='مالیات',ordering='tax_policy__percent')
     def tax_label(self,obj):
         return f'{obj.tax_percent:g}٪' if obj.tax_percent else 'بدون مالیات'
-    def get_queryset(self,request):return super().get_queryset(request).select_related('category','tax_policy')
+    def get_queryset(self,request):
+        from django.db.models import Exists,OuterRef,Q
+        return super().get_queryset(request).select_related('category','tax_policy').annotate(
+            _has_source=Exists(SourceProduct.objects.filter(product_id=OuterRef('pk')))
+        ).alias(_web_enabled=Q(show_on_website=True) & Product.web_eligible())
+    def state_block(self,obj,field):
+        if field=='show_on_website' and (reason:=obj.web_publication_error()):
+            return ('فقط ربات' if obj.platform=='telegram' else 'نیازمند منبع',reason)
+        return None
+    def validate_activation(self,obj,field):
+        if field!='show_on_website' and obj.show_on_website and obj.web_publication_error():
+            # Some legacy bot SKUs have an ineffective web flag. Validate the sale
+            # on its eligible channel; only the explicitly requested field is saved.
+            from copy import copy
+            obj=copy(obj)
+            obj.show_on_website=False
+        super().validate_activation(obj,field)
     list_display=['product_label','platform','base_price','tax_label','is_active','show_on_website','show_on_telegram']
-    list_editable=['is_active','show_on_website','show_on_telegram']
-    list_filter=['platform','is_active','show_on_website','show_on_telegram','category'];search_fields=['name'];list_per_page=30
+    list_filter=['platform','is_active',WebsiteFlagFilter,'show_on_telegram','category'];search_fields=['name'];list_per_page=30
     fieldsets=[('معرفی محصول',{'fields':['name','category','platform','plan_name','duration_months','description']}),('قیمت و تعداد',{'fields':['price','tax_percent',('price_per','min_order'),'max_order'],'description':'همه قیمت‌های پایه به تومان هستند. برای اشتراک تکی، تعداد مبنا و حداقل سفارش را روی ۱ قرار دهید.'}),('انتشار در سایت و تلگرام',{'fields':['is_active','show_on_website','show_on_telegram'],'description':'محل نمایش محصول را مستقل انتخاب کنید. محصولات غیرفعال قابل خرید نیستند.'}),('تصاویر روز و شب',{'fields':[('picture','night_picture'),'picture_alt','current_picture','current_night_picture','remove_night_picture','remove_picture']}),('اطلاعات تحویل و سئو',{'fields':['need_link','target_prompt','seo_description']}),('تنظیمات پیشرفته قیمت و ربات',{'fields':['price_currency','price_amount','product_profit_percent','target_type'],'classes':['collapse'],'description':'برای فروش معمولی با تومان نیازی به تغییر این بخش ندارید.'})]
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(Category)
-class CategoryAdmin(AuditedAdmin):
-    list_display=['name','sort_order','is_active'];fields=['name','emoji','sort_order','is_active']
+class CategoryAdmin(StateListMixin,AuditedAdmin):
+    state_fields=('is_active',)
+    state_labels={'is_active':'وضعیت دسته'}
+    list_hint='غیرفعال کردن دسته، محصولاتش را از فهرست سایت و ربات پنهان می‌کند. برای تغییر، روی وضعیت همان دسته بزن.'
+    list_display=['name','product_count','sort_order','is_active'];fields=['name','emoji','sort_order','is_active']
+    search_fields=['name'];list_filter=['is_active'];list_per_page=30
+    def get_queryset(self,request):
+        from django.db.models import Count
+        return super().get_queryset(request).annotate(_products=Count('product'))
+    @admin.display(description='تعداد محصولات',ordering='_products')
+    def product_count(self,obj):return obj._products
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(Post)
-class PostAdmin(AuditedAdmin):
+class PostAdmin(StateListMixin,AuditedAdmin):
+    state_fields=('published',)
+    state_words={'published':('منتشرشده','پیش‌نویس')}
     change_form_template='admin/portal/post/change_form.html'
     list_display=['title','published','author','updated_at'];list_filter=['published'];search_fields=['title'];prepopulated_fields={'slug':('title',)}
     readonly_fields=['author','created_at','updated_at']
@@ -146,11 +194,13 @@ class TicketAdmin(AuditedAdmin):
     def has_delete_permission(self,request,obj=None): return False
 
 @admin.register(Currency)
-class CurrencyAdmin(AuditedAdmin):
+class CurrencyAdmin(StateListMixin,AuditedAdmin):
+    state_fields=('is_active',)
     list_display=['code','name','rate','is_active','updated_at'];fields=['code','name','symbol','rate','type','icon','is_active']
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(GiftCode)
-class GiftAdmin(AuditedAdmin):
+class GiftAdmin(StateListMixin,AuditedAdmin):
+    state_fields=('is_active',)
     list_display=['code','amount','is_active','used_count','max_uses','target_type'];readonly_fields=['used_count','created_by','created_at']
     def has_delete_permission(self,request,obj=None): return False
     def save_model(self,request,obj,form,change):
@@ -161,7 +211,11 @@ class RankAdmin(AuditedAdmin): list_display=['name','min_spending']
 
 
 @admin.register(SourceSyncSettings)
-class SourceSyncSettingsAdmin(AuditedAdmin):
+class SourceSyncSettingsAdmin(StateListMixin,AuditedAdmin):
+    state_fields=('enabled',)
+    indicator_fields=('require_approval',)
+    state_words={'require_approval':('تأیید دستی','اعمال خودکار')}
+    list_hint='دریافت زمان‌بندی‌شده با یک کلیک تغییر می‌کند. روش تأیید قیمت را از صفحهٔ تنظیمات همان منبع تغییر بده.'
     list_display=['source','enabled','require_approval','interval_minutes','last_success','last_error']
     fields=['source','enabled','require_approval','interval_minutes','max_change_percent',
             'last_attempt','last_success','last_error']
@@ -193,9 +247,14 @@ class SourceSyncSettingsAdmin(AuditedAdmin):
 
 
 @admin.register(SourceProduct)
-class SourceProductAdmin(AuditedAdmin):
-    list_display=['product_label','source','external_id','last_price','proposed_price',
+class SourceProductAdmin(StateListMixin,AuditedAdmin):
+    state_fields=('sync_enabled',)
+    indicator_fields=('available',)
+    state_words={'available':('موجود','ناموجود')}
+    list_hint='دریافت قیمت هر محصول را از همین فهرست روشن یا خاموش کن. موجودی از تأمین‌کننده خوانده می‌شود.'
+    list_display=['product_label','source_label','source_item','supplier_price','proposed_price',
                   'review_status','available','sync_enabled','observed_at']
+    list_display_links=('source_item',)  # product_label already links to the product editor.
     list_filter=['source','review_status','sync_enabled','available']
     search_fields=['external_id','=product_id']
     list_per_page=30
@@ -212,6 +271,19 @@ class SourceProductAdmin(AuditedAdmin):
 
     def has_change_permission(self,request,obj=None):
         return super().has_change_permission(request,obj) and request.user.has_perm('portal.change_product')
+
+    @admin.display(description='منبع',ordering='source')
+    def source_label(self,obj):
+        return dict(SourceSyncSettings._meta.get_field('source').choices).get(obj.source,obj.source)
+
+    @admin.display(description='شناسه منبع',ordering='external_id')
+    def source_item(self,obj):
+        return obj.external_id
+
+    @admin.display(description='آخرین قیمت منبع',ordering='last_price')
+    def supplier_price(self,obj):
+        from .templatetags.ui import fa_number
+        return fa_number(obj.last_price)
 
     @admin.display(description='محصول')
     def product_label(self,obj):

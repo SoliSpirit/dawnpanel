@@ -1,0 +1,4 @@
+{% load l10n ui %}{% if editable %}<button type="submit" formnovalidate name="_dp_state" value="{{ pk|unlocalize }}:{{ field }}:{{ checked|yesno:'0,1' }}" class="dp-state" role="checkbox" aria-checked="{{ checked|yesno:'true,false' }}" aria-label="{{ label }}: {{ record }}" data-on="{{ on }}" data-off="{{ off }}">
+  <span class="dp-checkmark" aria-hidden="true"></span><span class="dp-state-label">{% if checked %}{{ on }}{% else %}{{ off }}{% endif %}</span>
+</button>{% elif lock %}<span class="dp-state-note" title="{{ lock.1 }}">{% icon 'shield' %}{{ lock.0 }}</span>
+{% else %}<span class="dp-state-read" data-on="{{ checked|yesno:'yes,no' }}" title="{{ label }} · فقط نمایش">{% if checked %}{{ on }}{% else %}{{ off }}{% endif %}</span>{% endif %}

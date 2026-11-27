@@ -21,7 +21,10 @@ class Command(BaseCommand):
                 if name not in existing: c.execute('ALTER TABLE products ADD COLUMN `'+name+'` '+ddl)
             cols={x.name for x in connection.introspection.get_table_description(c,'gift_code_uses')}
             if 'amount' not in cols: c.execute('ALTER TABLE gift_code_uses ADD COLUMN amount BIGINT NOT NULL DEFAULT 0')
-            c.execute("UPDATE products p JOIN categories c ON p.category_id=c.id SET p.platform='rubika',p.show_on_website=1 WHERE c.name LIKE %s AND p.platform='telegram'",['%روبیکا%'])
+            # Only classify an uninitialized legacy catalog. Later deployments
+            # must respect the operator's explicit channel and publication flags.
+            if 'platform' not in existing:
+                c.execute("UPDATE products p JOIN categories c ON p.category_id=c.id SET p.platform='rubika',p.show_on_website=1 WHERE c.name LIKE %s AND p.platform='telegram'",['%روبیکا%'])
         roles={'پشتیبان':['view_ticket','change_ticket','view_account','view_chatconversation','change_chatconversation'],'مدیر سفارش':['view_order','change_order','view_ledger','view_legacyuser','view_ticket','change_ticket'],'مدیر محصول':['view_product','add_product','change_product','view_category','add_category','change_category'],'نویسنده':['view_post','add_post','change_post'],'مدیر ارشد':['view_chatconversation','change_chatconversation','view_order','change_order','view_ledger','view_legacyuser','change_legacyuser','view_ticket','change_ticket','view_account','view_product','add_product','change_product','view_category','add_category','change_category','view_post','add_post','change_post','view_audit','view_currency','add_currency','change_currency','view_giftcode','add_giftcode','change_giftcode','view_memberrank','add_memberrank','change_memberrank']}
         roles['مدیر محصول'] += ['view_sourceproduct','change_sourceproduct','view_sourcesyncsettings']
         roles['مدیر ارشد'] += ['view_sourceproduct','change_sourceproduct','view_sourcesyncsettings','change_sourcesyncsettings']

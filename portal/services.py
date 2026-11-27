@@ -110,10 +110,8 @@ def login_account(phone,campaign_id=None):
 
 def public_products():
     from .catalog_aliases import unavailable_mirrors
-    supported=Q(platform__in=['rubika','eitaa','bale','ai']) | Q(
-        platform='other',pk__in=SourceProduct.objects.values('product_id'))
     unavailable=SourceProduct.objects.filter(sync_enabled=True,available=False).values('product_id')
-    return Product.objects.filter(supported,is_active=True,category__is_active=True,show_on_website=True).exclude(
+    return Product.objects.filter(Product.web_eligible(),is_active=True,category__is_active=True,show_on_website=True).exclude(
         Q(pk__in=unavailable) | unavailable_mirrors())
 
 def bot_products():

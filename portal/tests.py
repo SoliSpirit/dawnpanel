@@ -136,6 +136,159 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.assertEqual(price_for(Product.objects.get(pk=self.product.pk),100)[0],1000)
         self.assertEqual(Audit.objects.filter(action='product.tax',actor=self.user).count(),2)
 
+    def _grant_list_permissions(self,*names):
+        self.user.is_staff=True
+        self.user.save(update_fields=['is_staff'])
+        self.user.user_permissions.add(*Permission.objects.filter(content_type__app_label='portal',codename__in=names))
+
+    def _list_state(self,obj,field,on,*,url=None):
+        return self.client.post(url or f'/admin/portal/{obj._meta.model_name}/',
+                                {'_dp_state':f'{obj.pk}:{field}:{int(on)}'},HTTP_ACCEPT='application/json')
+
+    def test_admin_states_round_trip_on_both_channels_with_a_legacy_neighbor(self):
+        from django.contrib.admin.models import LogEntry
+        self._grant_list_permissions('change_category','change_product')
+        legacy=Product.objects.create(category=self.category,name='خدمات قدیمی تلگرام',price=700,
+                                      platform='telegram',show_on_website=True,show_on_telegram=True)
+        order=self.buy()
+        ProductTax.objects.create(product=self.product,percent='9.5')
+        artwork=ProductVisual.objects.create(product_id=self.product.pk,image='day.webp',night_image='night.webp',plan_name='Plus')
+        price_history=Order.objects.values().get(pk=order.pk)
+        product_url='/admin/portal/product/'
+        listing=self.client.get(product_url)
+        self.assertContains(listing,'فقط ربات')
+        self.assertNotContains(listing,f'value="{legacy.pk}:show_on_website:')
+        self.assertNotContains(listing,'form-TOTAL_FORMS')
+        for obj,field in [(self.category,'is_active'),(self.product,'is_active'),
+                          (self.product,'show_on_website'),(self.product,'show_on_telegram')]:
+            for on in (False,True):
+                with self.subTest(model=obj._meta.model_name,field=field,on=on):
+                    result=self._list_state(obj,field,on)
+                    self.assertEqual(result.status_code,200,result.content)
+                    self.assertIs(result.json()['checked'],on)
+                    self.assertIs(getattr(type(obj).objects.get(pk=obj.pk),field),on)
+                    fresh=self.client.get(f'/admin/portal/{obj._meta.model_name}/')
+                    self.assertContains(fresh,f'value="{obj.pk}:{field}:{int(not on)}"')
+                    self.assertEqual(public_products().filter(pk=self.product.pk).exists(),on or field=='show_on_telegram')
+                    self.assertEqual(bot_products().filter(pk=self.product.pk).exists(),on or field=='show_on_website')
+                    # Re-sending the same desired state is a no-op on disk and in both logs.
+                    audit_count=Audit.objects.count()
+                    log_count=LogEntry.objects.count()
+                    self.assertIs(self._list_state(obj,field,on).json()['checked'],on)
+                    self.assertEqual((Audit.objects.count(),LogEntry.objects.count()),(audit_count,log_count))
+        self.assertEqual(Audit.objects.filter(actor=self.user,action='product.update').count(),6)
+        self.assertEqual(Order.objects.values().get(pk=order.pk),price_history)
+        self.assertEqual(ProductTax.objects.get(product=self.product).percent,Decimal('9.50'))
+        artwork.refresh_from_db()
+        self.assertEqual((artwork.image.name,artwork.night_image.name,artwork.plan_name),('day.webp','night.webp','Plus'))
+        legacy.refresh_from_db()
+        self.assertTrue(legacy.show_on_website and legacy.show_on_telegram and legacy.is_active)
+        self.assertFalse(public_products().filter(pk=legacy.pk).exists())
+
+    def test_legacy_web_flag_is_inert_and_other_activation_still_validates(self):
+        self._grant_list_permissions('change_product')
+        p=self.product
+        Product.objects.filter(pk=p.pk).update(platform='telegram')
+        self.assertIs(self.client.get(f'/admin/portal/product/{p.pk}/change/').context['adminform'].form['show_on_website'].value(),False)
+        self.assertEqual(self._list_state(p,'show_on_website',True).status_code,422)
+        for field in ('show_on_telegram','is_active'):
+            for on in (False,True):
+                result=self._list_state(p,field,on)
+                self.assertEqual(result.status_code,200,result.content)
+                self.assertEqual(bot_products().filter(pk=p.pk).exists(),on)
+                self.assertFalse(public_products().filter(pk=p.pk).exists())
+                p.refresh_from_db()
+                self.assertTrue(p.show_on_website)
+        Product.objects.filter(pk=p.pk).update(price=0)
+        self.assertEqual(self._list_state(p,'is_active',False).status_code,200)
+        before=Audit.objects.count()
+        rejected=self._list_state(p,'is_active',True)
+        self.assertEqual(rejected.status_code,422)
+        self.assertIn('قیمت پایه تومان',rejected.json()['message'])
+        self.assertIs(rejected.json()['checked'],False)
+        self.assertFalse(Product.objects.get(pk=p.pk).is_active)
+        self.assertEqual(Audit.objects.count(),before)
+
+    def test_web_filter_respects_channel_policy_and_native_post_rebuilds_results(self):
+        self._grant_list_permissions('change_product')
+        blocked=Product.objects.create(name='Bot service',category=self.category,price=900,platform='telegram',show_on_website=True)
+        linked=Product.objects.create(name='Linked SKU',category=self.category,price=900,platform='other',show_on_website=True)
+        SourceProduct.objects.create(product_id=linked.pk,source='premstore',external_id='test',last_price=900,available=True)
+        base='/admin/portal/product/?show_on_website__exact='
+        rows=lambda suffix: set(self.client.get(base+suffix).context['cl'].result_list.values_list('pk',flat=True))
+        self.assertEqual(rows('1&_facets=1'),{self.product.pk,linked.pk})
+        self.assertEqual(rows('blocked'),{blocked.pk})
+        path=base+'1'
+        response=self.client.post(path,{'_dp_state':f'{linked.pk}:show_on_website:0'},follow=True)
+        self.assertEqual(response.redirect_chain,[(path,302)])
+        self.assertNotContains(response,f'value="{linked.pk}:show_on_website:')
+        self.assertContains(response,'ذخیره شد')
+        self.assertEqual(rows('0'),{linked.pk})
+
+    def test_state_permissions_csrf_and_row_scoping(self):
+        from django.contrib import admin
+        product_admin=admin.site._registry[Product]
+        p=self.product
+        url='/admin/portal/product/'
+        self._grant_list_permissions('view_product')
+        self.assertNotContains(self.client.get(url),'name="_dp_state"')
+        self.assertEqual(self._list_state(p,'is_active',False).status_code,404)
+        self._grant_list_permissions('change_product')
+        client=Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        client.get(url)
+        self.assertEqual(client.post(url,{'_dp_state':f'{p.pk}:is_active:0'}).status_code,403)
+        self.assertEqual(self._list_state(p,'is_active',False,url=url+'?_popup=1').status_code,404)
+        self.assertEqual(self._list_state(p,'price',False).status_code,400)
+        with patch.object(product_admin,'get_queryset',return_value=Product.objects.exclude(pk=p.pk)):
+            self.assertEqual(self._list_state(p,'is_active',False).status_code,404)
+        with patch.object(product_admin,'has_change_permission',side_effect=lambda _,obj=None: obj is None):
+            self.assertNotContains(self.client.get(url),'name="_dp_state"')
+            self.assertEqual(self._list_state(p,'is_active',False).status_code,404)
+        with patch.object(product_admin,'get_readonly_fields',return_value=('is_active',)):
+            self.assertNotContains(self.client.get(url),f'value="{p.pk}:is_active:')
+            self.assertEqual(self._list_state(p,'is_active',False).status_code,404)
+        self.assertFalse(Audit.objects.exists())
+        self.assertTrue(Product.objects.get(pk=p.pk).is_active)
+
+    def test_state_and_both_audit_logs_commit_together(self):
+        from django.contrib import admin
+        self._grant_list_permissions('change_category')
+        with patch.object(admin.site._registry[Category],'log_change',side_effect=RuntimeError('log unavailable')):
+            with self.assertRaises(RuntimeError):
+                self._list_state(self.category,'is_active',False)
+        self.assertTrue(Category.objects.get(pk=self.category.pk).is_active)
+        self.assertFalse(Audit.objects.exists())
+
+    def test_redeployment_preserves_explicit_bot_only_products_in_rubika_categories(self):
+        if connection.vendor!='mysql':
+            self.skipTest('Legacy schema preparation runs only on MariaDB')
+        from io import StringIO
+        from django.core.management import call_command
+        Product.objects.filter(pk=self.product.pk).update(platform='telegram',show_on_website=False)
+        with connection.cursor() as cursor:
+            cursor.execute('CREATE TEMPORARY TABLE phone_verification_codes (verification_code VARCHAR(64) NULL,last_code VARCHAR(8) NULL,expires_at DATETIME NULL)')
+            try:
+                call_command('prepare_portal',stdout=StringIO())
+            finally:
+                cursor.execute('DROP TEMPORARY TABLE phone_verification_codes')
+        self.product.refresh_from_db()
+        self.assertEqual((self.product.platform,self.product.show_on_website,self.product.show_on_telegram),('telegram',False,True))
+
+    def test_other_operational_flags_preserve_related_values(self):
+        self._grant_list_permissions('change_campaign','change_post','change_currency','change_giftcode')
+        campaign=Campaign.objects.create(name='Ad',code='ad',clicks=40,registrations=2)
+        post=Post.objects.create(title='Story',slug='story',summary='Short',body='Long',author=self.user)
+        currency=Currency.objects.create(code='USD',name='Dollar',rate=90000)
+        gift=GiftCode.objects.create(code='TEST',amount=5000,used_count=2,created_by=self.user.pk)
+        for obj,field in [(campaign,'active'),(post,'published'),(currency,'is_active'),(gift,'is_active')]:
+            for on in (not getattr(obj,field),getattr(obj,field)):
+                result=self._list_state(obj,field,on)
+                self.assertEqual(result.status_code,200,result.content)
+                self.assertIs(getattr(type(obj).objects.get(pk=obj.pk),field),on)
+        campaign.refresh_from_db();currency.refresh_from_db();gift.refresh_from_db()
+        self.assertEqual((campaign.clicks,campaign.registrations,currency.rate,gift.used_count,gift.amount),(40,2,90000,2,5000))
+
     def test_affordability_and_max_charge_use_tax_on_the_whole_quantity(self):
         from .pricing import Pricing
         p=Pricing(pack=11,price_per=10,min_order=2,max_order=100,tax_bps=950)

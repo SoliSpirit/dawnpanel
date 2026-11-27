@@ -1,0 +1,35 @@
+{% extends 'admin/change_list.html' %}{% load static ui admin_urls admin_list %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-lists.css' %}">{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'admin-states.js' %}" defer></script>{% endblock %}
+{% block bodyclass %}{{ block.super }} dp-state-list{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content %}
+  <header class="dp-list-head">
+    <div class="dp-list-title" data-tone="{{ workspace_page.tone|default:'green' }}">
+      <span class="dp-group-icon">{% icon workspace_page.icon|default:'grid' %}</span>
+      <div><small>مدیریت فروشگاه</small><h1>{{ opts.verbose_name_plural }}</h1></div>
+    </div>
+    {% if has_add_permission %}{% url cl.opts|admin_urlname:'add' as add_url %}<a class="dp-list-add" href="{% add_preserved_filters add_url is_popup to_field %}">{% icon 'plus' %} افزودن {{ opts.verbose_name }}</a>{% endif %}
+    <p>{% if is_popup %}برای انتخاب، روی پیوند همان ردیف بزن.{% elif state_list_editable %}{{ state_list_hint }}{% else %}وضعیت‌ها برای این حساب فقط خواندنی‌اند.{% endif %}</p>
+  </header>
+  {{ block.super }}
+  <div class="dp-state-flash" hidden><span role="status" aria-live="polite" aria-atomic="true" data-flash-text></span><a href="{{ request.get_full_path }}" data-flash-reload hidden>بازخوانی فهرست</a><button type="button" data-flash-close aria-label="بستن پیام">×</button></div>
+{% endblock %}
+{% block object-tools %}{% endblock %}
+{% block search %}
+  <div class="dp-list-controls">
+    {{ block.super }}
+    {% if cl.has_filters %}<details class="dp-list-filters"{% if cl.has_active_filters %} open{% endif %}>
+      <summary>{% icon 'sliders' %} فیلترها {% if cl.has_active_filters %}<b>فعال</b>{% endif %}{% icon 'chevron' %}</summary>
+      <div class="dp-filter-options">{% for spec in cl.filter_specs %}{% admin_list_filter cl spec %}{% endfor %}</div>
+      <div class="dp-filter-actions">{% if cl.has_active_filters %}<a href="{{ cl.clear_all_filters_qs }}">پاک کردن فیلترها</a>{% endif %}
+      {% if cl.is_facets_optional %}{% if cl.add_facets %}<a href="{{ cl.remove_facet_link }}">پنهان کردن تعداد</a>{% else %}<a href="{{ cl.add_facet_link }}">نمایش تعداد در فیلترها</a>{% endif %}{% endif %}</div>
+    </details>{% endif %}
+  </div>
+{% endblock %}
+{% block filters %}{% endblock %}
+{% block result_list %}
+  <div class="dp-list-meta"><strong>{{ cl.result_count|fa_number }} {{ opts.verbose_name }}</strong><span>{% if state_list_editable and not is_popup %}{% icon 'check-circle' %} ذخیره با یک کلیک{% else %}{% icon 'shield' %} فقط نمایش{% endif %}</span></div>
+  {{ block.super }}
+  {% if not cl.result_count %}<p class="dp-list-empty">ردیفی برای نمایش نیست.</p>{% endif %}
+{% endblock %}
