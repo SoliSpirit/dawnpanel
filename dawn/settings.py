@@ -67,6 +67,8 @@ if os.environ.get('DAWN_TEST_MYSQL')=='1':
 
 # Telegram's token is part of its API URL; never log routine HTTP client URLs.
 LOGGING['loggers'].update({'httpx':{'level':'WARNING'},'httpcore':{'level':'WARNING'}})
+LOGGING['handlers']['site_issues']={'class':'portal.site_issues.RequestIssueHandler','level':'ERROR'}
+LOGGING['loggers']['django.request']={'handlers':['site_issues'],'level':'WARNING','propagate':True}
 
 MEDIA_URL='/media/'
 MEDIA_ROOT=Path('/var/lib/dawnpanel/media') if PRODUCTION else BASE_DIR/'media'

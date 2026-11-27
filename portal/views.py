@@ -21,6 +21,7 @@ from .forms import *
 from .services import *
 from .store_catalog import families, category_tiles, filter_families, TAXONOMY, MESSAGING
 from .catalog_pages import SECTION_COPY, section_url
+from .site_issues import report_dependency
 
 ORDER_DRAFT_AGE = timedelta(minutes=20)
 
@@ -225,7 +226,8 @@ def sign_in(request):
             otp=request_otp(form.cleaned_data['phone'],request.session.session_key,request.META.get('REMOTE_ADDR',''))
             request.session['otp_id']=str(otp.pk);request.session['otp_phone']=otp.phone
             return redirect('verify')
-        except BusinessError as e: form.add_error(None,str(e))
+        except BusinessError as e:
+            report_dependency(request,e);form.add_error(None,str(e))
     return render(request,'auth.html',{'form':form,'title':'ورود یا ثبت‌نام','subtitle':'با شماره موبایل خود وارد شوید. رمز یک‌بارمصرف برای شما پیامک می‌شود.','button':'دریافت کد ورود',
         'returning_to_order':bool(request.session.get('order_draft'))})
 
@@ -327,7 +329,8 @@ def charge(request):
         try:
             if not rate_limit('payment:'+str(request.user.pk),5,300): raise BusinessError('کمی بعد دوباره تلاش کنید.')
             return redirect(start_payment(request.user.account,form.cleaned_data['amount']))
-        except BusinessError as e: form.add_error(None,str(e))
+        except BusinessError as e:
+            report_dependency(request,e);form.add_error(None,str(e))
     star=Currency.objects.filter(code='STAR',type='telegram',is_active=True).select_related('fx').first()
     try:star_buy=currency_rates(star).buy if star and method_open('stars') else None
     except RateError:star_buy=None
@@ -339,7 +342,8 @@ def payment_callback(request):
     try:
         if request.GET.get('Status')!='OK': raise BusinessError('پرداخت لغو شده است یا هنوز تایید نشده است.')
         amount,ref=verify_payment(request.GET.get('Authority'))
-    except BusinessError as e: error=str(e)
+    except BusinessError as e:
+        report_dependency(request,e);error=str(e)
     return render(request,'payment.html',{'amount':amount,'ref':ref,'error':error,'title':'نتیجه پرداخت'})
 
 @login_required
@@ -387,10 +391,15 @@ def ticket_detail(request,pk):
 
 @require_POST
 @login_required
+@transaction.atomic
 def close_ticket(request,pk):
-    ticket=get_object_or_404(Ticket,pk=pk)
+    ticket=get_object_or_404(Ticket.objects.select_for_update(),pk=pk)
     if ticket.user_id!=request.user.pk and not request.user.has_perm('portal.change_ticket'): return HttpResponseForbidden()
-    ticket.status='closed';ticket.save();return redirect('ticket',pk=pk)
+    if ticket.status!='closed':
+        ticket.status='closed';ticket.save()
+        if request.user.is_staff and request.user.has_perm('portal.change_ticket'):
+            Audit.objects.create(actor=request.user,action='ticket.close',object_ref=str(pk))
+    return redirect('ticket',pk=pk)
 
 @login_required
 def staff(request):

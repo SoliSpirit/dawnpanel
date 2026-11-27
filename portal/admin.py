@@ -8,6 +8,7 @@ from .services import BusinessError
 from .admin_states import StateListMixin
 from .admin_pricing import PriceToolsAdminMixin
 from .admin_fx import CurrencyRatesAdminMixin
+from . import admin_operations
 
 @admin.register(Campaign)
 class CampaignAdmin(StateListMixin,admin.ModelAdmin):
@@ -21,10 +22,9 @@ class CampaignAdmin(StateListMixin,admin.ModelAdmin):
         url='https://dawnpanel.ir'+reverse('campaign',args=[obj.code])
         return format_html('<a href="{}" dir="ltr">{}</a>',url,url)
 class AuditAdmin(admin.ModelAdmin):
-    date_hierarchy='created_at'
     search_fields=['actor__username','action','object_ref']
     list_select_related=['actor']
-    list_display=['created_at','actor','action','object_ref'];list_filter=['action'];readonly_fields=['actor','action','object_ref','details','created_at']
+    list_display=['created_at','actor','action','object_ref'];list_filter=['action','created_at'];readonly_fields=['actor','action','object_ref','details','created_at']
     def has_add_permission(self,request): return False
     def has_change_permission(self,request,obj=None): return False
     def has_delete_permission(self,request,obj=None): return False

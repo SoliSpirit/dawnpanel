@@ -183,6 +183,8 @@ class FxReviewMixin:
         rows=self._review_rows(request)
         if request.method=='POST' and '_fetch' in request.POST:
             result=refresh_rates([r.pk for r in rows])
+            if any(not error for error in result.values()):
+                Audit.objects.create(actor=request.user,action='currency.refresh',details={'checked':len(result)})
             if any(result.values()):
                 self.message_user(request,'برخی مراجع پاسخ معتبر ندادند؛ جزئیات در ردیف همان ارز آمده است.',messages.WARNING)
             else:

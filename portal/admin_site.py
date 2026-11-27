@@ -18,7 +18,7 @@ WORKSPACE_GROUPS = (
     ('محتوا و پشتیبانی', 'headset', 'blue', {'Post':'pen', 'Ticket':'ticket'}),
     ('قیمت منابع', 'tags', 'amber', {'SourceProduct':'tag', 'SourceSyncSettings':'sliders'}),
     ('تبلیغات', 'megaphone', 'rose', {'Campaign':'target'}),
-    ('فعالیت‌ها', 'activity', 'slate', {'Audit':'history'}),
+    ('فعالیت‌ها', 'activity', 'slate', {'Audit':'history','NoticePreference':'sliders','SiteIssue':'alert'}),
 )
 
 
@@ -31,6 +31,13 @@ class DawnAdminSite(AdminSite):
     site_title='مدیریت دان‌پنل'
     index_title='نمای کلی فروشگاه'
     index_template='admin/dashboard.html'
+
+    def register(self,model_or_iterable,admin_class=None,**options):
+        from django.contrib.admin import ModelAdmin
+        from .ops_activity import AdminNoticeMixin
+        cls=admin_class or ModelAdmin
+        wrapped=type(cls.__name__,(AdminNoticeMixin,cls),{'__module__':cls.__module__})
+        return super().register(model_or_iterable,wrapped,**options)
 
     def get_urls(self):
         from django.urls import path

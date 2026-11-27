@@ -70,6 +70,8 @@
   <section class="desk-panel desk-tools" id="tools" aria-labelledby="tools-title">
     <div class="desk-panel-head">{% include 'admin/overview/panel_title.html' with heading_id='tools-title' eyebrow='دسترسی سریع' heading='ابزارهای مدیریت' symbol='toolbox' tone='slate' only %}</div>
     <div class="desk-tool-links">
+      {% if perms.portal.view_noticepreference or perms.portal.change_noticepreference %}<a href="{% url 'admin:portal_noticepreference_changelist' %}">{% icon 'sliders' %} تنظیمات اعلان تلگرام</a>{% endif %}
+      {% if perms.portal.view_siteissue or perms.portal.change_siteissue %}<a href="{% url 'admin:portal_siteissue_changelist' %}">{% icon 'alert' %} خطاهای سایت</a>{% endif %}
       {% if perms.portal.view_product %}<a href="{% url 'admin:portal_product_changelist' %}">{% icon 'box' %} محصولات و مالیات</a>{% endif %}
       {% if perms.portal.view_sourcesyncsettings %}<a href="{% url 'admin:portal_sourcesyncsettings_changelist' %}">{% icon 'sliders' %} تنظیمات قیمت منابع</a>{% endif %}
       {% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'staff' %}">{% icon 'inbox' %} میز رسیدگی</a>{% endif %}

@@ -360,6 +360,31 @@ class SecurityAndCommerceTests(TransactionTestCase):
         with override_settings(BOT_CONFIG={'telegram':{'admin_ids':[888]}}),patch('portal.order_notices.requests.post') as api:
             self.assertEqual(dispatch()['stopped'],1);api.assert_not_called()
         self.assertEqual(OrderDelivery.objects.get().last_error,'recipient_removed')
+
+    @override_settings(BOT_CONFIG={'telegram':{'admin_ids':[111,222],'token':'test'}})
+    def test_order_and_staff_alert_categories_are_independent(self):
+        from .order_notices import dispatch
+        NoticePreference.objects.create(recipient=111,enabled=['web_order','order_status'])
+        NoticePreference.objects.create(recipient=222,enabled=['bot_order','catalog'])
+        web=self.buy(uuid.uuid4())
+        bpk,_=place_bot_order(self.wallet.pk,self.product.pk,100,'detail',1000)
+        change_order(None,bpk,'confirmed','private note',telegram_admin_id=111)
+        self._grant_list_permissions('change_product')
+        path='/admin/portal/product/'
+        self.client.post(path,{'_dp_state':f'{self.product.pk}:show_on_website:0'})
+        # Both the Django admin log and merchant audit were written, but only one activity alert.
+        self.assertEqual(OperationNotice.objects.filter(topic='catalog',reference=str(self.product.pk)).count(),1)
+        with patch('portal.order_notices.requests.post') as send:
+            def ok(*a,**kw):
+                r=Mock(status_code=200);r.json.return_value={'ok':True,'result':{'chat':{'id':kw['json']['chat_id']},'message_id':1}};return r
+            send.side_effect=ok
+            self.assertEqual(dispatch()['sent'],4)
+            self.assertEqual(dispatch()['sent'],0)
+            pairs={(r['chat_id'],r['text'].splitlines()[0]) for c in send.call_args_list for r in [c.kwargs['json']]}
+            self.assertTrue(any(r==111 and 'سفارش جدید از سایت' in txt for r,txt in pairs))
+            self.assertTrue(any(r==222 and 'سفارش جدید از ربات' in txt for r,txt in pairs))
+        self.assertEqual(OrderDelivery.objects.get(event_id=web.pk).recipient,111)
+        self.assertEqual(OrderDelivery.objects.get(event_id=bpk).recipient,222)
     def test_insufficient_funds_no_order(self):
         self.wallet.balance=1;self.wallet.save()
         with self.assertRaises(BusinessError): self.buy()

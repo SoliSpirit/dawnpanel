@@ -96,8 +96,9 @@ def support_thread(request,pk):
     conversation=get_object_or_404(ChatConversation,pk=pk)
     if request.method=='POST':
         if request.POST.get('action')=='close':
-            conversation.status='closed';conversation.save()
-            Audit.objects.create(actor=request.user,action='chat.close',object_ref=str(pk))
+            with transaction.atomic():
+                if ChatConversation.objects.filter(pk=pk).exclude(status='closed').update(status='closed',updated_at=timezone.now()):
+                    Audit.objects.create(actor=request.user,action='chat.close',object_ref=str(pk))
             return JsonResponse({'ok':True,'status':'closed'})
         body,nonce=parse_message(request)
         if body is None:return JsonResponse({'error':'پیام باید بین ۱ تا ۲۰۰۰ نویسه باشد.'},status=400)

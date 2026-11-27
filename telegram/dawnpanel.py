@@ -4920,7 +4920,7 @@ async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton("💬 پاسخ به کاربر", callback_data=f"reply_support_{ticket_id}_{user.id}")]
     ])
 
-    for admin_id in ADMIN_IDS:
+    for admin_id in await asyncio.to_thread(integration.notice_recipients,'incoming_ticket'):
         try:
             await context.bot.send_message(
                 chat_id=admin_id, 
@@ -4943,6 +4943,8 @@ async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_T
 # ==================== پاسخ ادمین به کاربر ====================
 async def admin_reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if update.effective_user.id not in ADMIN_IDS:
+        await query.answer("دسترسی غیرمجاز",show_alert=True);return ConversationHandler.END
     await query.answer()
 
     parts = query.data.split("_")
@@ -4961,6 +4963,7 @@ async def admin_reply_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
     return SUPPORT_MESSAGE_INPUT
 
 async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:return ConversationHandler.END
     msg = update.effective_message
     text = msg.text or ""
 
@@ -5006,6 +5009,7 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 )
             if ticket_id:
                 mark_support_answered(ticket_id, update.effective_user.id)
+            await integration.admin_action(update.effective_user.id,'support.reply',ticket_id)
             await update.message.reply_text(f"✅ پاسخ شما به کاربر {user_id} ارسال شد.", parse_mode="HTML")
         except Exception as e:
             logger.exception("support reply failed admin=%s user=%s ticket=%s", update.effective_user.id, user_id, ticket_id)
@@ -5296,7 +5300,7 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("❌ سفارش پیدا نشد.", show_alert=True); return
     if order[9] != 'pending':
         await query.answer("⚠️ این سفارش قبلاً تعیین تکلیف شده است.", show_alert=True); return
-    if not await asyncio.to_thread(integration.transition, order_id, 'confirmed'):
+    if not await asyncio.to_thread(integration.transition, order_id, 'confirmed',admin_id=update.effective_user.id):
         return
     try:
         now_text = get_jalali_datetime()
@@ -5357,7 +5361,7 @@ async def confirm_complete_order_callback(update: Update, context: ContextTypes.
         await query.answer("⚠️ سفارش قبلاً تکمیل شده است.", show_alert=True); return
     if order[9] != 'confirmed':
         await query.answer("⚠️ این سفارش هنوز تایید نشده است.", show_alert=True); return
-    if not await asyncio.to_thread(integration.transition, order_id, 'completed'):
+    if not await asyncio.to_thread(integration.transition, order_id, 'completed',admin_id=update.effective_user.id):
         return
     try:
         now_text = get_jalali_datetime()
@@ -6246,7 +6250,7 @@ def create_charge_handler():
         receipt_id = save_receipt(user.id, amount, photo_id, payment_tracking, context.user_data.get('payment_method', 'card'))
         context.user_data.pop('waiting_for_receipt_photo', None)
 
-        for admin_id in ADMIN_IDS:
+        for admin_id in await asyncio.to_thread(integration.notice_recipients,'incoming_receipt'):
             try:
                 safe_name = html.escape(str(user.full_name or '-'))
                 safe_username = '@' + html.escape(str(user.username).lstrip('@')) if user.username else 'ندارد'
@@ -7019,7 +7023,7 @@ async def handle_admin_order_cancel_reason(update: Update, context: ContextTypes
         return ConversationHandler.END
     try:
         amount = int(order[8] or 0)
-        if not await asyncio.to_thread(integration.transition,int(order_id),'cancelled',reason):
+        if not await asyncio.to_thread(integration.transition,int(order_id),'cancelled',reason,admin_id=update.effective_user.id):
             await update.message.reply_text('این سفارش قبلاً نهایی شده است.')
             return ConversationHandler.END
         user_text = (
@@ -7060,7 +7064,7 @@ async def handle_admin_order_completion_message(update: Update, context: Context
     try:
         msg = update.effective_message
         note=(msg.text or msg.caption or 'مشخصات در تلگرام ارسال شد.').strip()
-        if not await asyncio.to_thread(integration.transition,int(order_id),'completed',note):
+        if not await asyncio.to_thread(integration.transition,int(order_id),'completed',note,admin_id=update.effective_user.id):
             await update.message.reply_text('این سفارش قبلاً نهایی شده است.')
             return ConversationHandler.END
         if int(order[2])<0:
@@ -7557,6 +7561,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         key, label = mapping[data]
         new_value = 0 if setting_enabled(key, True) else 1
         if set_setting(key, new_value):
+            await integration.admin_action(update.effective_user.id,'settings.edit')
             logger.info("setting toggled key=%s value=%s admin=%s", key, new_value, update.effective_user.id)
             await query.answer(f"{label}: {'فعال' if new_value else 'خاموش'}")
         else:
@@ -7634,6 +7639,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             cur = conn.cursor()
             cur.execute("UPDATE currencies SET is_active=0 WHERE code=%s", (code,))
             conn.commit()
+            if cur.rowcount:await integration.admin_action(update.effective_user.id,'currency.edit')
             logger.info("currency disabled code=%s admin=%s", code, update.effective_user.id)
             await query.answer("ارز حذف شد.")
         except Error:
@@ -7690,6 +7696,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         finally:
             try: cur.close(); conn.close()
             except: pass
+        if ok:await integration.admin_action(update.effective_user.id,'gift.edit',gift_id)
         await query.answer("✅ کد حذف شد." if ok else "❌ کد پیدا نشد.",show_alert=True)
         await query.edit_message_text("🎁 <b>مدیریت کدهای هدیه</b>",reply_markup=get_admin_gift_codes_keyboard(1),parse_mode="HTML"); return
 
@@ -8116,7 +8123,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if data.startswith("averify_status_"):
         parts=data.split('_');user_id=int(parts[2]);status=int(parts[3]);conn=get_db_connection();ok=False
         if conn:
-            try:cur=conn.cursor();cur.execute("UPDATE users SET is_verified=%s WHERE user_id=%s",(status,user_id));conn.commit();ok=True
+            try:cur=conn.cursor();cur.execute("UPDATE users SET is_verified=%s WHERE user_id=%s",(status,user_id));conn.commit();ok=cur.rowcount>0
             except Exception:
                 try:conn.rollback()
                 except Exception:pass
@@ -8124,10 +8131,14 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 try:cur.close();conn.close()
                 except Exception:pass
         if not ok:await query.answer('❌ ذخیره وضعیت انجام نشد.',show_alert=True);return
+        await integration.admin_action(update.effective_user.id,'user.verify')
         u=get_user_data(user_id);vd=get_user_verification(user_id);await query.answer('✅ وضعیت احراز تغییر کرد.');await query.edit_message_text(format_admin_verification(user_id,u,vd),reply_markup=get_admin_verification_keyboard(user_id,vd),parse_mode='HTML');return
 
     if data.startswith("averify_clear_"):
-        user_id=int(data.split('_')[-1]);clear_user_verification(user_id);u=get_user_data(user_id);vd=get_user_verification(user_id);await query.answer('🗑 اطلاعات احراز پاک شد.',show_alert=True);await query.edit_message_text(format_admin_verification(user_id,u,vd),reply_markup=get_admin_verification_keyboard(user_id,vd),parse_mode='HTML');return
+        user_id=int(data.split('_')[-1])
+        if not clear_user_verification(user_id):await query.answer('حذف انجام نشد.',show_alert=True);return
+        await integration.admin_action(update.effective_user.id,'user.verify')
+        u=get_user_data(user_id);vd=get_user_verification(user_id);await query.answer('🗑 اطلاعات احراز پاک شد.',show_alert=True);await query.edit_message_text(format_admin_verification(user_id,u,vd),reply_markup=get_admin_verification_keyboard(user_id,vd),parse_mode='HTML');return
 
     if data.startswith("averify_edit_"):
         parts=data.split('_',3)
@@ -8206,6 +8217,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if data.startswith("aunban_"):
         user_id = int(data.split("_")[1])
         if unban_user(user_id):
+            await integration.admin_action(update.effective_user.id,'user.unban')
             await query.answer("✅ کاربر با موفقیت از بن خارج شد.", show_alert=True)
             user_data = get_user_data(user_id)
             if user_data:
@@ -8233,12 +8245,10 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         method_key = data.split("_")[1]
         is_active, reason = get_payment_method_status(method_key)
 
-        if is_active:
-            toggle_payment_method(method_key, False, "")
-            await query.answer("⛔️ روش پرداخت غیرفعال شد.", show_alert=True)
-        else:
-            toggle_payment_method(method_key, True)
-            await query.answer("✅ روش پرداخت فعال شد.", show_alert=True)
+        if not toggle_payment_method(method_key, not is_active):
+            await query.answer("تغییر روش پرداخت ذخیره نشد.",show_alert=True);return
+        await integration.admin_action(update.effective_user.id,'payment.toggle')
+        await query.answer("⛔️ روش پرداخت غیرفعال شد." if is_active else "✅ روش پرداخت فعال شد.",show_alert=True)
 
         methods = get_all_payment_methods()
         message = "💳 <b>مدیریت روش‌های پرداخت</b>\n\nبرای فعال/غیرفعال کردن کلیک کنید:\n\n"
@@ -8273,6 +8283,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             channel_text = (f"🎁 <b>کد هدیه ویژه</b>\n\n🎟 کد: <code>{gift['code']}</code>\n💰 مبلغ هدیه: <b>{int(gift['amount']):,}</b> تومان\n👥 ظرفیت استفاده: <b>{capacity_text}</b>\n🎯 مجاز برای: <b>{gift_target_label(gift.get('target_type','all'), int(gift.get('target_value') or 0))}</b>\n\n{urgency_text}\n\n📌 <b>نحوه استفاده از کد:</b>\nوارد ربات شوید → <b>🎁 شارژ رایگان</b> → <b>🎟 کد هدیه</b> → کد را ارسال کنید.")
             channel_kb = InlineKeyboardMarkup([[InlineKeyboardButton('🤖 ورود به ربات', url=bot_url)]])
             sent = await context.bot.send_message(chat_id=REQUIRED_CHANNEL_ID, text=channel_text, parse_mode='HTML', reply_markup=channel_kb)
+            await integration.admin_action(update.effective_user.id,'gift.edit',gift_id)
             conn2 = get_db_connection()
             if conn2:
                 try:
@@ -8627,6 +8638,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if data.startswith("adeletecat_"):
         category_id = int(data.split("_")[1])
         if delete_category(category_id):
+            await integration.admin_action(update.effective_user.id,'category.disable',category_id)
             await query.answer("✅ دسته‌بندی حذف شد.", show_alert=True)
         else:
             await query.answer("❌ خطا در حذف.", show_alert=True)
@@ -8660,7 +8672,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except BadRequest:
             pass
 
-        return await _complete_admin_add_product(query.message, context, need_link)
+        return await _complete_admin_add_product(query.message, context, need_link,update.effective_user.id)
 
     if data.startswith("aaddproducttocat_"):
         category_id = int(data.split("_")[1])
@@ -8774,6 +8786,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         mapped = {'channel':'channel_group','id':'numeric_id','email':'email','username':'username','custom':'custom','none':'none'}
         target_type = mapped.get(target_type, 'custom')
         if update_product(product_id, 'need_link', 0 if target_type == 'none' else 1) and update_product(product_id, 'target_type', target_type):
+            await integration.admin_action(update.effective_user.id,'product.edit',product_id)
             await query.answer("✅ نوع اطلاعات سفارش تغییر کرد.", show_alert=True)
             if target_type != 'none':
                 context.user_data['edit_product_id'] = product_id
@@ -8810,6 +8823,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if product:
             new_value = 0 if product[8] else 1
             if update_product(product_id, 'need_link', new_value):
+                await integration.admin_action(update.effective_user.id,'product.edit',product_id)
                 await query.answer(
                     f"✅ نیاز به لینک: {'بله' if new_value else 'خیر'}",
                     show_alert=True
@@ -8843,6 +8857,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         product_id = int(parts[1])
         category_id = int(parts[2])
         if update_product(product_id, 'category_id', category_id):
+            await integration.admin_action(update.effective_user.id,'product.edit',product_id)
             await query.answer("✅ دسته‌بندی محصول تغییر کرد.")
             product = get_product(product_id)
             categories = get_all_categories()
@@ -8972,6 +8987,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             new_status = 0 if int(row[0] or 0) else 1
             cur.execute("UPDATE products SET is_active=%s WHERE id=%s", (new_status, product_id))
             conn.commit()
+            await integration.admin_action(update.effective_user.id,'product.publish',product_id)
             await query.answer("✅ محصول فعال شد." if new_status else "⛔️ محصول غیرفعال شد.", show_alert=False)
             product = get_product(product_id) if new_status else None
             # برای محصول غیرفعال، مشخصات را مستقیم از DB بخوان تا صفحه ادمین باز بماند.
@@ -9028,6 +9044,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         if delete_product(product_id):
+            await integration.admin_action(update.effective_user.id,'product.delete',product_id)
             await query.answer("✅ محصول حذف شد.")
             await query.edit_message_text(
                 "🗑 <b>محصول با موفقیت حذف شد.</b>\n\n"
@@ -9270,6 +9287,7 @@ async def handle_admin_add_category_emoji(update: Update, context: ContextTypes.
 
 
     if category_id:
+        await integration.admin_action(update.effective_user.id,'category.add',category_id)
         message = (
             '✅ <b>دسته‌بندی با موفقیت اضافه شد</b>\n\n'
             f'📁 نام: <b>{html.escape(name)}</b>\n'
@@ -9300,6 +9318,7 @@ async def handle_admin_edit_category_name(update: Update, context: ContextTypes.
     category_id = context.user_data.get('edit_category_id')
     if category_id:
         if update_category(category_id, name=text):
+            await integration.admin_action(update.effective_user.id,'category.edit',category_id)
             await update.message.reply_text(f'✅ نام دسته‌بندی به «{text}» تغییر کرد.')
         else:
             await update.message.reply_text('❌ خطا در ویرایش.')
@@ -9326,6 +9345,8 @@ async def finalize_admin_product_registration(query, context):
             category_id, name, description, price, price_per,
             min_order, max_order, need_link, price_currency, price_amount, product_profit_percent
         )
+        if not product_id:raise RuntimeError('Product creation failed')
+        await integration.admin_action(query.from_user.id,'product.add',product_id)
         category = get_category(category_id)
         category_name = category["name"] if category else "نامشخص"
 
@@ -9653,7 +9674,7 @@ async def handle_admin_add_product_max_order(update: Update, context: ContextTyp
     return ADMIN_ADD_PRODUCT_NEED_LINK
 
 
-async def _complete_admin_add_product(message, context, need_link):
+async def _complete_admin_add_product(message, context, need_link,actor_id):
     """ثبت نهایی محصول؛ مشترک بین دکمه‌های اینلاین و ورودی متنی."""
     category_id = context.user_data.get('new_product_category')
     name = context.user_data.get('new_product_name', '')
@@ -9671,6 +9692,7 @@ async def _complete_admin_add_product(message, context, need_link):
     )
 
     if product_id:
+        await integration.admin_action(actor_id,'product.add',product_id)
         max_text = 'نامحدود' if max_order is None else f'{max_order:,}'
         result_text = (
             '✅ <b>محصول با موفقیت اضافه شد</b>\n\n'
@@ -9718,7 +9740,7 @@ async def handle_admin_add_product_need_link(update: Update, context: ContextTyp
         return ADMIN_ADD_PRODUCT_NEED_LINK
 
     need_link = text in ['بله', 'yes', 'y', '1']
-    return await _complete_admin_add_product(update.message, context, need_link)
+    return await _complete_admin_add_product(update.message, context, need_link,update.effective_user.id)
 
 
 async def handle_admin_edit_product_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -9782,6 +9804,7 @@ async def handle_admin_edit_product_value(update: Update, context: ContextTypes.
         ok = update_product(product_id, field, value)
 
     if ok:
+        await integration.admin_action(update.effective_user.id,'product.edit',product_id)
         product = get_product(product_id)
         categories = get_all_categories()
         cat_name = next((cat[1] for cat in categories if cat[0] == product[1]), "")
@@ -9869,6 +9892,7 @@ async def handle_admin_balance_amount(update: Update, context: ContextTypes.DEFA
     if not update_user_balance(uid,amount):
         await _edit_admin_input_prompt(context, "❌ خطا در تغییر موجودی.", InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو", callback_data="acancel_input")]]))
         return ConversationHandler.END
+    await integration.admin_action(update.effective_user.id,'balance.adjust')
     tx_type='deposit' if amount>0 else 'withdraw'; tracking=f"admin:{update.effective_user.id}:{generate_payment_tracking()}"
     save_transaction(uid,amount,tx_type,f"{'افزایش' if amount>0 else 'کاهش'} موجودی توسط مدیریت (ادمین: {update.effective_user.id})",tracking)
     fresh=get_user_data(uid); new=int(fresh.get('balance') or new) if fresh else new
@@ -9904,6 +9928,7 @@ async def handle_admin_ban_reason(update: Update, context: ContextTypes.DEFAULT_
         return ADMIN_BAN_USER
 
     if ban_user(user_id, reason):
+        await integration.admin_action(update.effective_user.id,'user.ban')
         await _restore_admin_user_detail(
             context,
             user_id,
@@ -10152,7 +10177,7 @@ async def run_lottery(update, context, target_type='all', target_value=0):
                 "❌ هیچ مبلغی به این کاربر واریز نشد.\n"
                 "⚠️ قرعه‌کشی به‌صورت خودکار ادامه داده نشد."
             )
-            for admin_id in ADMIN_IDS:
+            for admin_id in await asyncio.to_thread(integration.notice_recipients,'lottery_warning'):
                 try:
                     await context.bot.send_message(chat_id=admin_id, text=admin_text, parse_mode="HTML")
                 except Exception:
@@ -10171,7 +10196,7 @@ async def run_lottery(update, context, target_type='all', target_value=0):
             return
         # خطاهای غیر از بلاک شدن را لاگ می‌کنیم و برای جلوگیری از پرداخت اشتباه، پرداخت را متوقف می‌کنیم.
         logger.exception("failed checking lottery winner availability user=%s", winner_id)
-        for admin_id in ADMIN_IDS:
+        for admin_id in await asyncio.to_thread(integration.notice_recipients,'lottery_warning'):
             try:
                 await context.bot.send_message(
                     chat_id=admin_id,
@@ -10243,6 +10268,7 @@ async def run_lottery(update, context, target_type='all', target_value=0):
         except Exception:
             pass
 
+    await integration.admin_action(update.effective_user.id,'lottery.credit',lottery_id)
     # Edit the current admin lottery message instead of creating another
     # message. This is the message where the group button was selected.
     result_text = (
@@ -10446,6 +10472,7 @@ async def finalize_gift_code(update, context):
         cur.execute("INSERT INTO gift_codes (code,amount,is_active,max_uses,used_count,created_by,target_type,target_value) VALUES (%s,%s,1,%s,0,%s,%s,%s)",(code,amount,max_uses,update.effective_user.id,target,value))
         gift_id = cur.lastrowid
         conn.commit()
+        await integration.admin_action(update.effective_user.id,'gift.edit',gift_id)
         logger.info('gift created code=%s amount=%s max_uses=%s target=%s value=%s admin=%s',code,amount,max_uses,target,value,update.effective_user.id)
     except Exception:
         conn.rollback(); logger.exception('failed creating gift code code=%s',code)
@@ -10563,6 +10590,7 @@ async def handle_admin_currency_rate(update: Update, context: ContextTypes.DEFAU
             cur = conn.cursor()
             cur.execute("INSERT INTO currencies (code,name,symbol,rate,type,icon,is_active) VALUES (%s,%s,%s,%s,'crypto',%s,1)", (code,name,symbol,rate,symbol))
             conn.commit()
+            await integration.admin_action(update.effective_user.id,'currency.edit',cur.lastrowid)
             logger.info("currency added code=%s rate=%s admin=%s", code, rate, update.effective_user.id)
             await update.message.reply_text(f"✅ ارز <b>{code}</b> اضافه شد.\n💰 نرخ: <b>{format_amount(rate)}</b> تومان", parse_mode="HTML")
         except Error:
@@ -10590,6 +10618,7 @@ async def handle_admin_currency_rate(update: Update, context: ContextTypes.DEFAU
             return ConversationHandler.END
         cur.execute("UPDATE currencies SET rate=%s WHERE id=%s", (rate,item[0]))
         conn.commit()
+        if cur.rowcount:await integration.admin_action(update.effective_user.id,'currency.edit',item[0])
         logger.info("currency updated code=%s rate=%s admin=%s", code, rate, update.effective_user.id)
         prompt_message_id = context.user_data.get('admin_input_message_id')
         prompt_chat_id = context.user_data.get('admin_input_chat_id') or update.effective_chat.id
@@ -10658,6 +10687,7 @@ async def handle_admin_setting_input(update: Update, context: ContextTypes.DEFAU
     if not set_setting(key, value):
         await update.message.reply_text("❌ ذخیره تنظیمات انجام نشد.")
         return
+    await integration.admin_action(update.effective_user.id,'settings.edit')
 
     # همان پیام تنظیمات را با اطلاعات تازه از دیتابیس رفرش کن.
     settings_text = _get_admin_settings_text()
@@ -10724,6 +10754,7 @@ async def handle_admin_verification_text(update: Update, context: ContextTypes.D
     uid=context.user_data.get('verification_user_id');field=context.user_data.get('verification_field')
     if not uid:return ConversationHandler.END
     if not save_user_verification_field(uid,field,text):await _edit_admin_input_prompt(context,'❌ ذخیره انجام نشد.',InlineKeyboardMarkup([[InlineKeyboardButton('❌ لغو',callback_data='acancel_input')]]));return ADMIN_USER_VERIFICATION_TEXT
+    await integration.admin_action(update.effective_user.id,'user.verify')
     await _restore_admin_verification_detail(context,uid,context.user_data.get('admin_input_chat_id'),context.user_data.get('admin_input_message_id'))
     for k in ('verification_user_id','verification_field','admin_input_user_id','admin_input_chat_id','admin_input_message_id','admin_state'):context.user_data.pop(k,None)
     try:await update.message.delete()
@@ -10736,6 +10767,7 @@ async def handle_admin_verification_photo(update: Update, context: ContextTypes.
         await _edit_admin_input_prompt(context,'📸 لطفاً عکس مدرک را ارسال کن.',InlineKeyboardMarkup([[InlineKeyboardButton('❌ لغو',callback_data='acancel_input')]]));return ADMIN_USER_VERIFICATION_PHOTO
     if not save_user_verification_photo(uid,update.message.photo[-1].file_id):
         await _edit_admin_input_prompt(context,'❌ ذخیره عکس انجام نشد.',InlineKeyboardMarkup([[InlineKeyboardButton('❌ لغو',callback_data='acancel_input')]]));return ADMIN_USER_VERIFICATION_PHOTO
+    await integration.admin_action(update.effective_user.id,'user.verify')
     await _restore_admin_verification_detail(context,uid,context.user_data.get('admin_input_chat_id'),context.user_data.get('admin_input_message_id'))
     for k in ('verification_user_id','verification_field','admin_input_user_id','admin_input_chat_id','admin_input_message_id','admin_state'):context.user_data.pop(k,None)
     try:await update.message.delete()
@@ -11124,11 +11156,10 @@ async def handle_admin_broadcast(update: Update, context: ContextTypes.DEFAULT_T
         f'🚫 <b>بلاک‌کننده‌های شناسایی‌شده:</b> {blocked:,}'
     )
 
-    # گزارش برای پشتیبانی/مدیریت
-    try:
-        await context.bot.send_message(chat_id=SUPPORT_USER_ID, text=report, parse_mode='HTML')
-    except Exception:
-        logger.exception('failed sending broadcast report to support=%s', SUPPORT_USER_ID)
+    await integration.admin_action(update.effective_user.id,'broadcast')
+    if SUPPORT_USER_ID and SUPPORT_USER_ID not in ADMIN_IDS and SUPPORT_USER_ID!=update.effective_chat.id:
+        try:await context.bot.send_message(chat_id=SUPPORT_USER_ID,text=report,parse_mode='HTML')
+        except Exception:logger.warning('Could not deliver broadcast summary to support')
 
     # گزارش به خود ادمین نیز نمایش داده شود
     try:
@@ -11927,7 +11958,7 @@ async def publication_callback(update: Update,context: ContextTypes.DEFAULT_TYPE
         await query.answer('دسترسی غیرمجاز',show_alert=True);return
     _,channel,pk=query.data.split('_')
     try:
-        await asyncio.to_thread(integration.channel_toggle,int(pk),channel)
+        await asyncio.to_thread(integration.channel_toggle,int(pk),channel,admin_id=update.effective_user.id)
         await query.answer('تنظیمات انتشار ذخیره شد.')
         await query.edit_message_reply_markup(reply_markup=get_product_detail_admin_keyboard(int(pk)))
     except Exception:

@@ -10,6 +10,34 @@ from portal.pricing import pricing_for
 from portal.models import Product
 from portal.exchange_rates import RateError, resolve
 from portal.order_notices import approval_buttons
+from portal.notice_topics import recipients,subscribers
+
+
+def notice_recipients(topic):
+    """Call off the event loop. A settings failure must not disclose a muted message."""
+    import logging
+    from django.db import DatabaseError
+    try:return subscribers(topic)
+    except DatabaseError:
+        logging.getLogger(__name__).error('Private notification preferences unavailable')
+        return []
+    finally:close_old_connections()
+
+
+async def admin_action(actor_id,action,ref=None):
+    """Legacy bot handlers call this only after a successful mutation; never include user input."""
+    import asyncio,logging
+    from django.db import DatabaseError,transaction
+    from portal.models import Audit
+    from portal.ops_activity import BOT_ACTIONS,numeric_ref
+    if actor_id not in recipients() or action not in BOT_ACTIONS:return
+    def record():
+        try:
+            with transaction.atomic():
+                Audit.objects.create(action='bot.'+action,object_ref=numeric_ref(ref),details={'telegram_admin_id':actor_id})
+        finally:close_old_connections()
+    try:await asyncio.to_thread(record)
+    except DatabaseError:logging.getLogger(__name__).error('Could not record committed bot admin activity')
 
 
 def product_pricing(product_id):
@@ -89,9 +117,10 @@ def purchase(*args):
     try: return place_bot_order(*args)
     finally: close_old_connections()
 
-def transition(order_id,status,note=''):
+def transition(order_id,status,note='',*,admin_id):
     try:
-        change_order(None,order_id,status,note)
+        if admin_id not in recipients():return False
+        change_order(None,order_id,status,note,telegram_admin_id=admin_id)
         return True
     except BusinessError: return False
     finally: close_old_connections()
@@ -109,9 +138,11 @@ def channel_state(product_id):
         return p.show_on_website,p.show_on_telegram,p.platform
     finally: close_old_connections()
 
-def channel_toggle(product_id,channel):
+def channel_toggle(product_id,channel,*,admin_id):
     from django.db import transaction
+    from portal.models import Audit
     try:
+        if admin_id not in recipients():raise BusinessError('دسترسی غیرمجاز')
         with transaction.atomic():
             p=Product.objects.select_for_update().get(pk=product_id)
             if channel=='web':
@@ -122,6 +153,8 @@ def channel_toggle(product_id,channel):
                 p.platform=channel
                 if channel=='telegram': p.show_on_website=False
                 p.save(update_fields=['platform','show_on_website'])
+            else:raise BusinessError('مسیر انتشار نامعتبر است.')
+            Audit.objects.create(action='bot.product.publish',object_ref=str(product_id),details={'telegram_admin_id':admin_id})
     finally: close_old_connections()
 
 

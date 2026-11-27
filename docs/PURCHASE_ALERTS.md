@@ -41,3 +41,40 @@ The admin dashboard also shows the newest committed orders to staff with order
 view access. Opt in to system notifications using **فعال‌کردن اعلان مرورگر**.
 The dashboard must remain open for browser alerts; Telegram delivery runs
 independently of it.
+
+## Admin activity and preferences
+
+`/admin/portal/noticepreference/` lists only the private IDs configured under
+`telegram.admin_ids`. Each recipient has independent selections for web and bot
+purchases, catalogue/pricing, order status, finance, staff support, management,
+staff login/logout, new or reopened site errors, incoming bot tickets, receipt
+photos and lottery warnings. The last three retain their original actionable
+messages. Direct command replies and customer receipts are separate from alerts.
+By default, purchase and administrative changes are on; error and session alerts
+are opt-in. Saving one recipient does not change another's choices. Muting a
+category cancels outstanding unsent deliveries in that category, and the sender
+checks the current policy before each API call. An already in-flight API call
+can't be recalled.
+
+Committed panel writes, audited operations (e.g. ticket replies and settlements),
+and bot admin operations feed the shared sender. Reads and automated catalogue
+polls do not create staff activity notices. Summaries use an operation label,
+source, admin ID and, where relevant, an object ID; no submitted field values,
+ticket contents or verification documents are included in these summaries. An
+explicit CLI `--test --test-topic catalog` honours the same subscription.
+The owner can delegate `view_noticepreference`/`change_noticepreference`; these
+permissions cannot add a Telegram recipient not in the server allowlist.
+
+## Website errors
+
+`/admin/portal/siteissue/` groups application HTTP 5xx errors and service
+failures handled by the SMS login/payment pages. It keeps first/last time,
+count, exception class, named route, sanitized code frames and release when
+available, instead of raw exception strings or request data. HTTP 4xx and
+ordinary customer validation/cancellation are not incidents. Proxy-only errors
+and outages of the issue database remain in the server logs.
+
+`view_siteissue` allows investigation; `change_siteissue` also allows resolving
+or reopening. Another occurrence after resolution reopens the issue; a continuing
+open issue increments its count rather than sending the same Telegram alert each
+time. Marking resolved records triage, not an automatic fix.

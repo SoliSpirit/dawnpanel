@@ -9,14 +9,12 @@ from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import OrderDelivery, OrderEvent
+from .models import OperationNotice, OrderDelivery, OrderEvent, SiteIssue
+from .notice_topics import policies,recipients,subscribers,TOPICS
 
 
-def recipients():
-    values=settings.BOT_CONFIG.get('telegram',{}).get('admin_ids',[])
-    if not isinstance(values,(list,tuple)):return []
-    return sorted({int(v) for v in values if isinstance(v,(int,str)) and str(v).isascii()
-                   and str(v).isdigit() and 0<len(str(v))<=16 and 0<int(v)<2**52})
+def order_topic(channel):
+    return {'web':'web_order','telegram':'bot_order'}[channel]
 
 
 def approval_buttons(order_id):
@@ -45,8 +43,24 @@ class DeliveryError(Exception):
         self.permanent,self.retry_after=permanent,retry_after
 
 
-def send_private(recipient, payload):
+def operation_message(event):
+    origin={'web':'پنل سایت','telegram':'ربات','system':'سایت'}[event.origin]
+    text=f'{TOPICS[event.topic]}\n{event.summary}\nمبدأ: {origin}'
+    if event.actor_key:text+=f'\nمدیر {"تلگرام" if event.origin=="telegram" else "سایت"}: #{event.actor_key}'
+    if event.reference:text+=f'\nشناسه: {event.reference}'
+    payload={'text':text,'link_preview_options':{'is_disabled':True}}
+    if event.topic=='site_error':
+        route=SiteIssue.objects.filter(pk=event.reference).values_list('route',flat=True).first()
+        if route:payload['text']+=f'\nمسیر برنامه: {route}'
+        path=reverse('admin:portal_siteissue_change',args=[event.reference])
+        payload['reply_markup']={'inline_keyboard':[[{'text':'بررسی خطا در پنل','url':'https://dawnpanel.ir'+path}]]}
+    return payload
+
+
+def send_private(recipient, payload, *, topic=None):
     if recipient not in recipients():raise DeliveryError('recipient_removed',permanent=True)
+    if topic is not None and recipient not in subscribers(topic):
+        raise DeliveryError('muted',permanent=True)
     token=settings.BOT_CONFIG.get('telegram',{}).get('token')
     if not token:raise DeliveryError('missing_token')
     try:
@@ -72,12 +86,17 @@ def send_private(recipient, payload):
 
 @transaction.atomic
 def prepare(limit):
-    ids=recipients()
-    if not ids:return
+    prefs=policies()
+    if not prefs:return
     events=list(OrderEvent.objects.select_for_update().filter(prepared=False).order_by('pk')[:limit])
+    ops=list(OperationNotice.objects.select_for_update().filter(prepared=False).order_by('pk')[:limit])
     now=timezone.now()
-    OrderDelivery.objects.bulk_create([OrderDelivery(event=e,recipient=r,due_at=now) for e in events for r in ids])
+    deliveries=[OrderDelivery(event=e,recipient=r,due_at=now) for e in events for r,enabled in prefs.items()
+                if order_topic(e.channel) in enabled]
+    deliveries += [OrderDelivery(operation=e,recipient=r,due_at=now) for e in ops for r,enabled in prefs.items() if e.topic in enabled]
+    OrderDelivery.objects.bulk_create(deliveries)
     OrderEvent.objects.filter(pk__in=[e.pk for e in events]).update(prepared=True)
+    OperationNotice.objects.filter(pk__in=[e.pk for e in ops]).update(prepared=True)
 
 
 @transaction.atomic
@@ -101,14 +120,21 @@ def dispatch(limit=20):
         if not row:break
         live=OrderDelivery.objects.filter(pk=row.pk,state='sending',lease=row.lease)
         try:
-            event=OrderEvent.objects.select_related('order').get(pk=row.event_id)
-            message_id=send_private(row.recipient,order_message(event))
-        except (DeliveryError,OrderEvent.DoesNotExist) as exc:
-            error=exc if isinstance(exc,DeliveryError) else DeliveryError('order_missing',permanent=True)
+            if row.event_id:
+                event=OrderEvent.objects.select_related('order').get(pk=row.event_id)
+                topic,payload=order_topic(event.channel),order_message(event)
+            else:
+                event=row.operation
+                topic,payload=event.topic,operation_message(event)
+            message_id=send_private(row.recipient,payload,topic=topic)
+        except (DeliveryError,OrderEvent.DoesNotExist,OperationNotice.DoesNotExist) as exc:
+            error=exc if isinstance(exc,DeliveryError) else DeliveryError('event_missing',permanent=True)
             wait=max(error.retry_after,min(3600,15*2**min(row.attempts-1,8)))
-            changed=live.update(state='stopped' if error.permanent else 'pending',lease=None,
+            state='muted' if str(error)=='muted' else ('stopped' if error.permanent else 'pending')
+            changed=live.update(state=state,lease=None,
                                 last_error=str(error),due_at=timezone.now()+timedelta(seconds=wait))
-            counts['stopped' if error.permanent else 'retry']+=changed
+            key='muted' if state=='muted' else ('stopped' if error.permanent else 'retry')
+            counts[key]=counts.get(key,0)+changed
             if changed and error.retry_after:
                 until_retry=timezone.now()+timedelta(seconds=wait)
                 OrderDelivery.objects.filter(recipient=row.recipient,state='pending',due_at__lt=until_retry).update(due_at=until_retry)

@@ -11,6 +11,12 @@ from .models import *
 from .pricing import BusinessError, ceil_div, pricing_for
 
 
+class DependencyError(BusinessError):
+    def __init__(self,dependency,message):
+        super().__init__(message)
+        self.dependency=dependency
+
+
 @transaction.atomic
 def decide_bot_receipt(receipt_id, admin_id, *, amount=None, reject_reason=None):
     """Claim, credit and record a card receipt in one database transaction."""
@@ -73,7 +79,7 @@ def request_otp(phone,session,ip):
         if r.json().get('status')!=1: raise ValueError('SMS rejected')
     except (requests.RequestException,ValueError,KeyError):
         otp.consumed=True;otp.save(update_fields=['consumed'])
-        raise BusinessError('ارسال پیامک انجام نشد. دوباره تلاش کنید.') from None
+        raise DependencyError('sms','ارسال پیامک انجام نشد. دوباره تلاش کنید.') from None
     return otp
 
 def verify_otp(otp_id,code,session):
@@ -155,7 +161,7 @@ def place_order(account,product_id,quantity,target,key,quoted_total,quoted_break
     return order
 
 @transaction.atomic
-def change_order(actor,order_id,status,note):
+def change_order(actor,order_id,status,note,*,telegram_admin_id=None):
     order=Order.objects.select_for_update().get(pk=order_id)
     if order.status in ['completed','cancelled','rejected']: raise BusinessError('این سفارش قبلاً نهایی شده است.')
     if status not in ['confirmed','completed','cancelled']: raise BusinessError('وضعیت نامعتبر است.')
@@ -168,7 +174,9 @@ def change_order(actor,order_id,status,note):
         order.completed_at=timezone.now();order.completion_message=note
         LegacyUser.objects.filter(pk=order.user_id).update(total_purchases=F('total_purchases')+order.total_price)
     order.status=status;order.save()
-    Audit.objects.create(actor=actor,action='order.status',object_ref=str(order.pk),details={'status':status,'note':note})
+    details={'status':status,'note':note}
+    if telegram_admin_id is not None:details['telegram_admin_id']=telegram_admin_id
+    Audit.objects.create(actor=actor,action='order.status',object_ref=str(order.pk),details=details)
 
 def zarin_config():
     c=settings.BOT_CONFIG['zarinpal']; base='https://sandbox.zarinpal.com' if c['sandbox'] else 'https://payment.zarinpal.com'
@@ -190,7 +198,7 @@ def start_payment(account,amount):
         return base+'/pg/StartPay/'+authority
     except (requests.RequestException,KeyError,ValueError):
         attempt.status='failed';attempt.save(update_fields=['status'])
-        raise BusinessError('درگاه پرداخت در دسترس نیست. کمی بعد تلاش کنید.') from None
+        raise DependencyError('gateway_start','درگاه پرداخت در دسترس نیست. کمی بعد تلاش کنید.') from None
 
 @transaction.atomic
 def verify_payment(authority):
@@ -204,7 +212,7 @@ def verify_payment(authority):
         c,base=zarin_config()
         try:
             r=requests.post(base+'/pg/v4/payment/verify.json',json={'merchant_id':c['merchant'],'authority':authority,'amount':amount*10},timeout=20);r.raise_for_status();data=r.json().get('data',{})
-        except (requests.RequestException,ValueError): raise BusinessError('تایید درگاه موقتاً ممکن نیست؛ دوباره این صفحه را باز کنید.') from None
+        except (requests.RequestException,ValueError): raise DependencyError('gateway_verify','تایید درگاه موقتاً ممکن نیست؛ دوباره این صفحه را باز کنید.') from None
         if data.get('code') not in [100,101]: raise BusinessError('درگاه هنوز پرداخت را تایید نکرده است.')
         ref=str(data.get('ref_id',''))
         if not ref: raise BusinessError('شماره مرجع دریافت نشد.')

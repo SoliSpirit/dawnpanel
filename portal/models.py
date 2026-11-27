@@ -151,8 +151,46 @@ class OrderEvent(models.Model):
     prepared=models.BooleanField(default=False,db_index=True)
 
 
+class NoticePreference(models.Model):
+    recipient=models.PositiveBigIntegerField(primary_key=True)
+    enabled=models.JSONField(default=list)
+    revision=models.PositiveBigIntegerField(default=0)
+    class Meta:
+        verbose_name='تنظیم اعلان تلگرام';verbose_name_plural='تنظیمات اعلان تلگرام'
+
+
+class OperationNotice(models.Model):
+    topic=models.CharField(max_length=24)
+    summary=models.CharField(max_length=160)
+    origin=models.CharField(max_length=12)
+    actor_key=models.PositiveBigIntegerField(null=True)
+    reference=models.CharField(max_length=40,blank=True)
+    prepared=models.BooleanField(default=False,db_index=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+
+
+class SiteIssue(models.Model):
+    fingerprint=models.CharField(max_length=64,unique=True,editable=False)
+    kind=models.CharField('نوع خطا',max_length=96)
+    status_code=models.PositiveSmallIntegerField('کد HTTP سایت',null=True,blank=True)
+    route=models.CharField('مسیر برنامه',max_length=150)
+    method=models.CharField('روش درخواست',max_length=12)
+    trace=models.TextField('محل خطا در کد',blank=True)
+    hint=models.CharField('راهنمای بررسی',max_length=240,blank=True)
+    release=models.CharField('نسخهٔ برنامه',max_length=40,blank=True)
+    occurrences=models.PositiveBigIntegerField('تعداد رخداد',default=1)
+    first_seen=models.DateTimeField('اولین رخداد')
+    last_seen=models.DateTimeField('آخرین رخداد',db_index=True)
+    resolved=models.BooleanField('رفع‌شده',default=False,db_index=True)
+    resolved_at=models.DateTimeField('آخرین زمان رفع',null=True,blank=True)
+    class Meta:
+        ordering=['-last_seen','-pk'];verbose_name='خطای سایت';verbose_name_plural='خطاهای سایت'
+    def __str__(self):return f'{self.kind} · {self.route}'
+
+
 class OrderDelivery(models.Model):
-    event=models.ForeignKey(OrderEvent,on_delete=models.CASCADE)
+    event=models.ForeignKey(OrderEvent,null=True,on_delete=models.CASCADE)
+    operation=models.ForeignKey(OperationNotice,null=True,on_delete=models.CASCADE)
     recipient=models.PositiveBigIntegerField()
     state=models.CharField(max_length=8,default='pending')
     due_at=models.DateTimeField()
@@ -163,7 +201,10 @@ class OrderDelivery(models.Model):
     message_id=models.PositiveBigIntegerField(null=True)
 
     class Meta:
-        constraints=[models.UniqueConstraint(fields=['event','recipient'],name='unique_order_recipient')]
+        constraints=[models.UniqueConstraint(fields=['event','recipient'],name='unique_order_recipient'),
+                     models.UniqueConstraint(fields=['operation','recipient'],name='unique_operation_recipient'),
+                     models.CheckConstraint(condition=(models.Q(event__isnull=False,operation__isnull=True)|
+                                                       models.Q(event__isnull=True,operation__isnull=False)),name='one_notice_source')]
         indexes=[models.Index(fields=['state','due_at'],name='order_delivery_due')]
 
 class Ticket(models.Model):

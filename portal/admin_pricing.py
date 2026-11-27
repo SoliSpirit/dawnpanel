@@ -138,6 +138,7 @@ class PriceToolsAdminMixin:
         Audit.objects.bulk_create([Audit(actor=request.user,action='product.profit',object_ref=str(p.pk),
             details={'old':str(p.product_profit_percent),'new':str(percent)}) for p in changed],batch_size=100)
         if changed:
+            Audit.objects.create(actor=request.user,action='catalog.profit.batch',details={'count':len(changed)})
             from django.contrib.admin.models import CHANGE, LogEntry
             LogEntry.objects.log_actions(user_id=request.user.pk,queryset=changed,action_flag=CHANGE,
                                         change_message=[{'changed':{'fields':['درصد سود']}}])

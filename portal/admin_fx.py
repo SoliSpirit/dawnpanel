@@ -8,7 +8,7 @@ from django.utils import formats, timezone
 from django.utils.html import format_html
 
 from .exchange_rates import RateError, resolve, spread, supported, source_link, refresh_rates
-from .models import Currency, CurrencyPricing
+from .models import Currency, CurrencyPricing, Audit
 from .templatetags.ui import fa_decimal, fa_number
 from .fx_review import FxReviewMixin
 from django.http import HttpResponseRedirect
@@ -166,6 +166,8 @@ class CurrencyRatesAdminMixin(FxReviewMixin):
         rows=list(queryset)
         if not self.has_change_permission(request) or not all(self.has_change_permission(request,row) for row in rows):
             raise PermissionDenied
-        refresh_rates([r.pk for r in rows])
+        result=refresh_rates([r.pk for r in rows])
+        if any(not error for error in result.values()):
+            Audit.objects.create(actor=request.user,action='currency.refresh',details={'checked':len(result)})
         url=reverse('admin:portal_currency_review')
         return HttpResponseRedirect(url+'?rows='+','.join(str(r.pk) for r in rows))
