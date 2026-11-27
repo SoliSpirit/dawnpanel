@@ -2,7 +2,9 @@ from django import template
 from django.templatetags.static import static
 from portal.product_art import artwork_key, gallery_path
 from portal.pricing import pricing_for, BusinessError
+from portal.catalog_pages import section_url
 register = template.Library()
+register.simple_tag(section_url)
 
 CATEGORY_COVERS = {
     'ai': ('artwork/ai-480.webp', 'artwork/ai-light-480.webp'),

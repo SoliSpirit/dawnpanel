@@ -24,6 +24,8 @@
 
 ## تنظیمات
 
+در داشبورد مدیریت، «اعلان سفارش‌ها» خریدهای سایت و ربات را نشان می‌دهد. اعلان تلگرامی خریدها از صف مستقل برای مدیران ربات فرستاده می‌شود؛ [نصب سرویس و تست ارسال](docs/PURCHASE_ALERTS.md). برای ثبت نقشهٔ سایت در گوگل، [راهنمای Search Console](docs/SEO_REVIEW.md) را ببینید.
+
 `DAWN_CONFIG` مسیر config خصوصی سرور، `DJANGO_SECRET_KEY` کلید مستقل سایت، `DAWN_OWNER_PHONE` شماره مالک، `DAWN_PRODUCTION=1` و `ALLOWED_HOSTS` لازم هستند. نمونه بدون کلید در `telegram/config.example.json` است.
 
 در [تماس مستقیم](/contact/#direct-contact)، شماره و ایمیل از `CONTACT_PHONE` و `CONTACT_EMAIL` می‌آیند. صندوق `admin@dawnpanel.ir` در Mailcow میزبانی می‌شود. برای مستقل ماندن دریافت ایمیل از آدرس وب، رکورد پیشنهادی DNS برای `@` از نوع `MX` با اولویت `10` و مقصد `ip-46-38-138-244.jahanvds.com.` است. بدون MX صریح، فرستنده‌ها آدرس خود دامنه را برای تحویل امتحان می‌کنند.

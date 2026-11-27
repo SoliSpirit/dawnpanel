@@ -5,7 +5,7 @@
 {% block content_title %}{% endblock %}
 {% block sidebar %}{% endblock %}
 {% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-overview.css' %}">{% endblock %}
-{% block extrahead %}{{ block.super }}<script src="{% static 'admin-dashboard.js' %}" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'admin-dashboard.js' %}" defer></script>{% if perms.portal.view_order %}<script src="{% static 'purchase-alerts.js' %}" defer></script>{% endif %}{% endblock %}
 
 {% block content %}
 <div class="desk" id="store-overview">
@@ -32,6 +32,12 @@
 
   {% if perms.portal.view_order or desk_tasks or perms.portal.view_ticket %}<div class="desk-columns">
     {% if perms.portal.view_order %}<div class="desk-stack">
+      <section class="desk-panel" data-order-alerts="{% url 'admin:order_alerts' %}" aria-labelledby="purchase-alert-title">
+        <div class="desk-panel-head">{% include 'admin/overview/panel_title.html' with heading_id='purchase-alert-title' eyebrow='خریدهای سایت و ربات' heading='اعلان سفارش‌ها' symbol='inbox' tone='green' only %}
+          <button type="button" class="desk-button ghost" data-enable-alerts hidden>فعال‌کردن اعلان مرورگر</button></div>
+        <p class="desk-note" data-alert-status role="status">پیام خرید برای مدیر ربات ارسال می‌شود. اعلان این صفحه تا وقتی داشبورد باز است به‌روز می‌شود.</p>
+        <ul class="desk-orders" data-recent-alerts></ul>
+      </section>
       {% include 'admin/overview/sales.html' %}
       <section class="desk-panel" id="orders" aria-labelledby="orders-title">
         <div class="desk-panel-head">{% include 'admin/overview/panel_title.html' with heading_id='orders-title' eyebrow='پیگیری خریدها' heading='آخرین سفارش‌ها' symbol='receipt' tone='blue' only %}<a class="desk-link" href="{% url 'admin:portal_order_changelist' %}">همه سفارش‌ها {% icon 'left' %}</a></div>

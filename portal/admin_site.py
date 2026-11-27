@@ -32,6 +32,25 @@ class DawnAdminSite(AdminSite):
     index_title='نمای کلی فروشگاه'
     index_template='admin/dashboard.html'
 
+    def get_urls(self):
+        from django.urls import path
+        return [path('order-alerts/',self.admin_view(self.order_alerts),name='order_alerts'),*super().get_urls()]
+
+    def order_alerts(self,request):
+        from django.http import HttpResponseNotAllowed,JsonResponse
+        from django.urls import reverse
+        from .models import Order, OrderEvent
+        if request.method!='GET':return HttpResponseNotAllowed(['GET'])
+        manager=self.get_model_admin(Order)
+        if not manager.has_view_permission(request):raise PermissionDenied
+        events=(OrderEvent.objects.filter(order_id__in=manager.get_queryset(request).order_by().values('pk'))
+                .select_related('order').order_by('-pk')[:20])
+        return JsonResponse({'orders':[
+            {'id':e.pk,'channel':e.get_channel_display(),'tracking':e.order.tracking_code,
+             'product':e.order.product_name,'amount':e.order.total_price,
+             'url':reverse('admin:portal_order_change',args=[e.pk])}
+            for e in events if manager.has_view_permission(request,e.order)]})
+
     def each_context(self, request):
         context=super().each_context(request)
         models=[model for app in context['available_apps'] for model in app['models'] if model['admin_url']]

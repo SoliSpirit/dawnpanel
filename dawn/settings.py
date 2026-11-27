@@ -32,6 +32,7 @@ LOGIN_URL='/login/'
 DEFAULT_FROM_EMAIL='noreply@dawnpanel.ir'
 CONTACT_EMAIL='admin@dawnpanel.ir'
 CONTACT_PHONE='09356171858'
+GOOGLE_SITE_VERIFICATION=os.environ.get('DAWN_GOOGLE_SITE_VERIFICATION','').strip()
 EMAIL_HOST=os.environ.get('DAWN_SMTP_HOST','localhost')
 EMAIL_PORT=int(os.environ.get('DAWN_SMTP_PORT','587'))
 EMAIL_HOST_USER=os.environ.get('DAWN_SMTP_USER','')

@@ -2969,12 +2969,8 @@ def get_product_no_balance_keyboard(category_id):
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data=f"backprod_{cat_id}"), InlineKeyboardButton("🔙 بستن لیست", callback_data="close_list")]])
 
 def get_order_approval_keyboard(order_id):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ تایید سفارش", callback_data=f"confirmorder_{order_id}"),
-         InlineKeyboardButton("❌ لغو سفارش", callback_data=f"rejectorder_{order_id}")],
-        [InlineKeyboardButton("🎉 تکمیل سفارش", callback_data=f"completeorder_{order_id}")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"backorder_{order_id}")]
-    ])
+    return InlineKeyboardMarkup([[InlineKeyboardButton(**button) for button in row]
+                                for row in integration.approval_buttons(order_id)])
 
 def get_order_completion_confirm_keyboard(order_id):
     return InlineKeyboardMarkup([
@@ -5240,27 +5236,7 @@ async def user_confirm_order_callback(update: Update, context: ContextTypes.DEFA
 
         await query.message.edit_text(user_message, parse_mode="HTML", reply_markup=get_order_reorder_keyboard(product_id))
 
-        for admin_id in ADMIN_IDS:
-            try:
-                admin_msg = (
-                    "📦 <b>سفارش جدید</b>\n\n"
-                    f"🆔 #{order_id}\n"
-                    f"🔍 <b>کد پیگیری:</b> <code>{html.escape(str(tracking_code))}</code>\n"
-                    f"👤 {html.escape(str(user.full_name or '-'))}\n"
-                    f"🔹 یوزرنیم: {html.escape('@' + user.username if user.username else 'ندارد')}\n"
-                    f"🆔 آیدی عددی: <code>{user.id}</code>\n"
-                    f"📦 {safe_product_name}\n"
-                    f"🔢 {quantity:,}\n"
-                    f"💰 {format_amount(total_price)} تومان"
-                )
-                if target_link:
-                    admin_msg += f"\n🔗 اطلاعات سفارش: {safe_target}"
-                await context.bot.send_message(
-                    chat_id=admin_id, text=admin_msg,
-                    reply_markup=get_order_approval_keyboard(order_id), parse_mode="HTML"
-                )
-            except Exception:
-                logger.exception("failed sending new order to admin order=%s admin=%s", order_id, admin_id)
+        # The purchase transaction queued the same durable admin alert as web checkout.
 
     except integration.BusinessError as e:
         await query.message.reply_text(str(e), reply_markup=get_main_menu())
@@ -5335,7 +5311,7 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
         # The report channel receives the successful-purchase report immediately after admin confirmation.
         await send_successful_order_report(context, order)
         await query.edit_message_text(
-            query.message.text + "\n\n✅ تایید شد - در حال انجام",
+            html.escape(query.message.text) + "\n\n✅ تایید شد - در حال انجام",
             reply_markup=get_order_completion_keyboard(order_id),
             parse_mode="HTML"
         )
@@ -5392,7 +5368,7 @@ async def confirm_complete_order_callback(update: Update, context: ContextTypes.
                   f"در تاریخ {html.escape(date_part)} و ساعت {html.escape(time_part)} با موفقیت تکمیل شد !"),
             parse_mode="HTML"
         )
-        await query.edit_message_text(query.message.text + "\n\n🎉 تکمیل شد", reply_markup=None, parse_mode="HTML")
+        await query.edit_message_text(html.escape(query.message.text) + "\n\n🎉 تکمیل شد", reply_markup=None, parse_mode="HTML")
     except Exception:
         logger.exception('failed completing order=%s', order_id)
 
@@ -5410,7 +5386,7 @@ async def complete_order_with_message_callback(update: Update, context: ContextT
     context.user_data['admin_state'] = 'order_complete_message'
     context.user_data['complete_order_id'] = order_id
     await query.edit_message_text(
-        query.message.text + "\n\n📨 <b>مشخصات یا پیام موردنظر را ارسال کن.</b>\n"
+        html.escape(query.message.text) + "\n\n📨 <b>مشخصات یا پیام موردنظر را ارسال کن.</b>\n"
         "می‌توانی متن، عکس، فایل یا هر محتوای دیگری بفرستی.\n\nبرای لغو /cancel را بزن.",
         reply_markup=None, parse_mode='HTML')
 
@@ -5428,7 +5404,7 @@ async def reject_order_callback(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['admin_state'] = 'order_cancel_reason'
     context.user_data['cancel_order_id'] = order_id
     await query.edit_message_text(
-        query.message.text + "\n\n❌ <b>دلیل لغو سفارش را وارد کن:</b>\n"
+        html.escape(query.message.text) + "\n\n❌ <b>دلیل لغو سفارش را وارد کن:</b>\n"
         "این دلیل برای کاربر ارسال می‌شود و مبلغ سفارش بعد از ثبت دلیل به موجودی او برمی‌گردد.\n\nبرای لغو عملیات /cancel را بزن.",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data=f"backorder_{order_id}")]]),
         parse_mode='HTML')
@@ -5450,11 +5426,11 @@ async def back_order_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         keyboard = None
     # Remove any temporary admin prompt from the current message.
     text = query.message.text or query.message.caption or ''
-    markers = ["\n\n❌ <b>دلیل لغو سفارش را وارد کن:</b>", "\n\n📨 <b>مشخصات یا پیام موردنظر را ارسال کن.</b>"]
+    markers = ["\n\n❌ دلیل لغو سفارش را وارد کن:", "\n\n📨 مشخصات یا پیام موردنظر را ارسال کن."]
     for marker in markers:
         if marker in text:
             text = text.split(marker, 1)[0]
-    await query.edit_message_text(text, reply_markup=keyboard, parse_mode='HTML')
+    await query.edit_message_text(text, reply_markup=keyboard, parse_mode=None)
 
 # ==================== بخش شارژ حساب ====================
 def create_charge_handler():

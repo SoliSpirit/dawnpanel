@@ -142,6 +142,30 @@ class Checkout(models.Model):
     account=models.ForeignKey(Account,on_delete=models.PROTECT)
     order_id=models.BigIntegerField(null=True)
     created_at=models.DateTimeField(auto_now_add=True)
+
+
+class OrderEvent(models.Model):
+    """An order was actually placed and charged, not just previewed or topped up."""
+    order=models.OneToOneField(Order,primary_key=True,on_delete=models.CASCADE,db_constraint=False)
+    channel=models.CharField(max_length=8,choices=[('web','سایت'),('telegram','ربات')])
+    prepared=models.BooleanField(default=False,db_index=True)
+
+
+class OrderDelivery(models.Model):
+    event=models.ForeignKey(OrderEvent,on_delete=models.CASCADE)
+    recipient=models.PositiveBigIntegerField()
+    state=models.CharField(max_length=8,default='pending')
+    due_at=models.DateTimeField()
+    lease=models.UUIDField(null=True)
+    attempts=models.PositiveIntegerField(default=0)
+    last_error=models.CharField(max_length=40,blank=True)
+    sent_at=models.DateTimeField(null=True)
+    message_id=models.PositiveBigIntegerField(null=True)
+
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['event','recipient'],name='unique_order_recipient')]
+        indexes=[models.Index(fields=['state','due_at'],name='order_delivery_due')]
+
 class Ticket(models.Model):
     STATUS=[('open','باز'),('answered','پاسخ داده شده'),('closed','بسته')]
     user=models.ForeignKey(User,on_delete=models.PROTECT,verbose_name='کاربر')

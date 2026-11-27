@@ -20,6 +20,7 @@ from .models import *
 from .forms import *
 from .services import *
 from .store_catalog import families, category_tiles, filter_families, TAXONOMY, MESSAGING
+from .catalog_pages import SECTION_COPY, section_url
 
 ORDER_DRAFT_AGE = timedelta(minutes=20)
 
@@ -60,8 +61,9 @@ def home(request):
         if match: picks.append(match)
     return render(request,'home.html',{'families':picks,
         'categories':category_tiles(items),'posts':Post.objects.filter(published=True)[:3],
-        'title':'دان پنل | اشتراک هوش مصنوعی و خدمات دیجیتال',
-        'description':'اشتراک‌ها و خدمات دیجیتال را بر اساس دسته‌بندی پیدا کنید؛ انتخاب پلن و پرداخت در دان‌پنل.'})
+        'title':'دان‌پنل | خرید اشتراک هوش مصنوعی و خدمات روبیکا، ایتا و بله',
+        'description':'در دان‌پنل پلن‌های اشتراک هوش مصنوعی و ابزارهای دیجیتال را مقایسه کنید یا خدمات کانال روبیکا، ایتا و بله را با قیمت مشخص و کد پیگیری سفارش دهید.',
+        'google_verification':settings.GOOGLE_SITE_VERIFICATION})
 
 @require_GET
 def contact(request):
@@ -71,17 +73,28 @@ def contact(request):
         'contact_email':settings.CONTACT_EMAIL})
 
 def ai_catalog(request):
-    return catalog(request,platform_override='ai')
+    return catalog(request,section_key='ai')
 
-def catalog(request,platform_override=None):
-    if not platform_override and (request.GET.get('platform')=='telegram' or request.GET.get('section')=='telegram'):
+@require_http_methods(['GET','HEAD'])
+def catalog_section(request,section_key):
+    if section_key not in SECTION_COPY: raise Http404
+    if section_key=='ai':
+        return redirect(reverse('ai_catalog',query=request.GET),permanent=True)
+    return catalog(request,section_key=section_key)
+
+@require_http_methods(['GET','HEAD'])
+def catalog(request,section_key=None):
+    if not section_key and (request.GET.get('platform')=='telegram' or request.GET.get('section')=='telegram'):
         return redirect(reverse('catalog')+'?collection=messaging')
+    old_section=request.GET.get('section','')
+    if not section_key and old_section in SECTION_COPY and set(request.GET)<= {'section','page'}:
+        params=request.GET.copy();del params['section']
+        return redirect(section_url(old_section)+('?' + params.urlencode() if params else ''),permanent=True)
     items=families()
-    platform=platform_override or request.GET.get('platform','')
+    platform='' if section_key else request.GET.get('platform','')
     if platform not in ['rubika','eitaa','bale','ai','telegram','other']: platform=''
-    section=request.GET.get('section','')
+    section=section_key or old_section
     if section not in {row[0] for row in TAXONOMY}: section=''
-    if platform_override=='ai': section='ai';platform=''
     collection=request.GET.get('collection','')
     if collection not in {'subscriptions','messaging'} or section or platform: collection=''
     category=request.GET.get('category','')
@@ -96,12 +109,20 @@ def catalog(request,platform_override=None):
         filtered.sort(key=lambda f:(f.minimum is None, (f.minimum or 0)*(-1 if sort=='-price' else 1)))
     label=next((row[1] for row in TAXONOMY if row[0]==(section or platform)),
                {'subscriptions':'اشتراک‌ها و ابزارها','messaging':'خدمات پیام‌رسان‌ها'}.get(collection,'همه محصولات'))
-    page=Paginator(filtered,12).get_page(request.GET.get('page'))
+    paginator=Paginator(filtered,12)
+    if section_key and request.GET.get('page'):
+        from django.core.paginator import InvalidPage
+        try:page=paginator.page(request.GET['page'])
+        except InvalidPage: raise Http404 from None
+    else:page=paginator.get_page(request.GET.get('page'))
+    heading,description=SECTION_COPY.get(section_key,('فروشگاه دان‌پنل','انتخاب اشتراک و خدمات دیجیتال بر اساس دسته‌بندی؛ مقایسه پلن‌ها و خرید از دان‌پنل.'))
     return render(request,'catalog.html',{'page':page,'platform':platform,'q':q,'category':category,
         'section':section,'sort':sort,'categories':category_tiles(scope if collection else items),'section_label':label,
         'collection':collection,'collection_tab':collection or ('messaging' if (section or platform) in MESSAGING else 'subscriptions' if section or platform else ''),
         'catalog_categories':Category.objects.filter(pk__in=category_ids),
-        'title':label+' | فروشگاه دان‌پنل','description':'انتخاب اشتراک و خدمات دیجیتال بر اساس دسته‌بندی؛ مقایسه پلن‌ها و خرید از دان‌پنل.'})
+        'landing':section_key,'catalog_heading':heading,'landing_empty':bool(section_key and not scope),
+        'catalog_path':section_url(section) if section in SECTION_COPY else reverse('catalog'),
+        'title':(heading if section_key else label)+' | فروشگاه دان‌پنل','description':description})
 
 @require_http_methods(['GET','HEAD','POST'])
 @sensitive_post_parameters('target')
@@ -163,7 +184,7 @@ def product(request,pk,slug=None):
     response=render(request,'product.html',{'product':p,'family':family,
         'related':[f for f in items if family and f.section==family.section and f is not family][:4],
         'form':form,'pricing':pricing,'quote':quote,'display_total':quote.total if quote else None,'restored':restored,
-        'title':p.name,'description':p.seo_description or (p.name+'؛ مشاهده قیمت، شرایط سفارش و پشتیبانی در دان پنل.')[:160]})
+        'title':p.name+' | دان‌پنل','description':p.seo_description or (p.name+'؛ مشاهده قیمت، شرایط سفارش و پشتیبانی در دان پنل.')[:160]})
     if restored or request.method=='POST': response['Cache-Control']='private, no-store'
     return response
 
@@ -401,8 +422,10 @@ def robots(request): return HttpResponse('User-agent: *\nDisallow: /admin\nDisal
 def sitemap(request):
     from xml.sax.saxutils import escape
     from portal.templatetags.storefront import product_image,post_image
-    entries=[(path,None,None) for path in ['/','/ai/','/services/','/blog/','/contact/','/faq/','/about/','/terms/','/privacy/']]
-    entries += [(p.get_absolute_url(),None,product_image(p)) for family in families() for p in family.plans]
+    items=families()
+    entries=[(path,None,None) for path in ['/','/services/','/rates/','/blog/','/contact/','/faq/','/about/','/terms/','/privacy/']]
+    entries += [(section_url(key),None,None) for key in sorted({f.section for f in items} & SECTION_COPY.keys())]
+    entries += [(p.get_absolute_url(),None,product_image(p)) for family in items for p in family.plans]
     entries += [(post.get_absolute_url(),post.updated_at.date().isoformat(),post_image(post)) for post in Post.objects.filter(published=True)]
     body=[]
     for path,modified,image in entries:

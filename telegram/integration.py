@@ -9,6 +9,7 @@ from portal.services import bot_products,place_bot_order,change_order,verify_pay
 from portal.pricing import pricing_for
 from portal.models import Product
 from portal.exchange_rates import RateError, resolve
+from portal.order_notices import approval_buttons
 
 
 def product_pricing(product_id):

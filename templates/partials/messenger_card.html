@@ -1,5 +1,5 @@
 {% load storefront %}{% category_cover key as cover %}
-<a class="store-category-tile" href="{% url 'catalog' %}?section={{ key }}" aria-label="خدمات {{ label }}">
+<a class="store-category-tile" href="{% section_url key %}" aria-label="خدمات {{ label }}">
   <picture class="category-cover" aria-hidden="true">
     <source data-theme-light srcset="{{ cover.light }}" media="not all">
     <img src="{{ cover.image }}" alt="" width="480" height="320" loading="lazy" decoding="async">

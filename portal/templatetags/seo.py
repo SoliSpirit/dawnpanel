@@ -2,6 +2,8 @@ import json
 from django import template
 from django.utils.safestring import mark_safe
 from django.templatetags.static import static
+from django.utils.encoding import iri_to_uri
+from portal.catalog_pages import section_url
 from .storefront import product_image,post_image,storefront_description
 register=template.Library()
 @register.simple_tag(takes_context=True)
@@ -11,6 +13,10 @@ def structured_data(context):
     post=context.get('post');product=context.get('product')
     if request.path=='/contact/':
         data={'@context':'https://schema.org','@type':'ContactPage','name':'ارتباط با دان‌پنل','url':base+'/contact/','inLanguage':'fa-IR','description':context.get('description',''),'mainEntity':{'@type':'Organization','name':'دان‌پنل','url':base,'contactPoint':{'@type':'ContactPoint','contactType':'customer support','availableLanguage':'Persian','url':base+'/contact/'}}}
+    if context.get('landing'):
+        heading=context['catalog_heading']
+        data={'@context':'https://schema.org','@type':'CollectionPage','name':heading,
+              'description':context['description'],'url':page_seo(context)['canonical'],'inLanguage':'fa-IR'}
     if post:
         data={'@context':'https://schema.org','@type':'BlogPosting','headline':post.title,'description':post.summary,'datePublished':post.created_at.isoformat(),'dateModified':post.updated_at.isoformat(),'url':base+post.get_absolute_url(),'inLanguage':'fa-IR','author':{'@type':'Organization','name':'تحریریه دان پنل','url':base+'/about/'},'publisher':{'@type':'Organization','name':'دان پنل','url':base}}
     elif product:
@@ -35,7 +41,11 @@ def structured_data(context):
     payload=json.dumps(data,ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
     result='<script type="application/ld+json">'+payload+'</script>'
     trail=None
-    if product:trail=[('خانه','/'),('فروشگاه','/services/'),(product.name,product.get_absolute_url())]
+    if product:
+        trail=[('خانه','/'),('فروشگاه','/services/')]
+        if context.get('family'):trail.append((context['family'].label,section_url(context['family'].section)))
+        trail.append((product.name,product.get_absolute_url()))
+    elif context.get('landing'):trail=[('خانه','/'),('فروشگاه','/services/'),(context['catalog_heading'],section_url(context['landing']))]
     elif post:trail=[('خانه','/'),('مجله دان‌پنل','/blog/'),(post.title,post.get_absolute_url())]
     if trail:
         breadcrumb={'@context':'https://schema.org','@type':'BreadcrumbList','itemListElement':[{'@type':'ListItem','position':i,'name':name,'item':base+url} for i,(name,url) in enumerate(trail,1)]}
@@ -52,8 +62,8 @@ def page_seo(context):
     description=context.get('description') or 'فروشگاه اشتراک هوش مصنوعی و خدمات پیام‌رسان با حساب یکپارچه و پشتیبانی تیکتی در دان پنل.'
     image=product_image(product) if product else post_image(context['post']) if context.get('post') else static('artwork/hero-light.webp')
     private=context.get('private_page') or request.path.startswith(('/account/','/login/','/admin/','/manage/','/staff/','/payment/'))
-    filtered=any(request.GET.get(key) for key in ('q','platform','category','section','sort','collection'))
-    canonical='https://dawnpanel.ir'+(product.get_absolute_url() if product else request.path)
+    filtered=context.get('landing_empty') or any(request.GET.get(key) for key in ('q','platform','category','section','sort','collection'))
+    canonical='https://dawnpanel.ir'+iri_to_uri(product.get_absolute_url() if product else context.get('catalog_path',request.path))
     page=context.get('page')
     if page and page.number>1 and not filtered:
         canonical+='?page='+str(page.number)

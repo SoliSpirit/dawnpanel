@@ -136,7 +136,8 @@ def _charge_order(wallet, product, quantity, target, quoted_total, quoted_breakd
         product_id=product.pk,product_name=product.name,target_link=target,quantity=quantity,
         unit_price=ceil_div(pricing.pack,pricing.price_per),total_price=quote.total)
     OrderAmounts.objects.create(order=order,subtotal=quote.subtotal,tax_percent=quote.tax_percent,tax_amount=quote.tax_amount)
-    Ledger.objects.create(user=wallet,amount=-quote.total,type='withdraw',description=f'خرید {channel}: {order.tracking_code}')
+    event=OrderEvent.objects.create(order=order,channel=channel)
+    Ledger.objects.create(user=wallet,amount=-quote.total,type='withdraw',description=f'خرید {event.get_channel_display()}: {order.tracking_code}')
     return order
 
 @transaction.atomic
@@ -149,7 +150,7 @@ def place_order(account,product_id,quantity,target,key,quoted_total,quoted_break
     if checkout.order_id: return Order.objects.get(pk=checkout.order_id)
     p=public_products().select_for_update().filter(pk=product_id).first()
     if not p: raise BusinessError('محصول در دسترس نیست.')
-    order=_charge_order(wallet,p,quantity,target,quoted_total,quoted_breakdown,'سایت')
+    order=_charge_order(wallet,p,quantity,target,quoted_total,quoted_breakdown,'web')
     checkout.order_id=order.pk;checkout.save(update_fields=['order_id'])
     return order
 
@@ -230,7 +231,7 @@ def place_bot_order(uid,product_id,quantity,target,quoted_total,quoted_breakdown
     if wallet.is_banned or not wallet.is_verified: raise BusinessError('حساب مجاز به ثبت سفارش نیست.')
     p=bot_products().select_for_update().filter(pk=product_id).first()
     if not p: raise BusinessError('محصول در تلگرام در دسترس نیست.')
-    o=_charge_order(wallet,p,quantity,str(target or ''),quoted_total,quoted_breakdown,'ربات')
+    o=_charge_order(wallet,p,quantity,str(target or ''),quoted_total,quoted_breakdown,'telegram')
     return o.pk,o.tracking_code
 
 

@@ -12,6 +12,7 @@ if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 urlpatterns.insert(0,path('go/<slug:code>/',v.campaign,name='campaign'))
 urlpatterns.insert(0,path('rates/',v.exchange_board,name='exchange_rates'))
+urlpatterns.insert(0,path('services/category/<slug:section_key>/',v.catalog_section,name='catalog_section'))
 urlpatterns[:0]=[path('account/charge/crypto/',crypto_topups.crypto_request,name='crypto_request'),
                   path('staff/ticket/<int:pk>/settle-crypto/',crypto_topups.settle_view,name='settle_crypto')]
 from django.views.generic import TemplateView

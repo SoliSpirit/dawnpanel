@@ -65,7 +65,7 @@ class CategoryCoverTests(SimpleTestCase):
             'categories': [{'key': 'ai', 'name': 'هوش مصنوعی', 'count': 10}],
             'section': 'ai',
         })
-        self.assertIn('href="/services/?section=ai"', html)
+        self.assertIn('href="/ai/"', html)
         self.assertIn('aria-current="page"', html)
         self.assertIn('data-theme-light', html)
         self.assertIn('alt=""', html)

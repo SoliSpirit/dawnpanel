@@ -2,7 +2,7 @@
 <div class="store-category-grid">
   {% for item in categories %}
   {% category_cover item.key as cover %}
-  <a href="/services/?section={{ item.key }}" class="store-category-tile{% if section == item.key %} selected{% endif %}"{% if section == item.key %} aria-current="page"{% endif %}>
+  <a href="{% section_url item.key %}" class="store-category-tile{% if section == item.key %} selected{% endif %}"{% if section == item.key %} aria-current="page"{% endif %}>
     <picture class="category-cover" aria-hidden="true">
       {% if cover.light %}<source data-theme-light srcset="{{ cover.light }}" media="not all">{% endif %}
       <img src="{{ cover.image }}" alt="" width="480" height="270" loading="lazy" decoding="async">

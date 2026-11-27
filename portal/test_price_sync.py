@@ -322,7 +322,7 @@ class PriceSyncTests(TransactionTestCase):
         Product.objects.filter(pk=self.product.pk).update(platform='other')
         self.assertEqual(families()[0].section,'social')
         self.assertRedirects(self.client.get('/services/?section=telegram'),'/services/?collection=messaging')
-        self.assertEqual(self.client.get('/services/?section=social').context['page'].paginator.count,1)
+        self.assertEqual(self.client.get('/services/category/social/').context['page'].paginator.count,1)
 
     def test_unavailable_plan_not_in_group(self):
         plan=self.add_family_plan()

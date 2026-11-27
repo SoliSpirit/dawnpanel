@@ -307,6 +307,59 @@ class SecurityAndCommerceTests(TransactionTestCase):
         key=uuid.uuid4();a=self.buy(key);b=self.buy(key)
         self.assertEqual(a.pk,b.pk);self.assertEqual(Order.objects.count(),1)
         self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,9000)
+
+    @override_settings(BOT_CONFIG={'telegram':{'admin_ids':[42,'42',-100],'token':'test-value'}})
+    def test_purchase_alerts_are_committed_once_and_failures_do_not_repeat_or_reverse_orders(self):
+        from django.db import transaction
+        from .order_notices import dispatch,claim,prepare
+        with patch('portal.order_notices.requests.post') as api:
+            with self.assertRaises(RuntimeError),transaction.atomic():
+                self.buy(uuid.uuid4())
+                raise RuntimeError('rollback')
+            self.assertFalse(OrderEvent.objects.exists())
+            key=uuid.uuid4();web=self.buy(key);self.assertEqual(self.buy(key).pk,web.pk)
+            bot,tracking=place_bot_order(self.wallet.pk,self.product.pk,100,'private delivery data',1000)
+            api.assert_not_called()
+            self.assertEqual(list(OrderEvent.objects.order_by('pk').values_list('order_id','channel')),[(web.pk,'web'),(bot,'telegram')])
+            prepare(10)
+            first=claim()
+            self.assertEqual(first.event_id,web.pk)
+            api.return_value=Mock(status_code=429);api.return_value.json.return_value={'parameters':{'retry_after':90}}
+            self.assertEqual(dispatch(),{'sent':0,'retry':1,'stopped':0})
+            self.assertIsNone(claim())
+            # Worker restart: reclaim an expired lease, honour successful deliveries.
+            OrderDelivery.objects.all().update(due_at=timezone.now()-timedelta(seconds=2))
+            api.return_value=Mock(status_code=200);api.return_value.json.return_value={'ok':True,'result':{'chat':{'id':42},'message_id':7}}
+            self.assertEqual(dispatch(),{'sent':2,'retry':0,'stopped':0})
+            self.assertEqual(dispatch(),{'sent':0,'retry':0,'stopped':0})
+            self.assertEqual(api.call_count,3)
+            alerts=[c.kwargs['json'] for c in api.call_args_list[-2:]]
+            self.assertTrue(all(a['chat_id']==42 and a['disable_notification'] is False for a in alerts))
+            web_msg=next(a for a in alerts if web.tracking_code in a['text'])
+            bot_msg=next(a for a in alerts if tracking in a['text'])
+            self.assertIn('سایت',web_msg['text']);self.assertIn('ربات',bot_msg['text'])
+            self.assertIn('1,000 تومان',bot_msg['text']);self.assertNotIn('private delivery data',str(alerts))
+            self.assertIn(f'confirmorder_{bot}',str(bot_msg['reply_markup']));self.assertNotIn('callback_data',str(web_msg))
+        self.assertEqual(Ledger.objects.filter(type='withdraw').count(),2)
+        self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,8000)
+        path='/admin/order-alerts/'
+        self.assertEqual(self.client.get(path).status_code,404)
+        self._grant_list_permissions('view_currency')
+        self.assertEqual(self.client.get(path).status_code,404)
+        self._grant_list_permissions('view_order')
+        page=self.client.get(path)
+        self.assertIn('no-store',page['Cache-Control']);self.assertEqual([e['tracking'] for e in page.json()['orders']],[tracking,web.tracking_code])
+
+    def test_order_alert_never_sends_to_a_removed_or_unconfigured_recipient(self):
+        from .order_notices import prepare,dispatch,recipients
+        web=self.buy(uuid.uuid4())
+        with override_settings(BOT_CONFIG={'telegram':{'admin_ids':'777'}}):
+            self.assertEqual(recipients(),[]);prepare(5)
+        self.assertFalse(OrderEvent.objects.get(pk=web.pk).prepared)
+        with override_settings(BOT_CONFIG={'telegram':{'admin_ids':[777]}}):prepare(5)
+        with override_settings(BOT_CONFIG={'telegram':{'admin_ids':[888]}}),patch('portal.order_notices.requests.post') as api:
+            self.assertEqual(dispatch()['stopped'],1);api.assert_not_called()
+        self.assertEqual(OrderDelivery.objects.get().last_error,'recipient_removed')
     def test_insufficient_funds_no_order(self):
         self.wallet.balance=1;self.wallet.save()
         with self.assertRaises(BusinessError): self.buy()
@@ -605,6 +658,26 @@ class SecurityAndCommerceTests(TransactionTestCase):
         response=self.client.get(self.product.get_absolute_url())
         self.assertContains(response,'BreadcrumbList')
         self.assertContains(self.client.get('/robots.txt'),'Disallow: /admin')
+
+    def test_indexable_categories_agree_with_links_sitemap_and_private_filters(self):
+        from xml.etree import ElementTree
+        from django.urls import reverse
+        path=reverse('catalog_section',args=['rubika'])
+        self.assertRedirects(self.client.get('/services/?section=rubika'),path,status_code=301)
+        page=self.client.get(path)
+        self.assertContains(page,'index,follow,max-image-preview:large')
+        self.assertContains(page,'<link rel="canonical" href="https://dawnpanel.ir'+path+'">')
+        self.assertContains(page,'CollectionPage');self.assertContains(page,'خدمات کانال روبیکا')
+        self.assertContains(self.client.get(path,{'q':'جستجو'}),'noindex,follow')
+        self.assertEqual(self.client.get(path,{'page':'9999'}).status_code,404)
+        self.assertEqual(self.client.get('/services/category/telegram/').status_code,404)
+        self.assertContains(self.client.get('/services/category/eitaa/'),'noindex,follow')
+        urls=[n.text for n in ElementTree.fromstring(self.client.get('/sitemap.xml').content).findall('{*}url/{*}loc')]
+        self.assertIn('https://dawnpanel.ir'+path,urls);self.assertIn('https://dawnpanel.ir/rates/',urls)
+        self.assertNotIn('https://dawnpanel.ir/services/category/eitaa/',urls)
+        self.assertEqual(len(urls),len(set(urls)))
+        with override_settings(GOOGLE_SITE_VERIFICATION='operator-verification'):
+            self.assertContains(self.client.get('/'),'<meta name="google-site-verification" content="operator-verification">')
     def test_csrf_is_enforced(self):
         c=Client(enforce_csrf_checks=True);c.force_login(self.user)
         self.assertEqual(c.post('/account/checkout/',{'key':str(uuid.uuid4())}).status_code,403)

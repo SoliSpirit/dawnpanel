@@ -1,5 +1,26 @@
 # DawnPanel technical SEO and accessibility review — 2026-10-21
 
+## Category discovery and Search Console — 2026-11-27
+
+Previously, the Rubika/Eitaa/Bale links and most subscription categories were filtered
+URLs marked `noindex` and canonicalized to the whole shop. Public, populated sections
+now have HTML landing pages at `/services/category/<section>/` (AI keeps `/ai/`).
+They include a Persian heading and buying guidance, plan links, a self-canonical,
+CollectionPage data and breadcrumbs. A simple old `?section=…` link redirects
+permanently; search/sort/filter combinations and empty listings are not indexing
+targets. Pagination is self-canonical. The sitemap includes live categories, public
+plans, articles and `/rates/`. There is no change to eligibility for private or
+Telegram-only inventory.
+
+**Owner handoff:** add the URL-prefix property `https://dawnpanel.ir/` at
+<https://search.google.com/search-console/>. For HTML-tag verification, set only
+the `content` value Google issues as `DAWN_GOOGLE_SITE_VERIFICATION` in the web
+environment, restart the web service, then click **Verify**. With management access
+to the property, submit `sitemap.xml` under **Sitemaps**. Use URL Inspection for
+the homepage and key categories; check the Pages and Performance reports for
+indexing, queries and clicks. A valid sitemap or a successful live URL check is not
+confirmation that the site is already indexed or at a particular rank.
+
 Scope: server-rendered home, catalog/AI, product, article and legal pages; private account/admin exclusions. This review does not claim Search Console ownership, confirmed Google indexing, rankings or a guaranteed Lighthouse score.
 
 ## Changes

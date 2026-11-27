@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for new DawnPanel orders
+
+[Timer]
+OnBootSec=20s
+OnUnitInactiveSec=10s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
