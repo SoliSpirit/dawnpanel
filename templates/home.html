@@ -9,7 +9,14 @@
 <div class="discovery-benefits"><div>{% icon 'grid' %}<span><strong>انتخاب روشن</strong><small>محصول‌ها و پلن‌های مرتب</small></span></div><div>{% icon 'wallet' %}<span><strong>پرداخت در دان‌پنل</strong><small>با کیف پول حساب کاربری</small></span></div><div>{% icon 'clock' %}<span><strong>پیگیری یکپارچه</strong><small>وضعیت سفارش در پنل شما</small></span></div><div>{% icon 'chat' %}<span><strong>همراه انتخاب تو</strong><small>گفتگو و تیکت پشتیبانی</small></span></div></div>
 <section class="discovery-section"><div class="store-results-heading"><div><span class="eyebrow">از اینجا شروع کن</span><h2>دنیای ابزارهای تو</h2></div><a href="/services/">همه محصولات ←</a></div>{% include 'partials/category_tiles.html' %}</section>
 <section class="discovery-section"><div class="store-results-heading"><div><span class="eyebrow">یک محصول، چند انتخاب</span><h2>اشتراک‌ها و ابزارهای دیجیتال</h2></div><a href="/services/">مشاهده فروشگاه ←</a></div><div class="family-grid">{% for family in families %}{% include 'partials/family_card.html' %}{% endfor %}</div></section>
-<section class="discovery-callout"><div><span class="eyebrow">برای کانال و کسب‌وکار تو</span><h2>ارتباط‌های تازه، فرصت‌های بیشتر.</h2><p>برای مشاهدهٔ سرویس‌های ممبر، بازدید و خدمات کانال، از بخش مخصوص هر پیام‌رسان شروع کن.</p></div><div><a href="/services/?section=rubika">روبیکا ←</a><a href="/services/?section=eitaa">ایتا ←</a><a href="/services/?section=bale">بله ←</a></div></section>
+<section class="discovery-callout" id="messenger-services" aria-labelledby="messenger-heading">
+  <div><span class="eyebrow">برای کانال و کسب‌وکار تو</span><h2 id="messenger-heading">ارتباط‌های تازه، فرصت‌های بیشتر.</h2><p>برای مشاهدهٔ سرویس‌های ممبر، بازدید و خدمات کانال، از بخش مخصوص هر پیام‌رسان شروع کن.</p></div>
+  <nav class="messenger-links" aria-label="خدمات پیام‌رسان‌ها">
+    {% include 'partials/messenger_card.html' with key='rubika' label='روبیکا' only %}
+    {% include 'partials/messenger_card.html' with key='eitaa' label='ایتا' only %}
+    {% include 'partials/messenger_card.html' with key='bale' label='بله' only %}
+  </nav>
+</section>
 {% if posts %}<section class="discovery-section"><div class="store-results-heading"><h2>مجله دان‌پنل</h2><a href="/blog/">همه نوشته‌ها ←</a></div><div class="cards three">{% for post in posts %}{% include 'partials/post_card.html' %}{% endfor %}</div></section>{% endif %}
 <section class="discovery-section home-questions"><div><span class="eyebrow">پیش از خرید بدان</span><h2>سوالی در ذهنته؟</h2><a class="button" href="{% url 'faq' %}">همهٔ پرسش‌های متداول ←</a></div>{% include 'partials/faq_delivery.html' %}</section>
 </div>
