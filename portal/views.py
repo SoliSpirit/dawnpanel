@@ -23,6 +23,24 @@ from .store_catalog import families, category_tiles, filter_families, TAXONOMY, 
 
 ORDER_DRAFT_AGE = timedelta(minutes=20)
 
+@never_cache
+@require_http_methods(['GET','HEAD'])
+def exchange_board(request):
+    from .exchange_rates import SOURCES, currency_rates, RateError, source_link
+    rows=[]
+    now=timezone.now()
+    for currency in Currency.objects.filter(is_active=True).exclude(code='TOMAN').select_related('fx').order_by('code'):
+        policy=getattr(currency,'fx',None)
+        src=policy.source if policy else 'manual'
+        try:rates=currency_rates(currency,now=now)
+        except RateError:rates=None
+        rows.append({'code':currency.code,'name':currency.name,'rates':rates,
+                     'source':SOURCES[src][0] if src in SOURCES else 'نرخ دستی فروشگاه',
+                     'url':source_link(src,currency.code),
+                     'at':policy.observed_at if src in SOURCES else currency.updated_at})
+    return render(request,'exchange_rates.html',{'rows':rows,'title':'نرخ خرید و فروش ارز | دان‌پنل',
+        'description':'نرخ خرید از مشتری و نرخ فروش به مشتری به تومان، با مرجع و زمان ثبت نرخ.'})
+
 
 def local_return_path(value):
     # Only local navigation; never use an arbitrary URL as a login redirect.

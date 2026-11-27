@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING, localcontext
 
 from .models import Currency
+from .exchange_rates import currency_rates, RateError
 
 MAX_QUANTITY = 100_000_000
 MAX_TOTAL = 100_000_000_000
@@ -79,10 +80,13 @@ def pricing_for(product):
         ctx.prec = 80
         amount = product.price_amount if product.price_amount is not None else Decimal(product.price)
         if product.price_currency != 'TOMAN':
-            rate = Currency.objects.filter(code=product.price_currency, is_active=True).values_list('rate', flat=True).first()
-            if not rate or rate <= 0:
+            currency = Currency.objects.select_related('fx').filter(code=product.price_currency, is_active=True).first()
+            if not currency:
                 raise BusinessError('نرخ ارز در دسترس نیست.')
-            amount *= rate
+            try:
+                amount *= currency_rates(currency).sell
+            except RateError as error:
+                raise BusinessError(str(error)) from None
         pack = int((amount * (100 + max(Decimal(0), product.product_profit_percent)) / 100
                     ).to_integral_value(rounding=ROUND_CEILING))
     bps = int(product.tax_percent * 100)

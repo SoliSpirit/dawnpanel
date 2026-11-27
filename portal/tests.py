@@ -725,6 +725,84 @@ class SecurityAndCommerceTests(TransactionTestCase):
     def test_currency_rate_missing_fails_closed(self):
         self.product.price_currency='MISSING';self.product.price_amount=Decimal('1')
         with self.assertRaises(BusinessError): price_for(self.product,100)
+
+    def test_exchange_feed_updates_quote_not_product_or_wallet_and_requotes_both_channels(self):
+        from .exchange_rates import refresh_rates
+        from .test_exchange_rates import book
+        now=timezone.now()
+        currency=Currency.objects.create(code='USDT',name='تتر',rate=85000,type='crypto')
+        old=Currency.objects.create(code='STAR',name='Stars',rate=1200,type='telegram',is_active=False)
+        self.product.price_currency='USDT';self.product.price_amount=Decimal('0.01')
+        self.product.price_per=1;self.product.product_profit_percent=10;self.product.save()
+        ProductTax.objects.create(product=self.product,percent=10)
+        with patch('portal.exchange_rates.fetch_source',return_value={'USDTIRT':book(now)}):
+            self.assertEqual(refresh_rates(bootstrap=True),{'USDT':''})
+        self.assertFalse(CurrencyPricing.objects.filter(currency=old).exists())
+        self.assertEqual(Currency.objects.get(pk=currency.pk).rate,85000)
+        self.assertEqual(Product.objects.get(pk=self.product.pk).price,1000)
+        # .01 USDT × 285000 sale rate × 1.10 product markup = 3135; tax on the order.
+        quote=pricing_for(self.product).quote(10)
+        self.assertEqual((quote.subtotal,quote.tax_amount,quote.total),(31350,3135,34485))
+        board=self.client.get('/rates/')
+        self.assertContains(board,'۲۷۰٬۰۰۰');self.assertContains(board,'۲۸۵٬۰۰۰');self.assertNotContains(board,'Stars')
+        self.assertIn('no-store',board['Cache-Control'])
+        self.wallet.balance=100000;self.wallet.save()
+        target='test'
+        with patch('portal.exchange_rates.fetch_source',return_value={'USDTIRT':book(now+timedelta(seconds=1),'2900000','2900000')}):
+            self.assertEqual(refresh_rates(),{'USDT':''})
+        for attempt in (lambda:place_order(self.account,self.product.pk,10,target,uuid.uuid4(),quote.total,quote.breakdown),
+                        lambda:place_bot_order(self.wallet.pk,self.product.pk,10,target,quote.total,quote.breakdown)):
+            with self.assertRaises(BusinessError):attempt()
+        self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,100000);self.assertFalse(Ledger.objects.exists())
+        fresh=pricing_for(self.product).quote(10)
+        self.assertEqual(fresh.total,35695)
+        order=place_order(self.account,self.product.pk,10,target,uuid.uuid4(),fresh.total,fresh.breakdown)
+        self.assertEqual(order.total_price,35695)
+        change_order(None,order.pk,'cancelled','test')
+        self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,100000)
+
+    def test_market_failure_retains_real_timestamp_and_never_revives_an_old_price(self):
+        from .exchange_rates import refresh_rates,currency_rates,RateError
+        from .test_exchange_rates import book
+        currency=Currency.objects.create(code='USDT',name='تتر',rate=85000)
+        at=timezone.now()-timedelta(minutes=1)
+        with patch('portal.exchange_rates.fetch_source',return_value={'USDTIRT':book(at)}):
+            refresh_rates(bootstrap=True)
+        before=CurrencyPricing.objects.get(currency=currency)
+        for data in ({},{'USDTIRT':book(at-timedelta(seconds=10),'2000000','2000000')},
+                     {'USDTIRT':book(at,'2000000','2000000')}):
+            with patch('portal.exchange_rates.fetch_source',return_value=data):
+                self.assertTrue(refresh_rates()['USDT'])
+            policy=CurrencyPricing.objects.get(currency=currency)
+            self.assertEqual((policy.market_bid,policy.observed_at),(before.market_bid,before.observed_at))
+            self.assertTrue(policy.last_error)
+        with self.assertRaises(RateError):
+            currency_rates(Currency.objects.get(pk=currency.pk),now=at+timedelta(minutes=12))
+        CurrencyPricing.objects.filter(currency=currency).update(source='manual',sell_extra=100,buy_less=200)
+        with patch('portal.exchange_rates.fetch_source') as fetcher:
+            self.assertEqual(refresh_rates(bootstrap=True),{})
+            fetcher.assert_not_called()
+        self.assertEqual(currency_rates(Currency.objects.get(pk=currency.pk)).sell,85100)
+
+    def test_currency_admin_sets_persian_margins_and_preserves_other_rows(self):
+        from .exchange_rates import currency_rates,Rates
+        cur=Currency.objects.create(name='دلار',code='USD',type='fiat',rate=280000)
+        other=Currency.objects.create(name='تتر',code='USDT',rate=270000)
+        self._grant_list_permissions('view_currency')
+        url=f'/admin/portal/currency/{cur.pk}/change/'
+        data={'name':cur.name,'code':'USD','type':'fiat','symbol':'$','icon':'','rate':280000,'is_active':'on',
+              'fx_source':'manual','spread_mode':'fixed','sell_extra':'۵٬۰۰۰','buy_less':'۱۰٬۰۰۰'}
+        self.assertEqual(self.client.post(url,data).status_code,404)
+        self._grant_list_permissions('change_currency')
+        self.assertEqual(self.client.post(url,data).status_code,302)
+        self.assertEqual(currency_rates(Currency.objects.get(pk=cur.pk)),Rates(270000,285000))
+        self.assertContains(self.client.get('/admin/portal/currency/'),'۲۷۰٬۰۰۰')
+        self.assertEqual(currency_rates(other),Rates(270000,270000))
+        for change in ({'buy_less':'300000'},{'spread_mode':'percent','buy_less':'100'},
+                       {'fx_source':'nobitex'},{'sell_extra':'-1'}):
+            result=self.client.post(url,{**data,**change})
+            self.assertTrue(result.context['adminform'].form.errors)
+        self.assertEqual(currency_rates(Currency.objects.get(pk=cur.pk)),Rates(270000,285000))
     def test_forged_admin_ip_header_ignored(self):
         with patch('portal.views.request_otp',side_effect=BusinessError('mock')) as otp:
             self.client.logout();self.client.post('/login/',{'phone':'09120000001'},REMOTE_ADDR='203.0.113.1',HTTP_X_REAL_IP='8.8.8.8')

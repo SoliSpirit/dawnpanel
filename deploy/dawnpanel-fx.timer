@@ -1,0 +1,11 @@
+[Unit]
+Description=Check DawnPanel currency markets every two minutes
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=2min
+AccuracySec=5s
+Unit=dawnpanel-fx.service
+
+[Install]
+WantedBy=timers.target

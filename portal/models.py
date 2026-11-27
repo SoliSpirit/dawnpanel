@@ -210,6 +210,27 @@ class Currency(models.Model):
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: managed=False;db_table='currencies';verbose_name='نرخ ارز';verbose_name_plural='نرخ‌های ارز'
     def __str__(self): return self.name
+
+
+class CurrencyPricing(models.Model):
+    """Merchant policy and last verified book. The legacy rate stays the manual base."""
+    SOURCES=[('manual','نرخ پایهٔ دستی'),('nobitex','نوبیتکس · بازار رمزارز'),('nerkhara','نرخ‌آرا · بازار آزاد ارز')]
+    SPREADS=[('fixed','مبلغ ثابت به تومان'),('percent','درصد از نرخ مرجع')]
+    currency=models.OneToOneField(Currency,primary_key=True,on_delete=models.CASCADE,
+                                  db_constraint=False,related_name='fx')
+    source=models.CharField(max_length=12,choices=SOURCES,default='manual')
+    spread_mode=models.CharField(max_length=8,choices=SPREADS,default='fixed')
+    sell_extra=models.DecimalField(max_digits=16,decimal_places=4,default=0,validators=[MinValueValidator(0)])
+    buy_less=models.DecimalField(max_digits=16,decimal_places=4,default=0,validators=[MinValueValidator(0)])
+    # Both sides are in TOMAN for exactly one unit. An observation belongs to
+    # one specific source/symbol even when an operator changes the currency code.
+    quote_key=models.CharField(max_length=40,blank=True,default='',editable=False)
+    market_bid=models.DecimalField(max_digits=25,decimal_places=8,null=True,editable=False)
+    market_ask=models.DecimalField(max_digits=25,decimal_places=8,null=True,editable=False)
+    observed_at=models.DateTimeField(null=True,editable=False)
+    checked_at=models.DateTimeField(null=True,editable=False)
+    last_error=models.CharField(max_length=200,blank=True,default='',editable=False)
+
 class GiftCode(models.Model):
     code=models.CharField('کد',max_length=50,unique=True)
     amount=models.PositiveBigIntegerField('مبلغ هدیه',validators=[MinValueValidator(1)])

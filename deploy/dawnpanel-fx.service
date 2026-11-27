@@ -1,0 +1,18 @@
+[Unit]
+Description=Refresh DawnPanel currency quotes
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dawnpanel
+Group=dawnpanel
+WorkingDirectory=/opt/dawnpanel/current
+EnvironmentFile=/etc/dawnpanel/web.env
+ExecStart=/opt/dawnpanel/venv/bin/python manage.py sync_exchange_rates
+TimeoutStartSec=75
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

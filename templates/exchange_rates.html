@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% load ui static %}
+{% block storefront_assets %}<link rel="stylesheet" href="{% static 'exchange-rates.css' %}">{% endblock %}
+{% block content %}
+<section class="retail-wrap fx-board">
+  <header><span class="eyebrow">{% icon 'coins' %} دان‌پنل</span><h1>نرخ خرید و فروش ارز</h1>
+    <p>مبلغ‌ها به تومان برای <strong>یک واحد ارز</strong> هستند. قیمت محصولات ارزی با نرخ «فروش به شما» محاسبه می‌شود.</p></header>
+  <div class="fx-grid">{% for row in rows %}<article>
+    <h2>{{ row.name }} <bdi>{{ row.code }}</bdi></h2>
+    {% if row.rates %}<dl>
+      <div><dt>خرید از شما</dt><dd>{{ row.rates.buy|fa_number }} <small>تومان</small></dd></div>
+      <div><dt>فروش به شما</dt><dd>{{ row.rates.sell|fa_number }} <small>تومان</small></dd></div>
+    </dl>{% else %}<p>در انتظار نرخ معتبر</p>{% endif %}
+    <footer><span>مرجع: {% if row.url %}<a href="{{ row.url }}" target="_blank" rel="noopener noreferrer">{{ row.source }}</a>{% else %}{{ row.source }}{% endif %}</span>
+    {% if row.at %}<span>زمان نرخ: <time datetime="{{ row.at|date:'c' }}">{{ row.at|date:'j F، H:i' }}</time></span>{% endif %}</footer>
+  </article>{% empty %}<p>هنوز ارزی برای نمایش فعال نشده است.</p>{% endfor %}</div>
+  <p><a href="{% url 'contact' %}">هماهنگی با پشتیبانی</a></p>
+</section>
+{% endblock %}

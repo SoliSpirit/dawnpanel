@@ -37,6 +37,28 @@ class BotProductPhotoTests(SimpleTestCase):
 
 
 class BotInvoiceTests(SimpleTestCase):
+    def test_legacy_bot_rates_use_selling_for_products_buying_for_deposits(self):
+        import html
+        from decimal import Decimal,InvalidOperation
+        from django.utils import timezone
+        from portal.exchange_rates import resolve,RateError
+        tree=ast.parse((settings.BASE_DIR/'telegram/integration.py').read_text(encoding='utf-8'))
+        adapter=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='bot_currency_record')
+        ns={'resolve':resolve,'RateError':RateError,'Decimal':Decimal,'InvalidOperation':InvalidOperation,'html':html,'format_amount':str}
+        exec(compile(ast.Module(body=[adapter],type_ignores=[]),'<bot-currency>', 'exec'),ns)
+        row=ns['bot_currency_record']({'code':'USDT','type':'crypto','name':'تتر','rate':85000,'observed_at':timezone.now().replace(tzinfo=None),
+            'fx_source':'nobitex','quote_key':'nobitex:USDT','market_bid':Decimal(280000),'market_ask':Decimal(280000),
+            'sell_extra':5000,'buy_less':10000,'spread_mode':'fixed'})
+        self.assertEqual((row['rate'],row['buy_rate']),(285000,270000))
+        tree=ast.parse((settings.BASE_DIR/'telegram/dawnpanel.py').read_text(encoding='utf-8'))
+        funcs=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in ('currency_quote_line','get_star_rate_toman')]
+        exec(compile(ast.Module(body=funcs,type_ignores=[]),'<bot-currency-presentation>','exec'),ns)
+        message=ns['currency_quote_line'](row)
+        self.assertIn('خرید از شما: 270000',message)
+        self.assertIn('فروش به شما: 285000',message)
+        ns['get_currency']=lambda code: {'code':'STAR','rate':3100,'buy_rate':2800}
+        self.assertEqual(ns['get_star_rate_toman'](),2800)
+
     def test_final_review_discloses_order_tax_and_pins_the_breakdown(self):
         import html
         from .pricing import Pricing

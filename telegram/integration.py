@@ -8,6 +8,7 @@ from django.db import close_old_connections
 from portal.services import bot_products,place_bot_order,change_order,verify_payment,BusinessError
 from portal.pricing import pricing_for
 from portal.models import Product
+from portal.exchange_rates import RateError, resolve
 
 
 def product_pricing(product_id):
@@ -20,6 +21,29 @@ def product_pricing(product_id):
         return pricing
     finally:
         close_old_connections()
+
+
+def bot_currency_record(row):
+    """Normalize one legacy connector result, without using ORM on the bot event loop."""
+    from datetime import timezone
+    from types import SimpleNamespace
+    from portal.exchange_rates import source_link
+    at=row.get('observed_at')
+    if at is not None and at.tzinfo is None:
+        at=at.replace(tzinfo=timezone.utc)  # Django's MySQL DATETIME in UTC
+    policy=SimpleNamespace(source=row['fx_source'],spread_mode=row['spread_mode'],sell_extra=row['sell_extra'],
+        buy_less=row['buy_less'],quote_key=row['quote_key'],market_bid=row['market_bid'],market_ask=row['market_ask'],
+        observed_at=at) if row.get('fx_source') else None
+    row['observed_at']=at
+    row['fx_source']=policy.source if policy else 'manual'
+    row['source_url']=source_link(row['fx_source'],row['code'])
+    row['manual_rate']=row['rate']
+    try:
+        rates=resolve(row['code'],row['type'],row['manual_rate'],policy)
+        row['rate'],row['buy_rate']=rates.sell,rates.buy
+    except RateError:
+        row['rate']=row['buy_rate']=None
+    return row
 
 
 def product_photo(product_id):

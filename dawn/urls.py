@@ -10,6 +10,7 @@ from django.conf.urls.static import static
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 urlpatterns.insert(0,path('go/<slug:code>/',v.campaign,name='campaign'))
+urlpatterns.insert(0,path('rates/',v.exchange_board,name='exchange_rates'))
 from django.views.generic import TemplateView
 urlpatterns.insert(0,path('product-cover/<int:pk>.jpg',v.product_cover,name='product_cover'))
 urlpatterns[:0]=[path('services/<int:pk>/<str:slug>/',v.product,name='product_named'),path('faq/',TemplateView.as_view(template_name='faq.html',extra_context={'title':'سوالات متداول دان‌پنل','description':'راهنمای ثبت سفارش، انتخاب اشتراک، پیگیری خرید و شارژ کیف پول دان‌پنل.'}),name='faq')]

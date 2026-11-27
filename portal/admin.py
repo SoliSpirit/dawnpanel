@@ -7,6 +7,7 @@ from django.urls import reverse
 from .services import BusinessError
 from .admin_states import StateListMixin
 from .admin_pricing import PriceToolsAdminMixin
+from .admin_fx import CurrencyRatesAdminMixin
 
 @admin.register(Campaign)
 class CampaignAdmin(StateListMixin,admin.ModelAdmin):
@@ -201,9 +202,8 @@ class TicketAdmin(AuditedAdmin):
     def has_delete_permission(self,request,obj=None): return False
 
 @admin.register(Currency)
-class CurrencyAdmin(StateListMixin,AuditedAdmin):
+class CurrencyAdmin(CurrencyRatesAdminMixin,StateListMixin,AuditedAdmin):
     state_fields=('is_active',)
-    list_display=['code','name','rate','is_active','updated_at'];fields=['code','name','symbol','rate','type','icon','is_active']
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(GiftCode)
 class GiftAdmin(StateListMixin,AuditedAdmin):

@@ -283,6 +283,8 @@ def format_product_admin_price_lines(product):
         return (f"💰 قیمت پایه: {format_amount(amount)} تومان\n"
                 f"📈 سود محصول: {format_profit_percent(get_product_profit_percent(product))}%\n"
                 f"💵 قیمت فروش پیش از مالیات: {format_amount(apply_product_profit(amount, get_product_profit_percent(product)))} تومان\n")
+    if rate <= 0:
+        return f"💱 {html.escape(code)}: نرخ فروش معتبر در دسترس نیست.\n"
     toman = calculate_product_base_toman(product)
     profit = get_product_profit_percent(product)
     sold = apply_product_profit(toman, profit)
@@ -337,14 +339,11 @@ def get_product_currency(product):
 
     currency = get_currency(code) if code != 'TOMAN' else {'code':'TOMAN','name':'تومان','symbol':'تومان','rate':1,'icon':'🇮🇷'}
     if not currency:
-        code = 'TOMAN'
-        currency = {'code':'TOMAN','name':'تومان','symbol':'تومان','rate':1,'icon':'🇮🇷'}
+        currency = {'code':code,'name':code,'symbol':code,'rate':None}
     try:
-        rate = Decimal(str(currency.get('rate') or 1))
-        if rate <= 0:
-            rate = Decimal('1')
+        rate = Decimal(str(currency.get('rate') or 0))
     except Exception:
-        rate = Decimal('1')
+        rate = Decimal('0')
     try:
         amount = Decimal(str(amount))
     except Exception:
@@ -2083,19 +2082,30 @@ def get_order_by_tracking(tracking_code):
         try: cursor.close(); connection.close()
         except: pass
 
-def get_currency(code):
+def _active_currency_rows(code=None):
     connection = get_db_connection()
-    if not connection: return None
+    if not connection: return []
+    cursor=None
     try:
         cursor = connection.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM currencies WHERE code = %s AND is_active = 1", (code,))
-        result = cursor.fetchone()
-        cursor.close()
-        connection.close()
-        return result
+        sql = """SELECT c.*, f.source AS fx_source, f.spread_mode, f.sell_extra, f.buy_less,
+                        f.market_ask, f.market_bid, f.quote_key, f.observed_at
+                 FROM currencies c LEFT JOIN portal_currencypricing f ON f.currency_id=c.id
+                 WHERE c.is_active=1"""
+        if code is not None:
+            cursor.execute(sql+" AND c.code=%s",(code,))
+        else:
+            cursor.execute(sql+" ORDER BY c.type,c.code")
+        return [integration.bot_currency_record(row) for row in cursor.fetchall()]
     except Error as e:
-        print(f"❌ خطا در get_currency: {e}")
-        return None
+        logger.error("Currency rates unavailable: %s",type(e).__name__)
+        return []
+    finally:
+        if cursor:cursor.close()
+        connection.close()
+
+def get_currency(code):
+    return next(iter(_active_currency_rows(code)),None)
 
 def get_currency_rate(code):
     currency = get_currency(code)
@@ -2104,7 +2114,7 @@ def get_currency_rate(code):
     return 0
 
 def get_star_rate_toman():
-    """نرخ دقیق هر STAR به تومان را فقط از جدول currencies می‌خواند.
+    """نرخ خرید هر STAR از مشتری، به تومان.
 
     هیچ نرخ پیش‌فرض/fallback استفاده نمی‌شود تا در صورت حذف یا خراب بودن نرخ،
     حساب کاربر اشتباه شارژ نشود. چون موجودی حساب به تومانِ صحیح نگهداری می‌شود،
@@ -2114,7 +2124,7 @@ def get_star_rate_toman():
     if not currency:
         return None
     try:
-        rate = Decimal(str(currency.get('rate')))
+        rate = Decimal(str(currency.get('buy_rate')))
     except (InvalidOperation, TypeError, ValueError):
         return None
     if rate <= 0 or rate != rate.to_integral_value():
@@ -2122,19 +2132,14 @@ def get_star_rate_toman():
     return rate
 
 def get_all_currencies():
-    connection = get_db_connection()
-    if not connection: return []
-    try:
-        cursor = connection.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM currencies WHERE is_active = 1 ORDER BY type, code")
-        result = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        return result
-    except Error as e: return []
-    finally:
-        try: cursor.close(); connection.close()
-        except: pass
+    return _active_currency_rows()
+
+def currency_quote_line(c):
+    label=html.escape(str(c.get('name') or c['code']))
+    if not c.get('rate') or not c.get('buy_rate'):
+        return f'• <b>{label}</b>: نرخ معتبر در دسترس نیست.'
+    return (f"• <b>{label}</b> ({html.escape(c['code'])})\n"
+            f"خرید از شما: {format_amount(c['buy_rate'])} · فروش به شما: {format_amount(c['rate'])} تومان")
 
 def get_gift_code(code):
     connection = get_db_connection()
@@ -3650,9 +3655,9 @@ def get_admin_currencies_keyboard():
     for c in currencies:
         code = c.get('code')
         name = c.get('name') or code
-        rate = int(c.get('rate') or 0)
+        label = f"فروش {format_amount(c['rate'])}" if c.get('rate') else 'نرخ در دسترس نیست'
         status = "✅" if c.get('is_active') else "⛔️"
-        keyboard.append([InlineKeyboardButton(f"{status} {code} — {format_amount(rate)} تومان", callback_data=f"acur_edit_{code}"),
+        keyboard.append([InlineKeyboardButton(f"{status} {code} — {label}", callback_data=f"acur_edit_{code}"),
                          InlineKeyboardButton("🗑 حذف", callback_data=f"acur_delete_{code}")])
     keyboard.append([InlineKeyboardButton("➕ افزودن ارز", callback_data="acur_add")])
     keyboard.append([InlineKeyboardButton("🔙 تنظیمات", callback_data="apanel_settings")])
@@ -3803,10 +3808,10 @@ def format_admin_product_details(product):
         f"📝 <b>توضیحات:</b> {html.escape(str(product[3] or 'ندارد'))}\n\n"
         f"💱 <b>ارز قیمت:</b> {html.escape(str(currency_symbol))} {html.escape(str(currency_code))} — {html.escape(str(currency_name))}\n"
         f"💵 <b>مبلغ اصلی:</b> {html.escape(format_amount(amount))} {html.escape(str(currency_symbol))}\n"
-        f"📈 <b>نرخ ارز:</b> {html.escape(format_amount(rate))} تومان\n"
-        f"💰 <b>معادل قیمت پایه:</b> {format_amount(calculate_product_base_toman(product))} تومان\n"
+        f"📈 <b>نرخ فروش ارز:</b> {format_amount(rate)+' تومان' if rate else 'در دسترس نیست'}\n"
+        f"💰 <b>معادل قیمت پایه:</b> {format_amount(amount*rate)+' تومان' if rate else 'در دسترس نیست'}\n"
         f"📈 <b>سود اختصاصی محصول:</b> {format_profit_percent(get_product_profit_percent(product))}%\n"
-        f"💸 <b>قیمت فروش پیش از مالیات:</b> {format_amount(apply_product_profit(calculate_product_base_toman(product), get_product_profit_percent(product)))} تومان\n\n"
+        f"💸 <b>قیمت فروش پیش از مالیات:</b> {format_amount(apply_product_profit(amount*rate, get_product_profit_percent(product)))+' تومان' if rate else 'در دسترس نیست'}\n\n"
         f"🔢 <b>قیمت به ازای:</b> {product[5]} عدد\n"
         f"⬇️ <b>حداقل سفارش:</b> {product[6]}\n"
         f"⬆️ <b>حداکثر سفارش:</b> {max_text}\n\n"
@@ -4123,11 +4128,7 @@ async def cancel_operation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             currencies = get_all_currencies() or []
             lines = ["💱 <b>مدیریت ارزها</b>", ""]
             for c in currencies:
-                lines.append(
-                    f"{c.get('icon') or '💱'} <b>{html.escape(str(c.get('code') or ''))}</b> — "
-                    f"{html.escape(str(c.get('name') or c.get('code') or ''))}\n"
-                    f"💰 نرخ: {format_amount(int(c.get('rate') or 0))} تومان"
-                )
+                lines.append(currency_quote_line(c))
             try:
                 await context.bot.edit_message_text(
                     chat_id=chat_id, message_id=message_id,
@@ -5794,9 +5795,10 @@ def create_charge_handler():
 
             currencies = get_all_currencies()
             crypto_list = [c for c in currencies if c['type'] == 'crypto']
-            message = f"💰 <b>پرداخت با ارز دیجیتال</b>\n\n🔸 جهت شارژ به {SUPPORT_USERNAME} پیام دهید.\n\n💎 ارزهای قابل قبول:\n"
+            message = f"💰 <b>پرداخت با ارز دیجیتال</b>\n\n🔸 برای شارژ به {SUPPORT_USERNAME} پیام دهید. مبنای شارژ، «خرید از شما» برای هر واحد است.\n\n"
             for c in crypto_list:
-                message += f"{c['icon'] or '•'} {c['name']}: {format_amount(c['rate'])} تومان\n"
+                message += currency_quote_line(c)+"\n"
+            message += '\n<a href="https://dawnpanel.ir/rates/">تابلوی نرخ‌ها، مرجع و زمان آخرین نرخ</a>'
             await update.message.reply_text(message, reply_markup=get_main_menu(), parse_mode="HTML")
             return ConversationHandler.END
 
@@ -7585,7 +7587,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         currencies = get_all_currencies()
         lines = ["💱 <b>مدیریت ارزها</b>", ""]
         for c in currencies:
-            lines.append(f"{c.get('icon') or '💱'} <b>{c.get('code')}</b> — {c.get('name')}\n💰 نرخ: {format_amount(int(c.get('rate') or 0))} تومان")
+            lines.append(currency_quote_line(c))
         if not currencies:
             lines.append("هیچ ارزی ثبت نشده است.")
         await query.edit_message_text("\n".join(lines), reply_markup=get_admin_currencies_keyboard(), parse_mode="HTML")
@@ -7597,14 +7599,17 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not currency:
             await query.answer("ارز پیدا نشد.", show_alert=True)
             return
+        if currency['fx_source']!='manual':
+            await query.answer('نرخ از مرجع خودکار خوانده می‌شود. حاشیهٔ خرید و فروش را در پنل سایت تغییر دهید.',show_alert=True)
+            return
         context.user_data['currency_code'] = code
         context.user_data['admin_state'] = 'currency_edit_rate'
         context.user_data['admin_input_message_id'] = query.message.message_id
         context.user_data['admin_input_chat_id'] = query.message.chat_id
         await query.edit_message_text(
             f"💱 <b>{code} — {html.escape(str(currency.get('name') or code))}</b>\n\n"
-            f"نرخ فعلی: <b>{format_amount(int(currency.get('rate') or 0))}</b> تومان\n\n"
-            "نرخ جدید را به تومان وارد کن.",
+            f"نرخ پایهٔ دستی: <b>{format_amount(currency['manual_rate'])}</b> تومان\n\n"
+            "نرخ پایهٔ جدید را به تومان وارد کن. حاشیهٔ خرید و فروش جداگانه اعمال می‌شود.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت و لغو", callback_data=f"acur_rate_back_{code}")]]),
             parse_mode="HTML")
         return ADMIN_CURRENCY_ADD_RATE
@@ -7616,7 +7621,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         currencies = get_all_currencies() or []
         lines=["💱 <b>مدیریت ارزها</b>", ""]
         for c in currencies:
-            lines.append(f"{c.get('icon') or '💱'} <b>{html.escape(str(c.get('code') or ''))}</b> — {html.escape(str(c.get('name') or c.get('code') or ''))}\n💰 نرخ: {format_amount(int(c.get('rate') or 0))} تومان")
+            lines.append(currency_quote_line(c))
         await query.edit_message_text("\n".join(lines), reply_markup=get_admin_currencies_keyboard(), parse_mode="HTML")
         await query.answer("↩️ عملیات لغو شد.")
         return
@@ -7644,7 +7649,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         currencies = get_all_currencies()
         lines=["💱 <b>مدیریت ارزها</b>", ""]
         for c in currencies:
-            lines.append(f"{c.get('icon') or '💱'} <b>{c.get('code')}</b> — {c.get('name')}\n💰 نرخ: {format_amount(int(c.get('rate') or 0))} تومان")
+            lines.append(currency_quote_line(c))
         await query.edit_message_text("\n".join(lines), reply_markup=get_admin_currencies_keyboard(), parse_mode="HTML")
         return
 
@@ -9468,7 +9473,10 @@ async def handle_admin_add_product_price(update: Update, context: ContextTypes.D
             raise ValueError
         context.user_data['new_product_price_amount'] = amount
         currency = get_currency(code) if code != 'TOMAN' else {'rate':1,'symbol':'تومان','name':'تومان'}
-        rate = Decimal(str(currency.get('rate') or 1))
+        if not currency or not currency.get('rate'):
+            await update.message.reply_text('نرخ معتبر این ارز در دسترس نیست؛ نرخ‌ها را در پنل بررسی کنید.')
+            return ADMIN_ADD_PRODUCT_PRICE
+        rate = Decimal(str(currency['rate']))
         price = int((amount * rate).to_integral_value(rounding=ROUND_CEILING))
         context.user_data['new_product_price'] = price
     except Exception:
@@ -9768,7 +9776,10 @@ async def handle_admin_edit_product_value(update: Update, context: ContextTypes.
         product_before = get_product_admin(product_id)
         code = str(context.user_data.get('edit_currency_code') or (product_before[12] if product_before and len(product_before) > 12 else 'TOMAN')).upper()
         currency = get_currency(code) if code != 'TOMAN' else {'rate':1}
-        rate = Decimal(str(currency.get('rate') or 1))
+        if not currency or not currency.get('rate'):
+            await update.message.reply_text('نرخ معتبر این ارز در دسترس نیست؛ نرخ‌ها را در پنل بررسی کنید.')
+            return ADMIN_EDIT_PRODUCT_VALUE
+        rate = Decimal(str(currency['rate']))
         toman_price = int((Decimal(str(value)) * rate).to_integral_value(rounding=ROUND_CEILING))
         ok = (update_product(product_id, 'price_currency', code) and update_product(product_id, 'price_amount', value) and update_product(product_id, 'price', toman_price))
     else:
@@ -10574,12 +10585,19 @@ async def handle_admin_currency_rate(update: Update, context: ContextTypes.DEFAU
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        cur.execute("UPDATE currencies SET rate=%s WHERE code=%s", (rate,code))
+        cur.execute("""SELECT c.id, f.source FROM currencies c LEFT JOIN portal_currencypricing f ON f.currency_id=c.id
+                       WHERE c.code=%s AND c.is_active=1 FOR UPDATE""",(code,))
+        item=cur.fetchone()
+        if not item or item[1] not in (None,'manual'):
+            conn.rollback()
+            await update.message.reply_text('این ارز غیرفعال است یا نرخ خودکار دارد؛ تنظیمات را در پنل سایت بررسی کنید.')
+            return ConversationHandler.END
+        cur.execute("UPDATE currencies SET rate=%s WHERE id=%s", (rate,item[0]))
         conn.commit()
         logger.info("currency updated code=%s rate=%s admin=%s", code, rate, update.effective_user.id)
         prompt_message_id = context.user_data.get('admin_input_message_id')
         prompt_chat_id = context.user_data.get('admin_input_chat_id') or update.effective_chat.id
-        success_text = f"✅ نرخ <b>{html.escape(str(code))}</b> تغییر کرد: <b>{format_amount(rate)}</b> تومان"
+        success_text = f"✅ نرخ پایهٔ دستی <b>{html.escape(str(code))}</b> تغییر کرد: <b>{format_amount(rate)}</b> تومان"
         try:
             if prompt_message_id:
                 await context.bot.edit_message_text(
