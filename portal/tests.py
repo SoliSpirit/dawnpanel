@@ -726,6 +726,19 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.product.price_currency='MISSING';self.product.price_amount=Decimal('1')
         with self.assertRaises(BusinessError): price_for(self.product,100)
 
+    def _fx_selection(self,*currencies):
+        page=self.client.get('/admin/portal/currency/review/')
+        self.assertEqual(page.status_code,200)
+        selected={r.pk for r in currencies}
+        data={'_publish':1,'selected':list(selected)}
+        for card in page.context['cards']:
+            if card['row'].pk not in selected:continue
+            form=card['form']
+            for key in form.fields:
+                val=form.initial[key]
+                if val is not False:data[form.add_prefix(key)]='on' if val is True else val
+        return data
+
     def test_exchange_feed_updates_quote_not_product_or_wallet_and_requotes_both_channels(self):
         from .exchange_rates import refresh_rates
         from .test_exchange_rates import book
@@ -737,6 +750,10 @@ class SecurityAndCommerceTests(TransactionTestCase):
         ProductTax.objects.create(product=self.product,percent=10)
         with patch('portal.exchange_rates.fetch_source',return_value={'USDTIRT':book(now)}):
             self.assertEqual(refresh_rates(bootstrap=True),{'USDT':''})
+        self._grant_list_permissions('change_currency')
+        path='/admin/portal/currency/review/'
+        with self.assertRaises(BusinessError):pricing_for(self.product)
+        self.assertRedirects(self.client.post(path,self._fx_selection(currency)),'/admin/portal/currency/',fetch_redirect_response=False)
         self.assertFalse(CurrencyPricing.objects.filter(currency=old).exists())
         self.assertEqual(Currency.objects.get(pk=currency.pk).rate,85000)
         self.assertEqual(Product.objects.get(pk=self.product.pk).price,1000)
@@ -750,6 +767,8 @@ class SecurityAndCommerceTests(TransactionTestCase):
         target='test'
         with patch('portal.exchange_rates.fetch_source',return_value={'USDTIRT':book(now+timedelta(seconds=1),'2900000','2900000')}):
             self.assertEqual(refresh_rates(),{'USDT':''})
+        self.assertEqual(pricing_for(self.product).quote(10),quote)
+        self.assertRedirects(self.client.post(path,self._fx_selection(currency)),'/admin/portal/currency/',fetch_redirect_response=False)
         for attempt in (lambda:place_order(self.account,self.product.pk,10,target,uuid.uuid4(),quote.total,quote.breakdown),
                         lambda:place_bot_order(self.wallet.pk,self.product.pk,10,target,quote.total,quote.breakdown)):
             with self.assertRaises(BusinessError):attempt()
@@ -768,6 +787,8 @@ class SecurityAndCommerceTests(TransactionTestCase):
         at=timezone.now()-timedelta(minutes=1)
         with patch('portal.exchange_rates.fetch_source',return_value={'USDTIRT':book(at)}):
             refresh_rates(bootstrap=True)
+        self._grant_list_permissions('change_currency')
+        self.client.post('/admin/portal/currency/review/',self._fx_selection(currency))
         before=CurrencyPricing.objects.get(currency=currency)
         for data in ({},{'USDTIRT':book(at-timedelta(seconds=10),'2000000','2000000')},
                      {'USDTIRT':book(at,'2000000','2000000')}):
@@ -775,6 +796,7 @@ class SecurityAndCommerceTests(TransactionTestCase):
                 self.assertTrue(refresh_rates()['USDT'])
             policy=CurrencyPricing.objects.get(currency=currency)
             self.assertEqual((policy.market_bid,policy.observed_at),(before.market_bid,before.observed_at))
+            self.assertEqual((policy.candidate_bid,policy.candidate_at),(before.candidate_bid,before.candidate_at))
             self.assertTrue(policy.last_error)
         with self.assertRaises(RateError):
             currency_rates(Currency.objects.get(pk=currency.pk),now=at+timedelta(minutes=12))
@@ -783,6 +805,94 @@ class SecurityAndCommerceTests(TransactionTestCase):
             self.assertEqual(refresh_rates(bootstrap=True),{})
             fetcher.assert_not_called()
         self.assertEqual(currency_rates(Currency.objects.get(pk=currency.pk)).sell,85100)
+
+    def test_review_stars_discount_and_concurrent_currency_selection(self):
+        from .exchange_rates import currency_rates,refresh_rates,Rates
+        from .test_exchange_rates import book
+        cur=Currency.objects.create(name='Stars',code='STAR',type='telegram',rate=3000,is_active=False)
+        coin=Currency.objects.create(name='Tether',code='USDT',rate=280000)
+        url='/admin/portal/currency/review/'
+        self._grant_list_permissions('view_currency')
+        with patch('portal.exchange_rates.fetch_source') as fetch:
+            self.assertEqual(self.client.post(url,{'_fetch':1}).status_code,404)
+            fetch.assert_not_called()
+        self._grant_list_permissions('change_currency')
+        guarded=Client(enforce_csrf_checks=True);guarded.force_login(self.user)
+        self.assertEqual(guarded.post(url,{'_fetch':1}).status_code,403)
+        now=timezone.now()
+        with patch('portal.exchange_rates.fetch_source',return_value={'USDTIRT':book(now)}):refresh_rates(bootstrap=True)
+        selected=self._fx_selection(cur,coin)
+        selected[f'r{cur.pk}-active']='on';selected[f'r{cur.pk}-less']='۱۲٫۵'
+        selected[f'r{coin.pk}-basis_buy']='279000';selected[f'r{coin.pk}-basis_sell']='281000'
+        with patch('portal.exchange_rates.fetch_source',return_value={'USDTIRT':book(now+timedelta(seconds=1),'2800000','2800100')}):
+            self.assertRedirects(self.client.post(url,{'_fetch':1}),url,fetch_redirect_response=False)
+        self.client.post(url,selected)
+        cur.refresh_from_db();self.assertFalse(cur.is_active)
+        self.assertFalse(Audit.objects.filter(action='currency.publish').exists())
+        fresh=self._fx_selection(cur,coin)
+        for field in ('active','less'):fresh[f'r{cur.pk}-{field}']=selected[f'r{cur.pk}-{field}']
+        for field in ('basis_buy','basis_sell'):fresh[f'r{coin.pk}-{field}']=selected[f'r{coin.pk}-{field}']
+        self.assertRedirects(self.client.post(url,fresh),'/admin/portal/currency/',fetch_redirect_response=False)
+        self.assertEqual(currency_rates(Currency.objects.get(pk=cur.pk)),Rates(2625,3000))
+        self.assertEqual(currency_rates(Currency.objects.get(pk=coin.pk)),Rates(269000,286000))
+        self.client.post(url,fresh)
+        self.assertEqual(Audit.objects.filter(action='currency.publish').count(),2)
+
+    def test_crypto_request_is_a_ticket_and_requires_separate_verified_settlement(self):
+        with patch('portal.crypto_topups.method_open',return_value=True):
+            Currency.objects.create(name='تتر',code='USDT',type='crypto',rate=280000)
+            url='/account/charge/crypto/'
+            get_data=lambda client: {'code':'USDT','units':'۲٫۵','quote':client.get(url).context['form'].initial['quote']}
+            data=get_data(self.client)
+            result=self.client.post(url,{**data,'credited':9999999,'paid_ref':'bogus'})
+            ticket=Ticket.objects.get()
+            self.assertRedirects(result,f'/account/tickets/{ticket.pk}/')
+            self.assertEqual(self.client.post(url,data).status_code,302)
+            self.assertEqual(CryptoTopup.objects.count(),1);self.assertFalse(Ledger.objects.exists())
+            self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,10000)
+            other=Client();other.force_login(self.other)
+            self.assertEqual(other.get(f'/account/tickets/{ticket.pk}/').status_code,404)
+            self.assertEqual(other.post(url,data).status_code,403)
+            settle=f'/staff/ticket/{ticket.pk}/settle-crypto/'
+            transfer={'units':'2','reference':'0x'+'A1'*32,'verified':'on','expected':280000}
+            self.assertEqual(self.client.post(settle,transfer).status_code,403)
+            self._grant_list_permissions('change_ticket')
+            self.assertEqual(self.client.post(settle,transfer).status_code,403)
+            self._grant_list_permissions('settle_crypto_topup')
+            self.client.post(settle,{**transfer,'expected':1})
+            self.assertFalse(Ledger.objects.exists())
+            self.client.post(settle,transfer);self.client.post(settle,transfer)
+            self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,570000)
+            self.assertEqual(Ledger.objects.get().amount,560000)
+            second=self.client.post(url,get_data(self.client));self.assertEqual(second.status_code,302)
+            ticket2=Ticket.objects.exclude(pk=ticket.pk).get()
+            self.client.post(f'/staff/ticket/{ticket2.pk}/settle-crypto/',{**transfer,'reference':'a1'*32})
+            self.assertEqual(Ledger.objects.count(),1)
+            self.assertEqual(Audit.objects.filter(action='wallet.crypto.credit').count(),1)
+        with patch('portal.crypto_topups.method_open',return_value=False):
+            self.assertNotContains(self.client.get(url),'name="quote"')
+
+    def test_concurrent_crypto_settlement_credits_one_deposit(self):
+        if connection.vendor!='mysql':self.skipTest('Requires row locks')
+        from .crypto_topups import settle
+        self._grant_list_permissions('change_ticket','settle_crypto_topup')
+        Currency.objects.create(name='تتر',code='USDT',rate=280000)
+        ticket=Ticket.objects.create(user=self.user,subject='شارژ')
+        CryptoTopup.objects.create(ticket=ticket,account=self.account,request_key=uuid.uuid4(),
+                                   code='USDT',units=2,requested_rate=280000)
+        gate=Barrier(2,timeout=10)
+        def confirm(index):
+            close_old_connections()
+            try:
+                operator=User.objects.get(pk=self.user.pk)
+                gate.wait()
+                return settle(operator,ticket.pk,{'expected':280000,'reference':'a2'*32,'units':Decimal(2)})
+            except BusinessError:return 0
+            finally:close_old_connections()
+        with patch('portal.crypto_topups.method_open',return_value=True),ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(sorted(pool.map(confirm,range(2))),[0,560000])
+        self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,570000)
+        self.assertEqual(Ledger.objects.count(),1)
 
     def test_currency_admin_sets_persian_margins_and_preserves_other_rows(self):
         from .exchange_rates import currency_rates,Rates

@@ -1,0 +1,6 @@
+{% extends 'account_base.html' %}
+{% block account %}<h1>تیکت شارژ با رمزارز</h1><section class="panel form-panel">
+<p>مبنای شارژ «خرید از شما» است. ابتدا تیکت ثبت کن؛ پیش از واریز، نرخ نهایی، شبکه و آدرس را با پشتیبانی در همان تیکت هماهنگ کن. موجودی پس از بررسی تراکنش شارژ می‌شود.</p>
+{% if has_rates %}<form method="post">{% csrf_token %}{{ form.as_p }}<button class="button" type="submit">ثبت درخواست و باز کردن تیکت</button></form>
+{% else %}<p>در حال حاضر نرخ مصوب یا روش فعال برای شارژ رمزارزی وجود ندارد.</p>{% endif %}
+<p><a href="{% url 'tickets' %}">تیکت‌های من</a></p></section>{% endblock %}

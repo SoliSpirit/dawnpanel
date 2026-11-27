@@ -46,9 +46,11 @@ class QuoteTests(SimpleTestCase):
     def test_no_manual_fallback_for_unpriced_or_renamed_auto_market(self):
         policy=SimpleNamespace(source='nobitex',observed_at=timezone.now(),quote_key='nobitex:ETH',
                                market_bid=Decimal('280000'),market_ask=Decimal('280000'),spread_mode='fixed',
-                               sell_extra=0,buy_less=0)
+                               sell_extra=0,buy_less=0,candidate_key='nobitex:USDT',candidate_at=timezone.now(),published_at=timezone.now())
         with self.assertRaises(RateError):resolve('USDT','crypto',85000,policy)
-        policy.quote_key='nobitex:USDT';policy.observed_at-=timedelta(hours=1)
+        policy.quote_key='nobitex:USDT';policy.candidate_at-=timedelta(hours=1)
+        with self.assertRaises(RateError):resolve('USDT','crypto',85000,policy)
+        policy.candidate_at=timezone.now();policy.published_at-=timedelta(days=2)
         with self.assertRaises(RateError):resolve('USDT','crypto',85000,policy)
         with self.assertRaises(RateError):spread(100,100,'fixed',0,100)
         with self.assertRaises(RateError):spread(100,100,'percent',0,100)

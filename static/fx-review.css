@@ -1,0 +1,15 @@
+.fx-review {max-width:1320px;margin:auto}
+.fx-review-head,.fx-review-actions,.fx-card header {display:flex;align-items:center;flex-wrap:wrap;gap:9px 16px}
+.fx-review-head {padding-bottom:16px}.fx-review-head p {flex-basis:100%;margin:0}
+.fx-review-actions {margin:12px 0}
+.fx-review .button {font:inherit;min-height:44px;cursor:pointer;background:var(--dp-soft);color:var(--dp-ink);border:1px solid var(--dp-line)}
+.fx-review .button.default,.fx-card button[name="_one"] {background:var(--dp-accent);color:var(--dp-surface);border-color:var(--dp-accent)}
+.fx-card-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,345px),1fr));gap:12px}
+.fx-card {border:1px solid var(--dp-line);background:var(--dp-surface);border-radius:14px;padding:16px;min-width:0}
+.fx-card header {justify-content:space-between}.fx-card header strong {font-size:17px}
+.fx-card p {font-size:12px;color:var(--dp-muted);margin:8px 0}
+.fx-card .errornote {color:var(--error-fg)}.fx-card .fx-tip,.fx-result {padding:8px 10px;border-radius:8px;background:var(--dp-soft)}
+.fx-card-fields {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.fx-card-fields label {display:block;font-size:12px}
+.fx-card-fields input,.fx-card-fields select {width:100%;min-width:0;box-sizing:border-box}
+.fx-result {margin:10px 0;color:var(--dp-accent)}.fx-publish-state {display:block;margin-bottom:10px}

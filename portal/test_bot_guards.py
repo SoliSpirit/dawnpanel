@@ -48,6 +48,7 @@ class BotInvoiceTests(SimpleTestCase):
         exec(compile(ast.Module(body=[adapter],type_ignores=[]),'<bot-currency>', 'exec'),ns)
         row=ns['bot_currency_record']({'code':'USDT','type':'crypto','name':'تتر','rate':85000,'observed_at':timezone.now().replace(tzinfo=None),
             'fx_source':'nobitex','quote_key':'nobitex:USDT','market_bid':Decimal(280000),'market_ask':Decimal(280000),
+            'candidate_key':'nobitex:USDT','candidate_at':timezone.now(),'published_at':timezone.now(),
             'sell_extra':5000,'buy_less':10000,'spread_mode':'fixed'})
         self.assertEqual((row['rate'],row['buy_rate']),(285000,270000))
         tree=ast.parse((settings.BASE_DIR/'telegram/dawnpanel.py').read_text(encoding='utf-8'))
@@ -56,8 +57,10 @@ class BotInvoiceTests(SimpleTestCase):
         message=ns['currency_quote_line'](row)
         self.assertIn('خرید از شما: 270000',message)
         self.assertIn('فروش به شما: 285000',message)
-        ns['get_currency']=lambda code: {'code':'STAR','rate':3100,'buy_rate':2800}
+        ns['get_currency']=lambda code: {'code':'STAR','manual_rate':3000,'rate':3100,'buy_rate':2800}
         self.assertEqual(ns['get_star_rate_toman'](),2800)
+        ns['get_currency']=lambda code: {'code':'STAR','manual_rate':3000,'rate':3100,'buy_rate':3000}
+        self.assertIsNone(ns['get_star_rate_toman']())
 
     def test_final_review_discloses_order_tax_and_pins_the_breakdown(self):
         import html
@@ -79,6 +82,40 @@ class BotInvoiceTests(SimpleTestCase):
         self.assertEqual(context.user_data['pending_order_breakdown'],{'subtotal':131,'tax_bps':950})
         self.assertEqual(context.user_data['pending_order_total_price'],144)
 
+    def test_star_invoice_quotes_discount_before_payment_and_precheckout_rejects_a_changed_rate(self):
+        import re
+        from decimal import Decimal,InvalidOperation
+        from unittest.mock import MagicMock,Mock
+        tree=ast.parse((settings.BASE_DIR/'telegram/dawnpanel.py').read_text(encoding='utf-8'))
+        factory=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='create_charge_handler')
+        invoice=next(n for n in factory.body if isinstance(n,ast.AsyncFunctionDef) and n.name=='receive_stars_amount')
+        check=next(n for n in tree.body if isinstance(n,ast.AsyncFunctionDef) and n.name=='precheckout_star_payment')
+        for fn in (invoice,check):
+            for arg in fn.args.args:arg.annotation=None
+        db=MagicMock()
+        ns={'Decimal':Decimal,'InvalidOperation':InvalidOperation,'MIN_STARS':1,'MAX_STARS':10000,
+            'get_setting':lambda key,default:default,'STARS_AMOUNT_INPUT':5,'ConversationHandler':SimpleNamespace(END=-1),
+            'get_star_rate_toman':lambda:Decimal(2700),'get_payment_method_status':lambda k:(True,''),
+            'generate_payment_tracking':lambda:'abcde12345','get_db_connection':lambda:db,'format_amount':str,
+            're':re,'logger':Mock(),'LabeledPrice':lambda label,n:n,'InlineKeyboardMarkup':lambda v:v,
+            'InlineKeyboardButton':lambda *args,**kwargs:None}
+        exec(compile(ast.Module(body=[invoice,check],type_ignores=[]),'<star-invoice>','exec'),ns)
+        uid=SimpleNamespace(id=123)
+        msg=SimpleNamespace(text='10',reply_text=AsyncMock())
+        ctx=SimpleNamespace(user_data={'star_rate':'3000'},bot=SimpleNamespace(send_invoice=AsyncMock()))
+        update=SimpleNamespace(message=msg,effective_user=uid)
+        asyncio.run(ns['receive_stars_amount'](update,ctx))
+        self.assertIn('2700',msg.reply_text.await_args.args[0]);ctx.bot.send_invoice.assert_not_called()
+        asyncio.run(ns['receive_stars_amount'](update,ctx))
+        sent=ctx.bot.send_invoice.await_args.kwargs
+        self.assertEqual((sent['currency'],sent['prices'],sent['payload']),('XTR',[10],'STAR:123:10:2700:abcde12345'))
+        self.assertIn('27000',sent['description'])
+        query=SimpleNamespace(from_user=uid,invoice_payload=sent['payload'],currency='XTR',total_amount=10,answer=AsyncMock())
+        update.pre_checkout_query=query
+        db.cursor.return_value.fetchone.return_value={'user_id':123,'status':'pending','stars_count':10,'star_rate':2700,'amount_toman':27000}
+        asyncio.run(ns['precheckout_star_payment'](update,ctx));query.answer.assert_awaited_with(ok=True)
+        ns['get_star_rate_toman']=lambda:Decimal(2600)
+        asyncio.run(ns['precheckout_star_payment'](update,ctx));self.assertFalse(query.answer.await_args.kwargs['ok'])
 
 class BotReceiptAuthorizationTests(SimpleTestCase):
     def test_receipt_handlers_deny_non_admin_before_any_mutation(self):

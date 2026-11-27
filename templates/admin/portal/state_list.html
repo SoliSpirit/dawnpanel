@@ -12,6 +12,7 @@
     {% if has_add_permission %}{% url cl.opts|admin_urlname:'add' as add_url %}<a class="dp-list-add" href="{% add_preserved_filters add_url is_popup to_field %}">{% icon 'plus' %} افزودن {{ opts.verbose_name }}</a>{% endif %}
     <p>{% if is_popup %}برای انتخاب، روی پیوند همان ردیف بزن.{% elif state_list_editable %}{{ state_list_hint }}{% else %}وضعیت‌ها برای این حساب فقط خواندنی‌اند.{% endif %}</p>
   </header>
+  {% block list_extras %}{% endblock %}
   {{ block.super }}
   <div class="dp-state-flash" hidden><span role="status" aria-live="polite" aria-atomic="true" data-flash-text></span><a href="{{ request.get_full_path }}" data-flash-reload hidden>بازخوانی فهرست</a><button type="button" data-flash-close aria-label="بستن پیام">×</button></div>
 {% endblock %}

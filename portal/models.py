@@ -230,6 +230,32 @@ class CurrencyPricing(models.Model):
     observed_at=models.DateTimeField(null=True,editable=False)
     checked_at=models.DateTimeField(null=True,editable=False)
     last_error=models.CharField(max_length=200,blank=True,default='',editable=False)
+    # Polling updates only the candidate. The book above is the published one.
+    candidate_key=models.CharField(max_length=40,blank=True,default='',editable=False)
+    candidate_bid=models.DecimalField(max_digits=25,decimal_places=8,null=True,editable=False)
+    candidate_ask=models.DecimalField(max_digits=25,decimal_places=8,null=True,editable=False)
+    candidate_at=models.DateTimeField(null=True,editable=False)
+    published_at=models.DateTimeField(null=True,editable=False)
+    revision=models.PositiveBigIntegerField(default=0,editable=False)
+
+
+class CryptoTopup(models.Model):
+    ticket=models.OneToOneField(Ticket,primary_key=True,on_delete=models.PROTECT,related_name='crypto_topup')
+    account=models.ForeignKey(Account,on_delete=models.PROTECT)
+    request_key=models.UUIDField(unique=True)
+    code=models.CharField(max_length=20)
+    units=models.DecimalField(max_digits=28,decimal_places=12)
+    requested_rate=models.PositiveBigIntegerField()
+    # One verified transfer can credit exactly one ticket. Users never supply
+    # a settlement reference through an endpoint that moves money.
+    paid_ref=models.CharField(max_length=160,unique=True,null=True,editable=False)
+    paid_units=models.DecimalField(max_digits=28,decimal_places=12,null=True,editable=False)
+    paid_rate=models.PositiveBigIntegerField(null=True,editable=False)
+    credited=models.PositiveBigIntegerField(null=True,editable=False)
+    settled_at=models.DateTimeField(null=True,editable=False)
+
+    class Meta:
+        permissions=[('settle_crypto_topup','تأیید دریافت رمزارز و شارژ کیف پول')]
 
 class GiftCode(models.Model):
     code=models.CharField('کد',max_length=50,unique=True)

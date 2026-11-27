@@ -11,6 +11,8 @@
 .dp-list-head p {grid-column:1/-1;margin:0;line-height:1.9}
 .dp-list-add {display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:7px 14px;min-height:44px;border-radius:10px;background:var(--dp-accent);color:var(--dp-surface)!important;font-size:13px;font-weight:650}
 .dp-list-add .ui-icon {width:17px;height:17px}
+.fx-list-tools {display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 16px}
+.fx-list-tools button {font-family:inherit;cursor:pointer;border:0}
 .dp-state-list #changelist {display:block;min-height:0;margin:0;border-radius:16px;border:1px solid var(--dp-line);background:var(--dp-surface);color:var(--dp-ink)}
 .dp-list-controls {display:flex;align-items:flex-start;gap:10px 16px;flex-wrap:wrap;background:var(--dp-soft)}
 .dp-list-controls:has(> :first-child) {padding:12px clamp(12px,2vw,22px);border-bottom:1px solid var(--dp-line)}

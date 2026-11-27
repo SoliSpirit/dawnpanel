@@ -1,0 +1,9 @@
+{% extends 'account_base.html' %}{% load ui %}
+{% block account %}<h1>شارژ کیف پول</h1>
+<section class="panel form-panel"><h2>پرداخت بانکی</h2><form method="post">{% csrf_token %}{{ form.as_p }}<button class="button">ادامه و پرداخت</button></form></section>
+{% if crypto_open %}<section class="panel spaced"><h2>شارژ دستی با رمزارز</h2>
+<p>رمزارز و مقدار را در تیکت مشخص کن. شبکه و آدرس واریز را پشتیبانی در همان تیکت اعلام می‌کند.</p>
+<a class="button" href="{% url 'crypto_request' %}">ثبت تیکت شارژ رمزارزی</a></section>{% endif %}
+{% if star_buy %}<section class="panel spaced"><h2>شارژ با استارز تلگرام</h2><p>به‌ازای هر ستاره، {{ star_buy|fa_number }} تومان به کیف پولت اضافه می‌شود.</p>
+<a class="outline-button" href="https://t.me/{{ bot_username }}">باز کردن ربات برای پرداخت با استارز</a></section>{% endif %}
+{% endblock %}

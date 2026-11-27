@@ -204,6 +204,12 @@ class TicketAdmin(AuditedAdmin):
 @admin.register(Currency)
 class CurrencyAdmin(CurrencyRatesAdminMixin,StateListMixin,AuditedAdmin):
     state_fields=('is_active',)
+    def validate_activation(self,obj,field):
+        super().validate_activation(obj,field)
+        from .exchange_rates import currency_rates,RateError
+        from django.core.exceptions import ValidationError
+        try:currency_rates(obj)
+        except RateError as error:raise ValidationError(str(error)) from None
     def has_delete_permission(self,request,obj=None): return False
 @admin.register(GiftCode)
 class GiftAdmin(StateListMixin,AuditedAdmin):

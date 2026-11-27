@@ -1,0 +1,38 @@
+{% extends 'admin/base_site.html' %}{% load static ui l10n %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'fx-review.css' %}">{% endblock %}
+{% block extrahead %}{{ block.super }}<script defer src="{% static 'fx-review.js' %}"></script>{% endblock %}
+{% block content %}
+<section class="fx-review">
+  <div class="fx-review-head">
+    <p>قیمت مرجع و حاشیهٔ هر ارز را بررسی کن. فقط ردیف‌هایی که تأیید کنی روی سایت، ربات و شارژ کیف پول اعمال می‌شوند. نرخ مصوب ارزهای دارای منبع آنلاین تا ۲۴ ساعت اعتبار دارد.</p>
+    <form method="post">{% csrf_token %}<button class="button" name="_fetch" value="1">به‌روزرسانی قیمت ارزها</button></form>
+    <a href="{% url 'admin:portal_currency_changelist' %}">بازگشت به نرخ‌های مصوب</a>
+  </div>
+  <form method="post" id="fx-review-form" novalidate>{% csrf_token %}
+    <div class="fx-review-actions"><label hidden data-all-label><input type="checkbox" data-select-all> انتخاب همهٔ این صفحه</label>
+      <button class="button default" type="submit" name="_publish" value="1">تأیید و انتشار انتخاب‌ها</button>
+      <button class="button" type="submit" name="_preview" value="1">محاسبهٔ انتخاب‌ها</button></div>
+    <div class="fx-card-grid">{% for c in cards %}<article class="fx-card">
+      <header><div><strong>{{ c.row.name }}</strong> <bdi>{{ c.row.code }}</bdi></div>
+        {% if not c.error %}<label><input name="selected" type="checkbox" value="{{ c.row.pk|unlocalize }}"{% if c.form.is_bound %} checked{% endif %}> انتخاب</label>{% endif %}</header>
+      <p>مرجع: {{ c.source }}{% if c.at %} · {{ c.at|date:'j F، H:i' }}{% endif %} · {% if c.row.is_active %}فعال{% else %}غیرفعال{% endif %}</p>
+      <p>نرخ فعلی: {% if c.current %}خرید {{ c.current.buy|fa_number }} · فروش {{ c.current.sell|fa_number }} تومان{% else %}نرخ قابل استفاده ندارد{% endif %}</p>
+      {% if c.error %}<p class="errornote">{{ c.error }}</p>
+      {% else %}
+        {% if not c.manual %}<p>پیشنهاد منبع (تومان): خرید <bdi>{{ c.bid }}</bdi> · فروش <bdi>{{ c.ask }}</bdi></p>{% endif %}
+        {% if c.row.code == 'STAR' %}<p class="fx-tip">استارز مرجع صرافی ندارد. برای شارژ، نرخ خرید پایین‌تر از پایه ثبت می‌شود.{% if c.suggest %} کسری ۱۰٪ فقط پیشنهاد اولیه است.{% endif %}</p>{% endif %}
+        {{ c.form.stamp }}{{ c.form.stamp.errors }}{{ c.form.non_field_errors }}
+        <div class="fx-card-fields">{% for field in c.form.visible_fields %}{% if field.name != 'active' %}
+          <div>{{ field.label_tag }}{{ field }}{{ field.errors }}</div>
+        {% endif %}{% endfor %}</div>
+        <div class="fx-result" aria-live="polite">پیش‌نمایش: <strong data-output>{% if c.preview %}خرید {{ c.preview.buy|fa_number }} · فروش {{ c.preview.sell|fa_number }} تومان{% else %}مقادیر را بررسی کن{% endif %}</strong></div>
+        <label class="fx-publish-state">{{ c.form.active }} {{ c.form.active.label }}</label>
+        <button class="button" name="_one" value="{{ c.row.pk|unlocalize }}" type="submit">تأیید همین ارز</button>
+      {% endif %}
+    </article>{% empty %}<p>ارزی برای بررسی وجود ندارد.</p>{% endfor %}</div>
+  </form>
+  {% if page.has_other_pages %}<nav class="fx-review-actions">{% if page.has_previous %}<a href="?p={{ page.previous_page_number|unlocalize }}&amp;rows={{ selection|urlencode }}">صفحه قبل</a>{% endif %}
+    <span>صفحه {{ page.number|fa_number }} از {{ page.paginator.num_pages|fa_number }}</span>
+    {% if page.has_next %}<a href="?p={{ page.next_page_number|unlocalize }}&amp;rows={{ selection|urlencode }}">صفحه بعد</a>{% endif %}</nav>{% endif %}
+</section>
+{% endblock %}

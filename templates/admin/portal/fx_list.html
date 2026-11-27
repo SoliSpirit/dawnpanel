@@ -1,0 +1,8 @@
+{% extends 'admin/portal/state_list.html' %}
+{% block list_extras %}{% if state_list_editable and not is_popup %}
+<div class="fx-list-tools">
+  <form method="post" action="{% url 'admin:portal_currency_review' %}">{% csrf_token %}
+    <button class="dp-list-add" type="submit" name="_fetch" value="1">به‌روزرسانی قیمت ارزها</button>
+  </form>
+  <a href="{% url 'admin:portal_currency_review' %}">بررسی آخرین پیشنهادها ←</a>
+</div>{% endif %}{% endblock %}

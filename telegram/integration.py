@@ -31,9 +31,15 @@ def bot_currency_record(row):
     at=row.get('observed_at')
     if at is not None and at.tzinfo is None:
         at=at.replace(tzinfo=timezone.utc)  # Django's MySQL DATETIME in UTC
+    candidate=row.get('candidate_at')
+    if candidate is not None and candidate.tzinfo is None:
+        candidate=candidate.replace(tzinfo=timezone.utc)
+    published=row.get('published_at')
+    if published is not None and published.tzinfo is None:
+        published=published.replace(tzinfo=timezone.utc)
     policy=SimpleNamespace(source=row['fx_source'],spread_mode=row['spread_mode'],sell_extra=row['sell_extra'],
         buy_less=row['buy_less'],quote_key=row['quote_key'],market_bid=row['market_bid'],market_ask=row['market_ask'],
-        observed_at=at) if row.get('fx_source') else None
+        observed_at=at,candidate_key=row.get('candidate_key',''),candidate_at=candidate,published_at=published) if row.get('fx_source') else None
     row['observed_at']=at
     row['fx_source']=policy.source if policy else 'manual'
     row['source_url']=source_link(row['fx_source'],row['code'])

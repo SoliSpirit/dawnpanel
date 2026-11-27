@@ -10,6 +10,18 @@ from django.utils.html import format_html
 from .exchange_rates import RateError, resolve, spread, supported, source_link, refresh_rates
 from .models import Currency, CurrencyPricing
 from .templatetags.ui import fa_number
+from .fx_review import FxReviewMixin
+from django.http import HttpResponseRedirect
+from django.urls import reverse
+
+
+def normalized_number(value):
+    value=value.strip().replace('٫','.').replace('٬',',')
+    if ',' in value:
+        if not re.fullmatch(r'\d{1,3}(?:,\d{3})+(?:\.\d+)?',value):
+            raise forms.ValidationError('اعشار را با «٫» یا «.» وارد کن. ویرگول فقط جداکنندهٔ هزارگان است.')
+        value=value.replace(',','')
+    return value
 
 
 class AdjustmentField(forms.DecimalField):
@@ -19,11 +31,7 @@ class AdjustmentField(forms.DecimalField):
 
     def to_python(self,value):
         if isinstance(value,str):
-            value=value.strip().replace('٫','.').replace('٬',',')
-            if ',' in value:
-                if not re.fullmatch(r'\d{1,3}(?:,\d{3})+(?:\.\d+)?',value):
-                    raise forms.ValidationError('اعشار را با «٫» یا «.» وارد کن. ویرگول فقط جداکنندهٔ هزارگان است.')
-                value=value.replace(',','')
+            value=normalized_number(value)
         return super().to_python(value)
 
 
@@ -69,14 +77,17 @@ class CurrencyForm(forms.ModelForm):
         elif self.policy and self.policy.quote_key==f'{src}:{code}':
             bid,ask=self.policy.market_bid,self.policy.market_ask
         if bid is not None and ask is not None:
-            try:spread(bid,ask,mode,extra,less)
+            try:
+                effective=spread(bid,ask,mode,extra,less)
+                if code=='STAR' and data.get('is_active') and effective.buy>=bid:
+                    self.add_error('buy_less','برای فعال کردن شارژ با استارز، کسری خرید مثبت لازم است.')
             except RateError as exc:self.add_error(None,str(exc))
         return data
 
 
-class CurrencyRatesAdminMixin:
+class CurrencyRatesAdminMixin(FxReviewMixin):
     form=CurrencyForm
-    list_hint='خرید یعنی مبلغی که بابت ارز به مشتری می‌دهید؛ فروش یعنی نرخی که از مشتری می‌گیرید. روی کد ارز بزنید تا مرجع و حاشیه‌ها را تنظیم کنید.'
+    list_hint='نرخ‌های این جدول مصوب‌اند. «به‌روزرسانی قیمت ارزها» پیشنهاد تازه را می‌گیرد تا آن را ویرایش و تأیید کنید.'
     list_display=['code','name','reference','buy_quote','sell_quote','quote_time','is_active']
     fieldsets=[
         ('مشخصات ارز',{'fields':['code','name','type','symbol','icon','is_active']}),
@@ -95,10 +106,15 @@ class CurrencyRatesAdminMixin:
         if src!=current.source or current.quote_key!=f'{src}:{obj.code}':
             current.quote_key=current.last_error=''
             current.checked_at=current.observed_at=current.market_bid=current.market_ask=None
+            if src!=current.source or current.candidate_key!=f'{src}:{obj.code}':
+                current.candidate_key=''
+                current.candidate_at=current.candidate_bid=current.candidate_ask=None
+            current.published_at=None
         current.source=src
         current.spread_mode=form.cleaned_data['spread_mode']
         current.sell_extra=form.cleaned_data['sell_extra']
         current.buy_less=form.cleaned_data['buy_less']
+        current.revision+=1
         current.save()
 
     @admin.display(description='مرجع')
@@ -134,12 +150,12 @@ class CurrencyRatesAdminMixin:
     def sell_quote(self,obj):
         return self._quote(obj,'sell')
 
-    @admin.display(description='زمان نرخ')
+    @admin.display(description='آخرین تأیید')
     def quote_time(self,obj):
         p=getattr(obj,'fx',None)
         if not p or p.source=='manual':return 'دستی'
-        at=p.observed_at
-        stamp=formats.date_format(timezone.localtime(at),'j F، H:i') if at else 'در انتظار اولین نرخ'
+        at=p.published_at
+        stamp=formats.date_format(timezone.localtime(at),'j F، H:i') if at else 'در انتظار تأیید'
         if p.last_error:
             return format_html('{}<small class="catalog-row-category">{}</small>',stamp,p.last_error)
         return stamp
@@ -150,8 +166,6 @@ class CurrencyRatesAdminMixin:
         rows=list(queryset)
         if not self.has_change_permission(request) or not all(self.has_change_permission(request,row) for row in rows):
             raise PermissionDenied
-        result=refresh_rates([r.pk for r in rows])
-        if not result:
-            self.message_user(request,'ارزی با مرجع خودکار در انتخاب شما نیست.',messages.WARNING)
-        for code,error in result.items():
-            self.message_user(request,f'{code}: {error or "نرخ بررسی شد."}',messages.ERROR if error else messages.SUCCESS)
+        refresh_rates([r.pk for r in rows])
+        url=reverse('admin:portal_currency_review')
+        return HttpResponseRedirect(url+'?rows='+','.join(str(r.pk) for r in rows))

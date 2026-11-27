@@ -11,8 +11,8 @@
       <div><dt>فروش به شما</dt><dd>{{ row.rates.sell|fa_number }} <small>تومان</small></dd></div>
     </dl>{% else %}<p>در انتظار نرخ معتبر</p>{% endif %}
     <footer><span>مرجع: {% if row.url %}<a href="{{ row.url }}" target="_blank" rel="noopener noreferrer">{{ row.source }}</a>{% else %}{{ row.source }}{% endif %}</span>
-    {% if row.at %}<span>زمان نرخ: <time datetime="{{ row.at|date:'c' }}">{{ row.at|date:'j F، H:i' }}</time></span>{% endif %}</footer>
+    {% if row.at %}<span>زمان نرخ مصوب: <time datetime="{{ row.at|date:'c' }}">{{ row.at|date:'j F، H:i' }}</time></span>{% endif %}</footer>
   </article>{% empty %}<p>هنوز ارزی برای نمایش فعال نشده است.</p>{% endfor %}</div>
-  <p><a href="{% url 'contact' %}">هماهنگی با پشتیبانی</a></p>
+  <p><a href="{% url 'crypto_request' %}">درخواست شارژ رمزارزی از طریق تیکت</a></p>
 </section>
 {% endblock %}

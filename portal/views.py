@@ -37,7 +37,7 @@ def exchange_board(request):
         rows.append({'code':currency.code,'name':currency.name,'rates':rates,
                      'source':SOURCES[src][0] if src in SOURCES else 'نرخ دستی فروشگاه',
                      'url':source_link(src,currency.code),
-                     'at':policy.observed_at if src in SOURCES else currency.updated_at})
+                     'at':policy.published_at if src in SOURCES else currency.updated_at})
     return render(request,'exchange_rates.html',{'rows':rows,'title':'نرخ خرید و فروش ارز | دان‌پنل',
         'description':'نرخ خرید از مشتری و نرخ فروش به مشتری به تومان، با مرجع و زمان ثبت نرخ.'})
 
@@ -296,13 +296,18 @@ def order_detail(request,pk):
 
 @login_required
 def charge(request):
+    from .crypto_topups import method_open
+    from .exchange_rates import currency_rates,RateError
     form=ChargeForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
         try:
             if not rate_limit('payment:'+str(request.user.pk),5,300): raise BusinessError('کمی بعد دوباره تلاش کنید.')
             return redirect(start_payment(request.user.account,form.cleaned_data['amount']))
         except BusinessError as e: form.add_error(None,str(e))
-    return render(request,'simple_form.html',{'form':form,'title':'شارژ کیف پول','subtitle':'پرداخت از طریق درگاه زرین‌پال؛ مبالغ به تومان هستند.','button':'ادامه و پرداخت'})
+    star=Currency.objects.filter(code='STAR',type='telegram',is_active=True).select_related('fx').first()
+    try:star_buy=currency_rates(star).buy if star and method_open('stars') else None
+    except RateError:star_buy=None
+    return render(request,'charge.html',{'form':form,'title':'شارژ کیف پول','crypto_open':method_open('crypto'),'star_buy':star_buy})
 
 @require_GET
 def payment_callback(request):
@@ -336,11 +341,25 @@ def ticket_detail(request,pk):
         elif not rate_limit('reply:'+str(request.user.pk),30,300): form.add_error(None,'کمی بعد تلاش کنید.')
         else:
             with transaction.atomic():
+                ticket=get_object_or_404(rows.select_for_update(),pk=pk)
+                if ticket.status=='closed':
+                    messages.error(request,'این تیکت بسته شده است.')
+                    return redirect('ticket',pk=pk)
                 TicketMessage.objects.create(ticket=ticket,author=request.user,body=form.cleaned_data['body'])
                 ticket.status='answered' if staff else 'open';ticket.save()
                 if staff: Audit.objects.create(actor=request.user,action='ticket.reply',object_ref=str(pk))
             return redirect('ticket',pk=pk)
-    return render(request,'ticket.html',{'ticket':ticket,'thread':ticket.messages.select_related('author'),'form':form,'title':ticket.subject,'staff_reply':staff})
+    from .crypto_topups import can_settle,SettleForm,current_buy
+    from .exchange_rates import RateError
+    entry=getattr(ticket,'crypto_topup',None)
+    settle_form=buy=None
+    if entry and not entry.credited and ticket.status!='closed' and can_settle(request.user):
+        try:
+            buy=current_buy(entry.code)
+            settle_form=SettleForm(initial={'units':format(entry.units.normalize(),'f'),'expected':buy})
+        except RateError:pass
+    return render(request,'ticket.html',{'ticket':ticket,'thread':ticket.messages.select_related('author'),'form':form,'title':ticket.subject,
+        'staff_reply':staff,'topup':entry,'settle_form':settle_form,'settle_rate':buy})
 
 @require_POST
 @login_required

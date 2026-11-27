@@ -22,6 +22,7 @@ FIAT = {'USD','EUR','GBP','AED','CAD','AUD','CHF','TRY'}
 MAX_RATE = Decimal(10**16)
 QUANTUM = Decimal('0.00000001')
 UTC = dt_timezone.utc
+APPROVAL_LIFETIME = timedelta(hours=24)
 
 
 class RateError(ValueError):
@@ -76,15 +77,21 @@ def spread(bid, ask, mode, sell_extra, buy_less):
 
 def resolve(code, kind, manual_rate, policy, *, now=None):
     source = policy.source if policy else 'manual'
+    now = now or timezone.now()
     if source == 'manual':
         bid = ask = Decimal(manual_rate)
     else:
-        if (not supported(code,kind,source) or policy.quote_key != f'{source}:{code}'
-                or not valid_age(source,policy.observed_at,now or timezone.now())
+        key=f'{source}:{code}'
+        if (not supported(code,kind,source) or policy.quote_key != key
+                or policy.candidate_key!=key or not valid_age(source,policy.candidate_at,now)
+                or not policy.published_at or not -timedelta(seconds=30)<=now-policy.published_at<=APPROVAL_LIFETIME
                 or policy.market_bid is None or policy.market_ask is None):
-            raise RateError('نرخ تازهٔ این ارز در دسترس نیست.')
+            raise RateError('نرخ مصوب یا مرجع تازهٔ این ارز در دسترس نیست.')
         bid, ask = policy.market_bid, policy.market_ask
-    return spread(bid,ask,policy.spread_mode,policy.sell_extra,policy.buy_less) if policy else spread(bid,ask,'fixed',0,0)
+    rates=spread(bid,ask,policy.spread_mode,policy.sell_extra,policy.buy_less) if policy else spread(bid,ask,'fixed',0,0)
+    if code=='STAR' and (rates.buy>=bid or rates.buy>=rates.sell):
+        raise RateError('برای شارژ با استارز، کسریِ خرید مثبت را تأیید کن.')
+    return rates
 
 
 def currency_rates(currency, *, now=None):
@@ -179,7 +186,7 @@ def market_for(source, code, data, now):
 
 
 def refresh_rates(ids=None, *, bootstrap=False):
-    """Fetch each feed only once. Write observations, never the manual base.
+    """Fetch each feed only once. Stage observations; only an operator publishes.
 
     Bootstrap is explicit, idempotent, and creates a policy only if the market
     returned a valid first quote. It never enables a disabled currency.
@@ -234,14 +241,14 @@ def refresh_rates(ids=None, *, bootstrap=False):
                 if not policy or policy.source!=source or (policy.checked_at and policy.checked_at>started):
                     continue
                 key=f'{source}:{row.code}'
-                if market and policy.quote_key==key and policy.observed_at:
-                    if market.at<policy.observed_at or (market.at==policy.observed_at and
-                            (market.bid,market.ask)!=(policy.market_bid,policy.market_ask)):
+                if market and policy.candidate_key==key and policy.candidate_at:
+                    if market.at<policy.candidate_at or (market.at==policy.candidate_at and
+                            (market.bid,market.ask)!=(policy.candidate_bid,policy.candidate_ask)):
                         error='نرخ دریافتی از آخرین مشاهده قدیمی‌تر یا متعارض است.'
                         market=None
                 if market:
-                    policy.quote_key=key
-                    policy.market_bid,policy.market_ask,policy.observed_at=market.bid,market.ask,market.at
+                    policy.candidate_key=key
+                    policy.candidate_bid,policy.candidate_ask,policy.candidate_at=market.bid,market.ask,market.at
                 policy.checked_at=started
                 policy.last_error=error
                 policy.save()

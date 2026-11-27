@@ -2089,7 +2089,7 @@ def _active_currency_rows(code=None):
     try:
         cursor = connection.cursor(dictionary=True)
         sql = """SELECT c.*, f.source AS fx_source, f.spread_mode, f.sell_extra, f.buy_less,
-                        f.market_ask, f.market_bid, f.quote_key, f.observed_at
+                        f.market_ask, f.market_bid, f.quote_key, f.observed_at, f.candidate_key, f.candidate_at, f.published_at
                  FROM currencies c LEFT JOIN portal_currencypricing f ON f.currency_id=c.id
                  WHERE c.is_active=1"""
         if code is not None:
@@ -2127,7 +2127,8 @@ def get_star_rate_toman():
         rate = Decimal(str(currency.get('buy_rate')))
     except (InvalidOperation, TypeError, ValueError):
         return None
-    if rate <= 0 or rate != rate.to_integral_value():
+    if (not rate.is_finite() or rate <= 0 or rate != rate.to_integral_value()
+            or rate >= (currency.get('manual_rate') or 0) or rate >= (currency.get('rate') or 0)):
         return None
     return rate
 
@@ -2433,13 +2434,14 @@ def is_user_banned(user_id):
 # ==================== توابع مدیریت روش‌های پرداخت ====================
 def get_payment_method_status(method_key):
     connection = get_db_connection()
-    if not connection: return True, ""
+    fallback=(False,'وضعیت روش پرداخت قابل تأیید نیست.') if method_key in ('crypto','stars') else (True,'')
+    if not connection: return fallback
     try:
         cursor = connection.cursor()
         cursor.execute("SELECT is_active, disable_reason FROM payment_methods WHERE method_key = %s", (method_key,))
         result = cursor.fetchone()
-        return (bool(result[0]), result[1] or "") if result else (True, "")
-    except Error as e: return True, ""
+        return (bool(result[0]), result[1] or "") if result else fallback
+    except Error as e: return fallback
     finally:
         try: cursor.close(); connection.close()
         except: pass
@@ -2907,7 +2909,7 @@ def get_payment_methods_keyboard():
     if len(row1) > 0: keyboard.append(row1)
 
     row2 = []
-    if stars_active: row2.append(KeyboardButton("⭐️ پرداخت با استارز"))
+    if stars_active and get_star_rate_toman() is not None: row2.append(KeyboardButton("⭐️ پرداخت با استارز"))
     if crypto_active: row2.append(KeyboardButton("💰 پرداخت با ارز دیجیتال"))
     if len(row2) > 0: keyboard.append(row2)
 
@@ -3659,6 +3661,7 @@ def get_admin_currencies_keyboard():
         status = "✅" if c.get('is_active') else "⛔️"
         keyboard.append([InlineKeyboardButton(f"{status} {code} — {label}", callback_data=f"acur_edit_{code}"),
                          InlineKeyboardButton("🗑 حذف", callback_data=f"acur_delete_{code}")])
+    keyboard.append([InlineKeyboardButton("🔄 بررسی و تأیید قیمت ارزها", url="https://dawnpanel.ir/admin/portal/currency/review/")])
     keyboard.append([InlineKeyboardButton("➕ افزودن ارز", callback_data="acur_add")])
     keyboard.append([InlineKeyboardButton("🔙 تنظیمات", callback_data="apanel_settings")])
     return InlineKeyboardMarkup(keyboard)
@@ -5760,7 +5763,7 @@ def create_charge_handler():
                 f"⭐️ <b>پرداخت با استارز</b>\n\n"
                 f"⭐️ لطفا تعداد استارز مورد نظر خود را وارد کنید:\n\n"
                 f"📊 محدوده مجاز: {min_stars:,} تا {max_stars:,} استارز\n"
-                f"💰 نرخ تبدیل: هر استارز = {format_amount(star_rate)} تومان\n\n"
+                f"💰 نرخ خرید مصوب برای شارژ: هر استارز = {format_amount(star_rate)} تومان\n\n"
                 f"💡 مثال: اگر 1 استارز وارد کنید، {format_amount(star_rate)} تومان به حساب شما اضافه می‌شود.",
                 reply_markup=get_back_keyboard(),
                 parse_mode="HTML"
@@ -5795,11 +5798,12 @@ def create_charge_handler():
 
             currencies = get_all_currencies()
             crypto_list = [c for c in currencies if c['type'] == 'crypto']
-            message = f"💰 <b>پرداخت با ارز دیجیتال</b>\n\n🔸 برای شارژ به {SUPPORT_USERNAME} پیام دهید. مبنای شارژ، «خرید از شما» برای هر واحد است.\n\n"
+            message = "💰 <b>شارژ دستی با رمزارز</b>\n\nبرای شارژ، با شمارهٔ همین حساب وارد سایت شوید و تیکت ثبت کنید. شبکه، آدرس و مبلغ نهایی را در همان تیکت هماهنگ کنید. مبنا «خرید از شما» است.\n\n"
             for c in crypto_list:
                 message += currency_quote_line(c)+"\n"
             message += '\n<a href="https://dawnpanel.ir/rates/">تابلوی نرخ‌ها، مرجع و زمان آخرین نرخ</a>'
-            await update.message.reply_text(message, reply_markup=get_main_menu(), parse_mode="HTML")
+            await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("ثبت تیکت شارژ رمزارزی",url="https://dawnpanel.ir/account/charge/crypto/")]]), parse_mode="HTML")
             return ConversationHandler.END
 
         else:
@@ -5826,6 +5830,9 @@ def create_charge_handler():
                 return
             if query.currency != 'XTR' or int(query.total_amount) != stars:
                 await query.answer(ok=False, error_message="❌ مبلغ فاکتور با درخواست شما مطابقت ندارد.")
+                return
+            if not get_payment_method_status('stars')[0] or get_star_rate_toman()!=rate:
+                await query.answer(ok=False,error_message='نرخ یا روش شارژ تغییر کرده؛ فاکتور تازه بگیرید.')
                 return
 
             conn = get_db_connection()
@@ -6006,6 +6013,13 @@ def create_charge_handler():
         if star_rate is None:
             await update.message.reply_text("❌ نرخ استارز در بخش «مدیریت ارزها» معتبر نیست یا ارز STAR غیرفعال است.\n\nبرای جلوگیری از اختلاف مالی، پرداخت متوقف شد.", reply_markup=get_main_menu())
             return ConversationHandler.END
+        if not get_payment_method_status('stars')[0]:
+            await update.message.reply_text('شارژ با استارز در حال حاضر بسته است.',reply_markup=get_main_menu())
+            return ConversationHandler.END
+        if str(star_rate)!=context.user_data.get('star_rate'):
+            context.user_data['star_rate']=str(star_rate)
+            await update.message.reply_text(f'نرخ مصوب تغییر کرده؛ هر ستاره {format_amount(star_rate)} تومان شارژ می‌شود. اگر قبول دارید تعداد ستاره را دوباره وارد کنید.')
+            return STARS_AMOUNT_INPUT
         amount_decimal = Decimal(stars) * star_rate
         if amount_decimal != amount_decimal.to_integral_value():
             await update.message.reply_text("❌ مبلغ قابل واریز به تومان صحیح نیست؛ تراکنش انجام نشد.", reply_markup=get_main_menu())
@@ -6034,7 +6048,7 @@ def create_charge_handler():
             await context.bot.send_invoice(
                 chat_id=update.effective_user.id,
                 title="⭐️ شارژ حساب با استارز",
-                description=f"💠 مقدار شارژ حساب: {format_amount(amount)} تومان",
+                description=f"نرخ خرید هر ستاره: {format_amount(star_rate)} تومان · شارژ کیف پول: {format_amount(amount)} تومان",
                 payload=payload,
                 currency="XTR",
                 prices=[LabeledPrice("شارژ حساب", stars)],
@@ -6150,7 +6164,7 @@ def create_charge_handler():
                         rules_text = (
                             f"⚠️ <b>#مهم</b> (این نکات رعایت نشود بلافاصله مسدود می‌شوید) ❗️\n\n"
                             f"1️⃣ بعد از شارژ حساب در صورت نیاز احراز هویت گرفته می‌شود. پس پول هک شده و فیشینگ نزنید.\n\n"
-                            f"2️⃣ شارژ حساب با ارز دیجیتال نیاز به احراز هویت ندارد. جهت دریافت ولت به پشتیبانی مراجعه کنید.\n\n"
+                            f"2️⃣ برای شارژ دستی با رمزارز، <a href='https://dawnpanel.ir/account/charge/crypto/'>تیکت شارژ</a> ثبت کنید. شبکه و آدرس واریز در تیکت اعلام می‌شود.\n\n"
                             f"3️⃣ از کارت‌های هدیه جهت شارژ حساب استفاده نکنید.\n\n"
                             f"4️⃣ اتباع خارجی اجازه پرداخت با ریال را ندارند.\n\n"
                             f"5️⃣ فقط با یک کارت ثابت خرید بزنید و از چند کارت استفاده نکنید چون بلافاصله مسدود می‌شوید. کارت فقط برای خودتان یا یکی از فامیل درجه یک باشد به صورتی که کارت در اختیارتان باشد.\n\n"
@@ -6385,6 +6399,10 @@ async def precheckout_star_payment(update: Update, context: ContextTypes.DEFAULT
             return
         if query.currency != 'XTR' or int(query.total_amount) != stars:
             await query.answer(ok=False, error_message="❌ مبلغ فاکتور با درخواست شما مطابقت ندارد.")
+            return
+
+        if not get_payment_method_status('stars')[0] or get_star_rate_toman()!=rate:
+            await query.answer(ok=False,error_message='نرخ یا روش شارژ تغییر کرده؛ فاکتور تازه بگیرید.')
             return
 
         conn = get_db_connection()
