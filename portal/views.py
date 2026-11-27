@@ -65,7 +65,10 @@ def home(request):
 
 @require_GET
 def contact(request):
-    return render(request,'contact.html',{'title':'ارتباط با ما | پشتیبانی دان‌پنل','description':'راه‌های ارتباط با دان‌پنل؛ گفتگوی آنلاین، ثبت و پیگیری تیکت و کانال‌های رسمی دان‌پنل در شبکه‌های اجتماعی.'})
+    return render(request,'contact.html',{'title':'ارتباط با ما | پشتیبانی دان‌پنل',
+        'description':'راه‌های ارتباط با دان‌پنل: تماس تلفنی، ایمیل، گفتگوی آنلاین و پیگیری سفارش با تیکت.',
+        'contact_phone':settings.CONTACT_PHONE,'contact_tel':'+98'+settings.CONTACT_PHONE.removeprefix('0'),
+        'contact_email':settings.CONTACT_EMAIL})
 
 def ai_catalog(request):
     return catalog(request,platform_override='ai')
