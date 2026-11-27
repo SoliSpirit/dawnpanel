@@ -1,5 +1,6 @@
 {% extends 'admin/base.html' %}{% load static ui %}
 {% block title %}{{ title }} | مدیریت دان‌پنل{% endblock %}
+{% block content_title %}{% if workspace_page and title %}<h1 class="dp-page-heading" data-tone="{{ workspace_page.tone }}"><span class="dp-group-icon">{% icon workspace_page.icon %}</span>{{ title }}</h1>{% else %}{{ block.super }}{% endif %}{% endblock %}
 {% block dark-mode-vars %}<link rel="stylesheet" href="{% static 'admin/css/dark_mode.css' %}"><script src="{% static 'theme.js' %}"></script>{% endblock %}
 {% block extrahead %}{{ block.super }}<link rel="icon" type="image/svg+xml" href="{% static 'brand/dawn-mark.svg' %}"><script src="{% static 'workspace.js' %}" defer></script>{% endblock %}
 {% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-panel.css' %}"><link rel="stylesheet" href="{% static 'workspace.css' %}"><link rel="stylesheet" href="{% static 'admin-command.css' %}">{% endblock %}

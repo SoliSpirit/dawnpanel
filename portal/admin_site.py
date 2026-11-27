@@ -6,6 +6,22 @@ from django.http import Http404
 from django.shortcuts import redirect
 
 
+# Shared by the desktop rail, mobile menu and dashboard's management tools.
+WORKSPACE_GROUPS = (
+    ('فروشگاه', 'store', 'green', {
+        'Product':'box', 'Category':'folders', 'Order':'receipt', 'Ledger':'transfer',
+        'Currency':'coins', 'GiftCode':'gift',
+    }),
+    ('مشتریان و دسترسی‌ها', 'shield', 'indigo', {
+        'Account':'id-card', 'LegacyUser':'wallet', 'MemberRank':'award', 'User':'user', 'Group':'users',
+    }),
+    ('محتوا و پشتیبانی', 'headset', 'blue', {'Post':'pen', 'Ticket':'ticket'}),
+    ('قیمت منابع', 'tags', 'amber', {'SourceProduct':'tag', 'SourceSyncSettings':'sliders'}),
+    ('تبلیغات', 'megaphone', 'rose', {'Campaign':'target'}),
+    ('فعالیت‌ها', 'activity', 'slate', {'Audit':'history'}),
+)
+
+
 class DawnAdminConfig(AdminConfig):
     default_site='portal.admin_site.DawnAdminSite'
 
@@ -18,11 +34,16 @@ class DawnAdminSite(AdminSite):
 
     def each_context(self, request):
         context=super().each_context(request)
-        groups=[('فروشگاه', {'Product','Category','Order','Ledger','Currency','GiftCode'}),
-                ('مشتریان و دسترسی‌ها', {'Account','LegacyUser','MemberRank','User','Group'}),
-                 ('محتوا و پشتیبانی', {'Post','Ticket'}), ('قیمت منابع', {'SourceProduct','SourceSyncSettings'}), ('تبلیغات', {'Campaign'}), ('فعالیت‌ها', {'Audit'})]
         models=[model for app in context['available_apps'] for model in app['models'] if model['admin_url']]
-        context['workspace_groups']=[(label,[m for m in models if m['object_name'] in names]) for label,names in groups]
+        groups=[]
+        for label, icon, tone, icons in WORKSPACE_GROUPS:
+            entries=[{**m, 'icon':icons[m['object_name']]} for m in models if m['object_name'] in icons]
+            if entries:
+                groups.append({'label':label, 'icon':icon, 'tone':tone, 'models':entries})
+                for entry in entries:
+                    if request.path.startswith(entry['admin_url']):
+                        context['workspace_page']={'icon':entry['icon'], 'tone':tone}
+        context['workspace_groups']=groups
         return context
 
     def has_permission(self,request):

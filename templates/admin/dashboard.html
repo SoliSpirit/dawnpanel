@@ -12,7 +12,7 @@
   <header class="desk-hero">
     <div class="desk-hero-copy">
       <time class="desk-hero-date" datetime="{{ dashboard_date|date:'Y-m-d' }}">{% icon 'calendar' %} {{ today_caption }}</time>
-      <h1>داشبورد فروشگاه</h1>
+      <h1><span class="desk-hero-mark">{% icon 'gauge' %}</span>داشبورد فروشگاه</h1>
       <div class="desk-hero-actions">
         {% if perms.portal.add_product %}<a class="desk-button primary" href="{% url 'admin:portal_product_add' %}">{% icon 'plus' %} افزودن محصول</a>
         {% elif perms.portal.change_order or perms.portal.change_ticket %}<a class="desk-button primary" href="{% url 'staff' %}">{% icon 'inbox' %} میز رسیدگی</a>
@@ -34,10 +34,10 @@
     {% if perms.portal.view_order %}<div class="desk-stack">
       {% include 'admin/overview/sales.html' %}
       <section class="desk-panel" id="orders" aria-labelledby="orders-title">
-        <div class="desk-panel-head"><div><p class="desk-eyebrow">پیگیری خریدها</p><h2 id="orders-title">آخرین سفارش‌ها</h2></div><a class="desk-link" href="{% url 'admin:portal_order_changelist' %}">همه سفارش‌ها {% icon 'left' %}</a></div>
+        <div class="desk-panel-head">{% include 'admin/overview/panel_title.html' with heading_id='orders-title' eyebrow='پیگیری خریدها' heading='آخرین سفارش‌ها' symbol='receipt' tone='blue' only %}<a class="desk-link" href="{% url 'admin:portal_order_changelist' %}">همه سفارش‌ها {% icon 'left' %}</a></div>
         <ul class="desk-orders">{% for order in recent_orders %}<li><a href="{% url 'admin:portal_order_change' order.pk %}">
           <span class="desk-order-id"><strong>{{ order.product_name }}</strong><bdi>{{ order.tracking_code }}</bdi></span>
-          <span class="desk-status" data-status="{{ order.status }}">{{ order.status_label }}</span>
+          <span class="desk-status" data-status="{{ order.status }}">{% order_status_icon order.status %}{{ order.status_label }}</span>
           <span class="desk-price">{{ order.total_price|fa_number }} <small>تومان</small></span>
         </a></li>{% empty %}<li class="desk-empty">{% icon 'bag' %}<strong>هنوز سفارشی ثبت نشده است.</strong><span>اولین خرید فروشگاه اینجا نمایش داده می‌شود.</span></li>{% endfor %}</ul>
         <div class="desk-panel-foot"><span>کل فروش تکمیل‌شده</span><strong>{{ completed_revenue|fa_number }} تومان</strong></div>
@@ -45,7 +45,7 @@
     </div>{% endif %}
     {% if desk_tasks or perms.portal.view_ticket %}<div class="desk-stack">
       {% if desk_tasks %}<section class="desk-panel desk-queue" aria-labelledby="queue-title" id="queue">
-        <div class="desk-panel-head"><div><p class="desk-eyebrow">عملیات فروشگاه</p><h2 id="queue-title">نیاز به رسیدگی</h2></div><span class="desk-total">{{ task_count|fa_number }} مورد</span></div>
+        <div class="desk-panel-head">{% include 'admin/overview/panel_title.html' with heading_id='queue-title' eyebrow='عملیات فروشگاه' heading='نیاز به رسیدگی' symbol='inbox' tone='amber' only %}<span class="desk-total">{{ task_count|fa_number }} مورد</span></div>
         <ul class="desk-queue-list">{% for task in desk_tasks %}<li><a href="{{ task.href }}" data-tone="{{ task.tone }}">
           <span class="desk-symbol">{% icon task.icon %}</span><span class="desk-item-name">{{ task.label }}</span>
           <strong class="desk-count{% if task.count %} has-items{% endif %}">{{ task.count|fa_number }}</strong>{% icon 'chevron' %}
@@ -53,26 +53,26 @@
         {% if not task_count %}<p class="desk-note">در صف‌های بالا موردی برای رسیدگی نیست.</p>{% endif %}
       </section>{% endif %}
       {% if perms.portal.view_ticket %}<section class="desk-panel" id="tickets" aria-labelledby="tickets-title">
-        <div class="desk-panel-head"><div><p class="desk-eyebrow">پشتیبانی مشتریان</p><h2 id="tickets-title">آخرین تیکت‌های فعال</h2></div><a class="desk-link" href="{% url 'admin:portal_ticket_changelist' %}">همه تیکت‌ها {% icon 'left' %}</a></div>
+        <div class="desk-panel-head">{% include 'admin/overview/panel_title.html' with heading_id='tickets-title' eyebrow='پشتیبانی مشتریان' heading='آخرین تیکت‌های فعال' symbol='headset' tone='indigo' only %}<a class="desk-link" href="{% url 'admin:portal_ticket_changelist' %}">همه تیکت‌ها {% icon 'left' %}</a></div>
         <ul class="desk-tickets">{% for ticket in recent_tickets %}<li><a href="{% if perms.portal.change_ticket %}{% url 'ticket' ticket.pk %}{% else %}{% url 'admin:portal_ticket_change' ticket.pk %}{% endif %}">
-          <span class="desk-ticket-dot{% if ticket.priority == 'urgent' %} urgent{% endif %}" aria-hidden="true"></span><span><strong>{{ ticket.subject }}</strong><small>شماره {{ ticket.pk|fa_number }} · {{ ticket.get_status_display }}{% if ticket.priority == 'urgent' %} · فوری{% endif %}</small></span>{% icon 'chevron' %}
+          <span class="desk-symbol" data-tone="{% if ticket.priority == 'urgent' %}amber{% else %}indigo{% endif %}">{% if ticket.priority == 'urgent' %}{% icon 'alert' %}{% else %}{% icon 'ticket' %}{% endif %}</span><span><strong>{{ ticket.subject }}</strong><small>شماره {{ ticket.pk|fa_number }} · {{ ticket.get_status_display }}{% if ticket.priority == 'urgent' %} · فوری{% endif %}</small></span>{% icon 'chevron' %}
         </a></li>{% empty %}<li class="desk-empty">{% icon 'chat' %}<strong>تیکت فعالی وجود ندارد.</strong></li>{% endfor %}</ul>
       </section>{% endif %}
     </div>{% endif %}
   </div>{% endif %}
 
   <section class="desk-panel desk-tools" id="tools" aria-labelledby="tools-title">
-    <div class="desk-panel-head"><div><p class="desk-eyebrow">دسترسی سریع</p><h2 id="tools-title">ابزارهای مدیریت</h2></div>{% icon 'grid' %}</div>
+    <div class="desk-panel-head">{% include 'admin/overview/panel_title.html' with heading_id='tools-title' eyebrow='دسترسی سریع' heading='ابزارهای مدیریت' symbol='toolbox' tone='slate' only %}</div>
     <div class="desk-tool-links">
       {% if perms.portal.view_product %}<a href="{% url 'admin:portal_product_changelist' %}">{% icon 'box' %} محصولات و مالیات</a>{% endif %}
-      {% if perms.portal.view_sourcesyncsettings %}<a href="{% url 'admin:portal_sourcesyncsettings_changelist' %}">{% icon 'tag' %} تنظیمات قیمت منابع</a>{% endif %}
+      {% if perms.portal.view_sourcesyncsettings %}<a href="{% url 'admin:portal_sourcesyncsettings_changelist' %}">{% icon 'sliders' %} تنظیمات قیمت منابع</a>{% endif %}
       {% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'staff' %}">{% icon 'inbox' %} میز رسیدگی</a>{% endif %}
       {% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}">{% icon 'chat' %} گفتگوی آنلاین</a>{% endif %}
-      {% if perms.portal.add_post %}<a href="{% url 'admin:portal_post_add' %}">{% icon 'book' %} نوشتن مقاله</a>{% endif %}
+      {% if perms.portal.add_post %}<a href="{% url 'admin:portal_post_add' %}">{% icon 'pen' %} نوشتن مقاله</a>{% endif %}
     </div>
-    <div class="desk-tool-groups">{% for label, models in workspace_groups %}{% if models %}<details name="desk-tools"><summary>{{ label }}<span>{{ models|length|fa_number }} {% icon 'chevron' %}</span></summary>
-      <ul>{% for model in models %}<li><a href="{{ model.admin_url }}">{{ model.name }} {% icon 'left' %}</a></li>{% endfor %}</ul>
-    </details>{% endif %}{% endfor %}</div>
+    <div class="desk-tool-groups">{% for group in workspace_groups %}<details name="desk-tools" data-tone="{{ group.tone }}"><summary>{% include 'admin/overview/group_label.html' with group=group only %}<span class="desk-tool-count">{{ group.models|length|fa_number }} {% icon 'chevron' %}</span></summary>
+      <ul>{% for model in group.models %}<li><a href="{{ model.admin_url }}"><span class="dp-item-label">{% icon model.icon %}<span>{{ model.name }}</span></span>{% icon 'left' %}</a></li>{% endfor %}</ul>
+    </details>{% endfor %}</div>
   </section>
 </div>
 {% endblock %}

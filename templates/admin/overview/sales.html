@@ -1,5 +1,5 @@
 {% load ui %}<section class="desk-panel desk-sales" aria-labelledby="sales-title" id="sales">
-  <div class="desk-panel-head"><div><p class="desk-eyebrow">گزارش مالی</p><h2 id="sales-title">روند فروش</h2></div>
+  <div class="desk-panel-head">{% include 'admin/overview/panel_title.html' with heading_id='sales-title' eyebrow='گزارش مالی' heading='روند فروش' symbol='plot' tone='green' only %}
     <nav class="desk-periods" aria-label="بازه گزارش فروش">{% for key,label,days in periods %}
       <a href="?period={{ key }}#sales"{% if report_period == key %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}</nav>
   </div>
