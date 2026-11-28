@@ -1,3 +1,14 @@
 {% extends 'admin/base_site.html' %}{% load static ui %}{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'operator-hub.css' %}">{% endblock %}
-{% block content %}<div class="op-hub"><p>نتایج پایش زمان‌بندی‌شده و بررسی دستی را اینجا می‌بینید.</p>
-{% for b in page %}<a class="op-batch" href="{% url 'admin:price_review' b.pk %}"><span>{% icon 'receipt' %} گزارش {{ b.pk|fa_number }} · {% if b.kind == 'scheduled' %}پایش خودکار{% else %}بررسی دستی{% endif %}</span><time>{{ b.created_at|fa_datetime }}</time></a>{% empty %}<p>هنوز گزارشی ثبت نشده؛ از فهرست محصولات «بررسی مجدد» را بزنید.</p>{% endfor %}{% include 'partials/pagination.html' %}</div>{% endblock %}
+{% block content %}<div class="op-hub">
+  <nav class="op-tabs" aria-label="فهرست گزارش‌های قیمت">
+    <a href="{% url 'admin:price_reports' %}"{% if not archive %} aria-current="page"{% endif %}>آخرین گزارش</a>
+    <a href="{% url 'admin:price_reports_archive' %}"{% if archive %} aria-current="page"{% endif %}>بایگانی گزارش‌ها ({{ archive_count|fa_number }})</a>
+  </nav>
+  <p>{% if archive %}گزارش‌های قبلی، از تازه به قدیم:{% else %}با آماده شدن گزارش جدید، گزارش قبلی به بایگانی می‌رود.{% endif %}</p>
+  {% for b in batches %}
+    <a class="op-batch" href="{% url 'admin:price_review' b.pk %}"><span>{% icon 'receipt' %} گزارش {{ b.pk|fa_number }} · {% if b.kind == 'scheduled' %}پایش خودکار{% elif b.kind == 'recheck' %}بررسی مجدد محصول{% else %}بررسی دستی{% endif %}</span><time datetime="{{ b.created_at|date:'c' }}">{{ b.created_at|fa_datetime }}</time></a>
+  {% empty %}
+    <p>{% if archive %}هنوز گزارشی در بایگانی نیست.{% else %}هنوز گزارشی آماده نیست.{% endif %}</p>
+  {% endfor %}
+  {% if archive %}{% include 'partials/pagination.html' %}{% endif %}
+</div>{% endblock %}

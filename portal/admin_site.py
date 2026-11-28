@@ -45,6 +45,7 @@ class DawnAdminSite(AdminSite):
         def workspace(fn,**kwargs):return self.admin_view(partial(fn,site=self,**kwargs))
         return [path('order-alerts/',self.admin_view(self.order_alerts),name='order_alerts'),
             path('prices/reviews/',workspace(review_queue.reports),name='price_reports'),
+            path('prices/reviews/archive/',workspace(review_queue.reports,archive=True),name='price_reports_archive'),
             path('prices/packs/<int:pk>/',workspace(pack_basis.pack_editor),name='pack_editor'),
             path('prices/reviews/<int:pk>/',workspace(review_queue.report),name='price_review'),
             path('prices/reviews/<int:pk>/items/<int:item_pk>/price/',workspace(review_queue.current_price),name='current_sale_price'),

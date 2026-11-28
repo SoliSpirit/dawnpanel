@@ -104,8 +104,10 @@ commit with their outboxes. Telegram keeps its actionable private message; email
 contains an administrative summary, not a customer's attachment or message body.
 Transient Telegram failures remain queued across restarts.
 
-Supplier checks never publish a price. `/admin/prices/reviews/` keeps 30 days of
-reports, showing old/new source prices, units, merchant markup and pre-tax sales.
+Supplier checks never publish a price. `/admin/prices/reviews/` shows the newest
+ready report. Earlier ready reports are listed at `/admin/prices/reviews/archive/`
+with the same detail links and 30-day retention. Reports show old/new source
+prices, units, merchant markup and pre-tax sales.
 One row can be approved at a custom markup in the panel; bulk approval retains the
 existing pricing method. A row also accepts an exact pre-tax selling amount in
 toman per displayed pack. This does not change the supplier's observed price or

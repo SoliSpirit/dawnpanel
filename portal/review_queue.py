@@ -156,10 +156,17 @@ def decide(batch_pk,*,item_pk=None,markup=None,fixed_sale=None,reject=False,acto
 
 
 @require_GET
-def reports(request,site):
+def reports(request,site,*,archive=False):
     if not allowed(request,site):raise PermissionDenied
-    page=Paginator(PriceReviewBatch.objects.filter(ready=True).order_by('-pk'),15).get_page(request.GET.get('page'))
-    return render(request,'admin/portal/price_reports.html',{**site.each_context(request),'title':'گزارش‌های بررسی قیمت','page':page})
+    ready=PriceReviewBatch.objects.filter(ready=True).order_by('-pk')
+    latest=ready.first()
+    older=ready.filter(pk__lt=latest.pk) if latest else ready.none()
+    page=Paginator(older,15).get_page(request.GET.get('page')) if archive else None
+    return render(request,'admin/portal/price_reports.html',{
+        **site.each_context(request),'title':'بایگانی گزارش‌های قیمت' if archive else 'گزارش‌های بررسی قیمت',
+        'archive':archive,'archive_count':page.paginator.count if archive else older.count(),
+        'batches':page if archive else ([latest] if latest else []),'page':page,
+    })
 
 
 @require_http_methods(['GET','POST'])
@@ -206,7 +213,8 @@ def report(request,site,pk):
             i.editable=False;i.current_label=LABEL['stale']
         i.live_sale=current_pack(p);i.live_units=p.price_per if p else None
     return render(request,'admin/portal/price_report.html',{**site.each_context(request),'title':'مقایسهٔ قیمت منابع','batch':batch,
-        'pending':pending,'page':page,'items':items,'show':mode,'can_edit':write})
+        'pending':pending,'page':page,'items':items,'show':mode,'can_edit':write,
+        'in_archive':PriceReviewBatch.objects.filter(ready=True,pk__gt=pk).exists()})
 
 
 @require_http_methods(['GET','POST'])
