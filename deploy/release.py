@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 """Root-owned narrow deployment wrapper; application commands run as dawnpanel."""
 import fcntl
+import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -16,6 +18,11 @@ MIN_FREE_BYTES = 1024**3
 PROC = Path('/proc')
 HEALTH = ['curl', '--fail', '--silent', '--max-time', '5', '-H', 'Host: dawnpanel.ir',
           '-H', 'X-Forwarded-Proto: https', 'http://127.0.0.1:18145/healthz/']
+STATIC_PROBES = {
+    'retail.css': ('text/css',), 'admin-panel.css': ('text/css',), 'admin-desk.css': ('text/css',),
+    'workspace.js': ('application/javascript', 'text/javascript'),
+    'fonts/Vazirmatn.woff2': ('font/woff2', 'application/font-woff2'),
+}
 
 
 def release_pointer(base, name):
@@ -90,8 +97,52 @@ def prune_releases(base, *, dry_run=False):
     return stale
 
 
-def healthy():
+def web_ready():
     return subprocess.run(HEALTH, capture_output=True).returncode == 0
+
+
+def static_ready(release):
+    """Probe the hashed URLs a browser uses, served by Nginx, not by Gunicorn."""
+    # The manifest is app-owned. Open it as the actual static reader, never root.
+    asset = 'staticfiles.json'
+    try:
+        manifest = subprocess.run(
+            ['runuser', '-u', 'www-data', '--', 'head', '-c', '1000001', str(release/'staticfiles'/asset)],
+            check=True, capture_output=True, timeout=5).stdout
+        if len(manifest) > 1_000_000:
+            raise ValueError
+        paths = json.loads(manifest)['paths']
+        for asset, types in STATIC_PROBES.items():
+            stem, suffix = asset.rsplit('.', 1)
+            name = paths[asset]
+            match = re.fullmatch(re.escape(stem) + r'\.([0-9a-f]{12})\.' + suffix, name)
+            if not match:
+                raise ValueError
+            response = subprocess.run([
+                'curl', '-q', '--silent', '--fail', '--max-time', '5', '--max-filesize', '2097152',
+                '--noproxy', '*', '--resolve', 'dawnpanel.ir:443:127.0.0.1',
+                '--write-out', r'\n%{http_code} %{content_type}', 'https://dawnpanel.ir/static/' + name,
+            ], check=True, capture_output=True, timeout=7).stdout
+            body, _, meta = response.rpartition(b'\n')
+            status, _, mime = meta.decode('ascii').partition(' ')
+            if (status != '200' or mime.partition(';')[0].strip().lower() not in types or not body
+                    or hashlib.md5(body, usedforsecurity=False).hexdigest()[:12] != match[1]):
+                raise ValueError
+    except (OSError, subprocess.SubprocessError, KeyError, ValueError, TypeError):
+        print(f'Public static health check failed: {asset}', file=sys.stderr, flush=True)
+        return False
+    return True
+
+
+def healthy(release):
+    return web_ready() and static_ready(release)
+
+
+def create_release_dir(release):
+    # mkdir's mode is filtered by the invoking shell's umask, including 0077.
+    # Nginx needs search permission on this one parent to serve /static/.
+    release.mkdir(mode=0o700)
+    release.chmod(0o711)
 
 
 def deploy(sha):
@@ -104,7 +155,7 @@ def deploy(sha):
     previous = release_pointer(BASE, 'current')
     release = releases / sha
     if release.exists() or release.is_symlink():
-        if previous == release and healthy():
+        if previous == release and healthy(release):
             archive.unlink(missing_ok=True)
             print('Already deployed and healthy', sha)
             return
@@ -112,7 +163,7 @@ def deploy(sha):
     if shutil.disk_usage(releases).free < MIN_FREE_BYTES:
         raise SystemExit('Deployment stopped: less than 1 GiB free on the release filesystem')
 
-    release.mkdir(mode=0o755)
+    create_release_dir(release)
     switched = False
     try:
         with tarfile.open(archive) as tar:
@@ -152,18 +203,20 @@ def deploy(sha):
         try:
             subprocess.run(['systemctl', 'restart', 'dawnpanel-web'], check=True)
             for _ in range(20):
-                if healthy():
+                if web_ready():
                     break
                 time.sleep(1)
             else:
                 raise RuntimeError('Health check failed')
+            if not static_ready(release):
+                raise RuntimeError('Nginx is not serving this release’s assets')
             subprocess.run(['systemctl', 'try-restart', 'dawnpanel-bot'], check=True)
         except Exception:
             if previous:
                 write_pointer(BASE, 'current', previous)
                 web = subprocess.run(['systemctl', 'restart', 'dawnpanel-web'])
                 bot = subprocess.run(['systemctl', 'try-restart', 'dawnpanel-bot'])
-                if web.returncode == bot.returncode == 0 and healthy():
+                if web.returncode == bot.returncode == 0 and healthy(previous):
                     switched = False  # Safe to remove the failed candidate.
             raise
         print('Deployed', sha, flush=True)
@@ -189,7 +242,8 @@ def main(args):
     with open('/run/lock/dawnpanel-deploy.lock', 'w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if cleanup:
-            if not healthy():
+            current = release_pointer(BASE, 'current')
+            if not current or not healthy(current):
                 raise SystemExit('Current release is not healthy; nothing pruned')
             prune_releases(BASE, dry_run='--dry-run' in args)
         else:
