@@ -237,7 +237,10 @@ class PriceSyncTests(TransactionTestCase):
         self.assertIn('&lt;پکیج &amp; آزمایشی&gt;',msg['text']);self.assertNotIn('صفحهٔ ۱',msg['text'])
         OrderDelivery.objects.filter(operation__reference=str(pk),operation__topic='price_review').update(message_id=33,state='sent')
         click=lambda data:telegram_action(71,71,'private',33,data)
-        first=click(msg['reply_markup']['inline_keyboard'][0][0]['callback_data'])
+        def opening(action):
+            return next(b['callback_data'] for row in msg['reply_markup']['inline_keyboard'] for b in row
+                        if f':{action}:' in b.get('callback_data',''))
+        first=click(opening('pending'))
         card=click(first['reply_markup']['inline_keyboard'][0][0]['callback_data'])
         self.assertIn('فروش پیش از مالیات',card['text'])
         self.assertFalse(item.decision)
@@ -246,6 +249,75 @@ class PriceSyncTests(TransactionTestCase):
         self.assertIn('تأیید شد',click(approved)['text'])
         self.assertIn('قبلاً بررسی',click(approved)['text'])
         self.product.refresh_from_db();self.assertEqual(self.product.price,1100)
+
+    @override_settings(BOT_CONFIG={'telegram':{'admin_ids':[71]}})
+    def test_digest_rejects_only_displayed_proposal_without_touching_sale_or_rejecting_the_next_one(self):
+        from django.core.exceptions import PermissionDenied
+        from .models import Audit,OrderDelivery,PriceReviewBatch,ProductSaleOverride
+        from .telegram_reviews import telegram_action,telegram_digest
+        ProductSaleOverride.objects.create(product=self.product,units=1,amount=1501)
+        other=Product.objects.create(name='ZZ next',category=self.category,price=700)
+        SourceProduct.objects.create(source='premstore',external_id='12',product_id=other.pk,last_price=700)
+        self.rows.append(dict(self.rows[0],external_id='12',price=800))
+        batch=PriceReviewBatch.objects.get(pk=self.fetch()['review_batch'])
+        args=(71,71,'private',31);click=lambda data:telegram_action(*args,data)
+        msg=telegram_digest(batch.pk);shown=batch.items.get(product_id=self.product.pk)
+        controls={b['callback_data'].split(':')[3]:b['callback_data'] for row in msg['reply_markup']['inline_keyboard']
+                  for b in row if 'callback_data' in b}
+        for verb in ('approveh','rejecth','recheckh'):
+            self.assertEqual(int(controls[verb].rsplit(':',1)[1]),shown.pk)
+            with self.assertRaises(PermissionDenied):click(controls[verb])  # not delivered
+        OrderDelivery.objects.filter(operation__reference=str(batch.pk),recipient=71).update(state='sent',message_id=31)
+        for wrong in ((81,81,'private',31),(71,71,'private',32),(71,-100,'supergroup',31)):
+            with self.assertRaises(PermissionDenied):telegram_action(*wrong,controls['rejecth'])
+        with self.assertRaises(PermissionDenied):click(f'pr:{batch.pk}:1:rejecth:0')
+        reply=click(controls['rejecth'])
+        self.assertIn('پیشنهاد رد شد',reply['text'])
+        self.assertIn('قبلاً بررسی',click(controls['rejecth'])['text'])
+        self.assertIn('قبلاً بررسی',click(controls['approveh'])['text'])
+        shown.refresh_from_db();self.link.refresh_from_db();self.product.refresh_from_db()
+        self.assertEqual((shown.decision,shown.final_sale,self.link.review_status,self.link.proposed_price,
+                          self.product.price,self.product.fixed_sale),('rejected',None,'rejected',None,1000,1501))
+        log=Audit.objects.get(action='source.price.reject');self.assertEqual(log.details['telegram_admin_id'],71)
+        next_item=batch.items.get(product_id=other.pk);self.assertEqual(next_item.decision,'')
+        next_cb=next(b['callback_data'] for r in reply['reply_markup']['inline_keyboard'] for b in r if 'پیشنهاد بعدی' in b['text'])
+        self.assertIn(other.name,click(next_cb)['text'])
+        self.assertIn('تأیید شد',click(f'pr:{batch.pk}:1:approveh:{next_item.pk}')['text'])
+        other.refresh_from_db();self.assertEqual(other.price,800)
+        self.fetch();self.link.refresh_from_db();self.assertEqual(self.link.review_status,'rejected')
+
+    @override_settings(BOT_CONFIG={'telegram':{'admin_ids':[71]}})
+    def test_telegram_supplier_recheck_has_its_own_delivery_and_cannot_be_applied_from_a_stale_message(self):
+        from django.core.exceptions import PermissionDenied
+        from .models import Audit,OrderDelivery,PriceReviewBatch
+        from .telegram_reviews import telegram_action,telegram_digest
+        batch=PriceReviewBatch.objects.get(pk=self.fetch()['review_batch']);old=batch.items.get()
+        other=SourceProduct.objects.create(source='premstore',external_id='12',product_id=3000,last_price=800,available=True)
+        out=OrderDelivery.objects.get(operation__reference=str(batch.pk),recipient=71)
+        out.state='sent';out.message_id=12;out.save()
+        call=lambda mid,data:telegram_action(71,71,'private',mid,data)
+        cb=f'pr:{batch.pk}:1:recheckh:{old.pk}';self.rows[0]['price']=1200
+        with patch('portal.price_sync.fetch_catalogue',side_effect=SupplierError('supplier unavailable')):
+            self.assertIn('موفق نبود',call(12,cb)['text'])
+        self.link.refresh_from_db();self.assertEqual(self.link.observed_at,old.observed_at)
+        with patch('portal.price_sync.fetch_catalogue',return_value=self.rows) as fetch:
+            self.assertIn('بررسی مجدد انجام شد',call(12,cb)['text'])
+            self.assertIn('تازه‌تری',call(12,cb)['text'])
+            fetch.assert_called_once()
+        fresh=PriceReviewBatch.objects.get(kind='recheck',ready=True);item=fresh.items.get()
+        self.assertEqual((item.link_id,item.previous,item.observed),(self.link.pk,1100,1200))
+        self.assertIn('بررسی مجدد',telegram_digest(fresh.pk)['text'])
+        self.assertEqual(Audit.objects.get(action='source.price.recheck').details['review_item'],old.pk)
+        delivery=OrderDelivery.objects.get(operation__topic='price_review',operation__reference=str(fresh.pk),recipient=71)
+        self.assertEqual(delivery.state,'pending')
+        self.assertIn('دیگر معتبر نیست',call(12,f'pr:{batch.pk}:1:rejecth:{old.pk}')['text'])
+        with self.assertRaises(PermissionDenied):call(12,f'pr:{fresh.pk}:1:approvea:{item.pk}')
+        self.product.refresh_from_db();self.link.refresh_from_db();other.refresh_from_db()
+        self.assertEqual((self.product.price,self.link.proposed_price,self.link.review_status,other.observed_at),(1000,1200,'pending',None))
+        self.assertFalse(Audit.objects.filter(action__in=['source.price.reject','source.price.apply']).exists())
+        delivery.state='sent';delivery.message_id=13;delivery.save()
+        self.assertIn('تأیید شد',call(13,f'pr:{fresh.pk}:1:approvea:{item.pk}')['text'])
+        self.product.refresh_from_db();self.assertEqual(self.product.price,1200)
 
     def _tools_staff(self,*perms):
         editor=User.objects.create_user(username='price-tools',is_staff=True)

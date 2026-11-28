@@ -11900,18 +11900,26 @@ async def publication_callback(update: Update,context: ContextTypes.DEFAULT_TYPE
     except Exception:
         await query.answer('پیام‌رسان محصول را انتخاب و دوباره تلاش کنید.',show_alert=True)
 
+_busy_price_messages=set()
+
 async def price_review_callback(update,context):
     query=update.callback_query;chat=update.effective_chat
     if not chat or not query.message or chat.type!='private' or chat.id!=update.effective_user.id or chat.id not in ADMIN_IDS:
         await query.answer('این عملیات مخصوص گفتگوی خصوصی مدیر است.',show_alert=True);return
-    await query.answer()
-    try:payload=await asyncio.to_thread(integration.review_callback,chat.id,chat.id,chat.type,query.message.message_id,query.data)
-    except Exception:
-        await query.message.reply_text('گزارش معتبر نیست یا دسترسی ندارید. گزارش جاری را در پنل ببینید.');return
-    kb=payload.get('reply_markup',{}).get('inline_keyboard',[])
-    try:await query.edit_message_text(payload['text'],parse_mode=payload.get('parse_mode'),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(**x) for x in row] for row in kb]))
-    except BadRequest as exc:
-        if 'not modified' not in str(exc).lower():raise
+    key=(chat.id,query.message.message_id)
+    if key in _busy_price_messages:
+        await query.answer('درخواست قبلی همین پیام در حال انجام است.');return
+    _busy_price_messages.add(key)
+    try:
+        await query.answer('در حال بررسی قیمت منبع…' if ':recheck' in (query.data or '') else None)
+        try:payload=await asyncio.to_thread(integration.review_callback,chat.id,chat.id,chat.type,query.message.message_id,query.data)
+        except Exception:
+            await query.message.reply_text('پاسخ این درخواست در دسترس نیست. وضعیت پیشنهاد را در گزارش جاری ببینید.');return
+        kb=payload.get('reply_markup',{}).get('inline_keyboard',[])
+        try:await query.edit_message_text(payload['text'],parse_mode=payload.get('parse_mode'),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(**x) for x in row] for row in kb]))
+        except BadRequest as exc:
+            if 'not modified' not in str(exc).lower():raise
+    finally:_busy_price_messages.discard(key)
 
 
 async def backup_group_id(update,context):
@@ -11937,7 +11945,7 @@ def main():
 
     # ترتیب handlerها خیلی مهمه!
     app.add_handler(TypeHandler(Update, track_user_activity), group=-1)
-    app.add_handler(CallbackQueryHandler(price_review_callback,pattern=r'^pr:'))
+    app.add_handler(CallbackQueryHandler(price_review_callback,pattern=r'^pr:',block=False))
     app.add_handler(CommandHandler('backup_id',backup_group_id))
     # TypeHandler بالا همه Updateها را پوشش می‌دهد؛ بنابراین پیام‌های معمولی، /start،
     # Reply Keyboard و Inline/Callback همگی last_activity_at را به‌روزرسانی می‌کنند.

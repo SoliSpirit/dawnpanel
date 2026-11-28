@@ -60,8 +60,8 @@ class SourceApprovalMixin:
                                obj.get_review_status_display(),fa_number(reviewed_sale(i)),fa_number(i.units),str(i.pk),i.label)
         return [approval_status if c=='observation' else c for c in cols]
 
-    def apply_review_item(self,request,item):
-        count,_=decide(item.batch_id,item_pk=item.pk,actor=request.user,request=request,site=self.admin_site)
+    def apply_review_item(self,request,item,*,reject=False):
+        count,_=decide(item.batch_id,item_pk=item.pk,reject=reject,actor=request.user,request=request,site=self.admin_site)
         return count
 
     @method_decorator(csrf_protect)

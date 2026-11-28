@@ -113,7 +113,12 @@ stack a markup on the entered amount. Choosing markup pricing explicitly removes
 the fixed sale. Historical rows link to a version-checked current-price editor.
 Telegram opens on a short digest; the pending index and the full catalog open
 separately. Tap a number to compare one item's supplier and selling prices and
-approve it. Whole-report approval still has an explicit confirmation. Superseded observations,
+act on it. The digest's example and each live proposal have explicit approve,
+reject and supplier recheck buttons. A decision is bound to the displayed row;
+reject keeps the selling price and suppresses the same rejected quote on later checks.
+A recheck fetches only that supplier, observes only the chosen mapping and queues
+a new one-product report with its own message-bound controls. Bulk approval
+still has an explicit confirmation. Superseded observations,
 changed products and proposals older than 24 hours cannot overwrite newer prices.
 «صفحهٔ منبع» opens the supplier's current public product or service page beside the
 observed price, in the current-price editor and on the Telegram detail card. The

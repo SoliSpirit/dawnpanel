@@ -18,6 +18,12 @@ def price_signature(product):
         'price', 'price_amount', 'price_currency', 'price_per', 'product_profit_percent')} | {'fixed_sale':product.fixed_sale}
 
 
+def matches_baseline(product,link,signature):
+    return (product.price_currency=='TOMAN' and product.price_amount is None and
+            str(product.price_per)==link.price_baseline.get('source_price_per') and
+            all(link.price_baseline.get(k)==v for k,v in signature.items()))
+
+
 @transaction.atomic
 def apply_proposal(pk, actor=None, *, automatic=False, expected_observed_at=None, markup=None, fixed_sale=None, review=False, telegram_admin_id=None):
     if automatic:return False
@@ -31,9 +37,7 @@ def apply_proposal(pk, actor=None, *, automatic=False, expected_observed_at=None
         raise BusinessError('قیمت پیشنهادی قدیمی است؛ دوباره دریافت کنید.')
     product = Product.objects.select_for_update().get(pk=link.product_id)
     signature = price_signature(product)
-    if (signature != {key:link.price_baseline.get(key) for key in signature}
-            or product.price_currency != 'TOMAN' or product.price_amount is not None
-            or str(product.price_per) != link.price_baseline.get('source_price_per')):
+    if not matches_baseline(product,link,signature):
         link.review_status = 'conflict'
         link.save(update_fields=['review_status'])
         return False
@@ -75,7 +79,8 @@ def finish_batch(batch):
     OrderDelivery.objects.bulk_create([OrderDelivery(operation=op,recipient=key,due_at=timezone.now()) for key in subscribers('price_review')])
 
 
-def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=None, batch=None):
+def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=None, batch=None,
+                recheck_item=None, telegram_admin_id=None):
     """A targeted recheck observes exactly these mappings, including paused ones.
 
     It never moves the full-catalog schedule or applies a merchant price.
@@ -85,11 +90,22 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
         link_ids = sorted(set(link_ids))
         if not link_ids or due_only:
             raise BusinessError('ردیفی برای بررسی دستی انتخاب نشده است.')
+    # A Telegram recheck refers to the observation on the button, never whichever
+    # product/price happens to be pending when a delayed callback arrives.
+    if recheck_item is not None or telegram_admin_id is not None:
+        if (recheck_item is None or telegram_admin_id not in subscribers('price_review') or
+                source!=recheck_item.source or link_ids!=[recheck_item.link_id] or batch is not None or actor is not None):
+            raise BusinessError('درخواست بررسی مجدد معتبر نیست.')
+    def same_observation():
+        return SourceProduct.objects.filter(pk=recheck_item.link_id,source=source,product_id=recheck_item.product_id,
+                                            observed_at=recheck_item.observed_at).exists()
     SourceSyncSettings.objects.get_or_create(source=source)
     now = timezone.now()
     # A persisted lease serializes CLI, scheduler and admin fetches across workers.
     with transaction.atomic():
         config = SourceSyncSettings.objects.select_for_update().get(source=source)
+        if recheck_item is not None and not same_observation():
+            raise BusinessError('برای این محصول بررسی تازه‌تری ثبت شده است.')
         if config.running_until and config.running_until > now:
             raise BusinessError('دریافت این منبع هم‌اکنون در حال اجراست.')
         if due_only and (not config.enabled or (
@@ -112,8 +128,10 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
             links = list(scope.select_for_update().order_by('pk'))
             if not SourceSyncSettings.objects.select_for_update().filter(source=source,running_until=lease).exists():
                 raise BusinessError('مهلت بررسی پایان یافته است؛ دوباره تلاش کنید.')
+            if recheck_item is not None and (telegram_admin_id not in subscribers('price_review') or not same_observation()):
+                raise BusinessError('وضعیت محصول یا دسترسی بررسی تغییر کرده است.')
             products = Product.objects.select_related('sale_override').in_bulk([link.product_id for link in links])
-            report=batch or PriceReviewBatch.objects.create(kind='scheduled' if due_only else 'manual')
+            report=batch or PriceReviewBatch.objects.create(kind='recheck' if recheck_item is not None else ('scheduled' if due_only else 'manual'))
             items=[]
             for link in links:
                 row = indexed.get(link.external_id)
@@ -168,7 +186,8 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
             SourceSyncSettings.objects.filter(source=source,running_until=lease).update(running_until=None,
                 **({} if targeted else {'last_success':timezone.now(),'last_error':''}))
             Audit.objects.create(actor=actor,action='source.price.recheck' if targeted else 'source.price.fetch',
-                 object_ref=source,details={**result,**({'links':link_ids} if targeted else {})})
+                 object_ref=source,details={**result,**({'links':link_ids} if targeted else {}),
+                    **({'review_item':recheck_item.pk,'telegram_admin_id':telegram_admin_id} if recheck_item is not None else {})})
             if batch is None:finish_batch(report)
         return result
     except Exception:
@@ -178,14 +197,16 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
 
 
 @transaction.atomic
-def reject_proposal(pk, actor=None, *, expected_observed_at=None):
+def reject_proposal(pk, actor=None, *, expected_observed_at=None,telegram_admin_id=None):
     link = SourceProduct.objects.select_for_update().get(pk=pk)
     if expected_observed_at is not None and link.observed_at != expected_observed_at:
         raise BusinessError('پیشنهاد تغییر کرده است؛ دوباره بررسی کنید.')
-    if link.review_status != 'pending':
+    if link.review_status != 'pending' or not link.proposed_price:
         raise BusinessError('پیشنهاد در انتظار تأیید نیست.')
-    link.price_baseline['rejected_price'] = link.proposed_price
+    rejected=link.proposed_price
+    link.price_baseline['rejected_price'] = rejected
     link.review_status = 'rejected'
     link.proposed_price = None
     link.save(update_fields=['price_baseline','review_status','proposed_price'])
-    Audit.objects.create(actor=actor,action='source.price.reject',object_ref=str(link.product_id))
+    Audit.objects.create(actor=actor,action='source.price.reject',object_ref=str(link.product_id),
+                         details={'source':link.source,'rejected_price':rejected,'telegram_admin_id':telegram_admin_id})

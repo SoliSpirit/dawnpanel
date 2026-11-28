@@ -18,7 +18,7 @@ from django.views.decorators.http import require_GET,require_http_methods
 
 from .models import Audit,PriceReviewBatch,PriceReviewItem,Product,ProductSaleOverride,SourceProduct
 from .notice_topics import subscribers
-from .price_sync import apply_proposal,price_signature
+from .price_sync import apply_proposal,matches_baseline,price_signature,reject_proposal
 from .pricing import BusinessError,MAX_TOTAL
 from .product_media import ProfitPercentField
 from .templatetags.ui import fa_number
@@ -45,8 +45,11 @@ def reviewed_sale(i):
 
 
 def display_row(i):
+    i.current_observation=(i.link.observed_at==i.observed_at and i.link.product_id==i.product_id and i.link.source==i.source)
     stale=(not i.decision and i.status in ('pending','unchanged') and
-           (i.link.observed_at!=i.observed_at or i.link.review_status!=i.status or i.observed_at<timezone.now()-timedelta(days=1)))
+           (not i.current_observation or not i.link.available or i.link.review_status!=i.status or
+            (i.link.proposed_price if i.status=='pending' else i.link.last_price)!=i.observed or
+            i.observed_at<timezone.now()-timedelta(days=1)))
     i.current_label=LABEL.get(i.decision or ('stale' if stale else i.status),i.status)
     i.source_label=NAMES.get(i.source,i.source)
     i.source_page=source_page(i,i.link)
@@ -102,14 +105,16 @@ def allowed(request,site,write=False):
 
 
 @transaction.atomic
-def decide(batch_pk,*,item_pk=None,markup=None,fixed_sale=None,actor=None,telegram_id=None,request=None,site=None):
+def decide(batch_pk,*,item_pk=None,markup=None,fixed_sale=None,reject=False,actor=None,telegram_id=None,request=None,site=None):
     if telegram_id is not None:
         if telegram_id not in subscribers('price_review'):raise PermissionDenied
     elif request is None or actor!=request.user or not allowed(request,site,True):raise PermissionDenied
+    if item_pk is not None and (type(item_pk) is not int or item_pk<=0):raise PermissionDenied
+    if reject and (item_pk is None or markup is not None or fixed_sale is not None):raise PermissionDenied
     if (fixed_sale is not None or markup is not None) and (not item_pk or telegram_id is not None):raise PermissionDenied
     batch=PriceReviewBatch.objects.select_for_update().get(pk=batch_pk,ready=True)
     rows=batch.items.select_for_update().filter(decision='')
-    rows=rows.filter(pk=item_pk,status__in=('pending','unchanged')) if item_pk else rows.filter(status='pending')
+    rows=rows.filter(pk=item_pk,status__in=('pending',) if reject else ('pending','unchanged')) if item_pk else rows.filter(status='pending')
     items=list(rows.order_by('link_id'))
     links=SourceProduct.objects.select_for_update().order_by('pk').in_bulk([r.link_id for r in items])
     products=Product.objects.select_for_update().order_by('pk').in_bulk(sorted({r.product_id for r in items}))
@@ -126,7 +131,14 @@ def decide(batch_pk,*,item_pk=None,markup=None,fixed_sale=None,actor=None,telegr
                and i.product_id in products and link.observed_at==i.observed_at
                and link.review_status==i.status and i.observed_at>=timezone.now()-timedelta(hours=24))
         if valid and i.status=='unchanged' and fixed_sale is None and (markup is None or markup==i.markup and i.fixed_before is None):continue
-        if valid:
+        if valid and reject:
+            p=products[i.product_id]
+            valid=matches_baseline(p,link,price_signature(p))
+            if valid:
+                reject_proposal(link.pk,actor,expected_observed_at=i.observed_at,telegram_admin_id=telegram_id)
+                i.decision='rejected';i.save(update_fields=['decision'])
+                count+=1;continue
+        elif valid:
             try:valid=apply_proposal(link.pk,actor,expected_observed_at=i.observed_at,markup=markup,fixed_sale=fixed_sale,review=True,telegram_admin_id=telegram_id)
             except BusinessError:valid=False
         i.decision='applied' if valid else 'stale'
@@ -137,7 +149,7 @@ def decide(batch_pk,*,item_pk=None,markup=None,fixed_sale=None,actor=None,telegr
             count+=1
         else:stale+=1
         i.save(update_fields=['decision','final_markup','final_sale'])
-    if count:Audit.objects.create(actor=actor,action='source.review.decide',object_ref=str(batch.pk),details={'count':count,'telegram_admin_id':telegram_id})
+    if count and not reject:Audit.objects.create(actor=actor,action='source.review.decide',object_ref=str(batch.pk),details={'count':count,'telegram_admin_id':telegram_id})
     return count,stale
 
 

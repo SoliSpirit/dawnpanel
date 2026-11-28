@@ -343,7 +343,6 @@ class SourceProductAdmin(SourceApprovalMixin,PriceToolsAdminMixin,StateListMixin
         from django.contrib import messages
         from django.shortcuts import render
         from django.utils.dateparse import parse_datetime
-        from .price_sync import reject_proposal
         rows=list(queryset.order_by('pk')[:51])
         if len(rows)>50:
             self.message_user(request,'هر بار حداکثر ۵۰ محصول انتخاب کنید.',level=messages.ERROR)
@@ -358,13 +357,9 @@ class SourceProductAdmin(SourceApprovalMixin,PriceToolsAdminMixin,StateListMixin
             try:
                 expected=parse_datetime(request.POST.get('observed_'+str(row.pk),''))
                 if expected is None:raise ValueError()
-                if action=='approve_prices':
-                    item=next((i for i in row.pending_reviews if i.observed_at==expected),None)
-                    if not item:raise ValueError()
-                    count+=self.apply_review_item(request,item)
-                else:
-                    reject_proposal(row.pk,request.user,expected_observed_at=expected)
-                    count+=1
+                item=next((i for i in row.pending_reviews if i.observed_at==expected),None)
+                if not item:raise ValueError()
+                count+=self.apply_review_item(request,item,reject=action=='reject_prices')
             except (ValueError,BusinessError,Product.DoesNotExist,SourceProduct.DoesNotExist):
                 self.message_user(request,f'محصول {row.product_id}: پیشنهاد معتبر نیست یا تغییر کرده است.',level=messages.WARNING)
         self.message_user(request,f'{count} مورد بررسی و ثبت شد؛ موارد متعارض اعمال نشدند.')
