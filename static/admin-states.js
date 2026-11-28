@@ -1,6 +1,24 @@
 (() => {
   const form = document.getElementById('changelist-form');
   if (!form) return;
+  // Turn Django's URL-preserving filter links into one compact row of selectors.
+  const filters=document.querySelector('.dp-list-filters');
+  if(filters){
+    const bar=document.createElement('div');bar.className='dp-filter-strip';
+    for(const section of filters.querySelectorAll('[data-filter-title]')){
+      const label=document.createElement('label'),select=document.createElement('select');
+      label.textContent=section.dataset.filterTitle;
+      for(const link of section.querySelectorAll('a[href]')){
+        const o=new Option(link.textContent.trim(),link.href);o.selected=link.hasAttribute('aria-current');select.add(o);
+      }
+      select.addEventListener('change',()=>{const url=new URL(select.value,location.href);if(url.origin===location.origin)location.assign(url);});
+      label.append(select);bar.append(label);
+    }
+    if(bar.childElementCount){
+      const links=filters.querySelector('.dp-filter-actions');if(links?.childElementCount)bar.append(links);
+      filters.replaceWith(bar);
+    }
+  }
   // A catalogue check can take a few seconds. Keep a normal form submission:
   // disabled submitters lose their name/value in the native POST.
   let checking;

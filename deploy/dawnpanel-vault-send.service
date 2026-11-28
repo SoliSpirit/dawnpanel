@@ -1,0 +1,13 @@
+[Unit]
+Description=Resume delivery of encrypted DawnPanel backups
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/dawnpanel-vault send
+TimeoutStartSec=25min
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/backups/dawnpanel

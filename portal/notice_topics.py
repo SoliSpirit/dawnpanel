@@ -5,6 +5,7 @@ TOPICS = {
     'web_order':'خرید مشتری از سایت',
     'bot_order':'خرید مشتری از ربات',
     'catalog':'تغییر محصولات، دسته‌ها و قیمت‌ها',
+    'price_review':'گزارش مقایسه و تأیید قیمت منابع',
     'order_status':'تأیید، تکمیل یا لغو سفارش توسط مدیر',
     'finance':'عملیات مالی مدیر، رسید و ارز',
     'support':'اقدام مدیر در تیکت و گفتگو',
@@ -17,6 +18,13 @@ TOPICS = {
     'lottery_warning':'هشدار قرعه‌کشی ربات',
 }
 DEFAULT_TOPICS=frozenset(TOPICS)-{'site_error','staff_session'}
+
+
+def mail_topics(row):
+    selected=set(row.email_topics or ()) & TOPICS.keys() if isinstance(row.email_topics,list) else set()
+    selected.discard('web_chat')
+    if row.chat_email_enabled:selected.add('web_chat')
+    return selected
 
 
 def recipients():

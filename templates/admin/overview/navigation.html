@@ -6,6 +6,7 @@
 {% if perms.portal.change_order or perms.portal.change_ticket %}<a class="dp-nav-link" href="{% url 'admin:requests_desk' %}">{% icon 'inbox' %} رسیدگی به درخواست‌ها <span class="desk-counter" data-desk-count="requests" title="سفارش‌های در جریان و تیکت‌های منتظر پاسخ" hidden></span></a>{% endif %}
 {% if perms.portal.view_financial_report and perms.portal.view_order %}<a class="dp-nav-link" href="{% url 'admin:finance_report' %}">{% icon 'plot' %} گزارش مالی خریدها</a>{% endif %}
 <span class="dp-nav-caption">بخش‌های مدیریت</span>
+{% if perms.portal.view_sourceproduct or perms.portal.change_sourceproduct %}<a class="dp-nav-link" href="{% url 'admin:price_reports' %}">{% icon 'tags' %} گزارش‌های بررسی قیمت</a>{% endif %}
 {% for group in workspace_groups %}<details class="dp-nav-group" data-tone="{{ group.tone }}"><summary>{% include 'admin/overview/group_label.html' with group=group only %} {% icon 'chevron' %}</summary>
   {% for model in group.models %}<a class="dp-nav-link" href="{{ model.admin_url }}"{% if model.admin_url in request.path %} aria-current="location"{% endif %}>{% icon model.icon %}<span>{{ model.name }}</span></a>{% endfor %}
 </details>{% endfor %}

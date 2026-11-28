@@ -106,6 +106,38 @@ class SecurityAndCommerceTests(TransactionTestCase):
         with patch.object(OrderCost.objects,'create',side_effect=RuntimeError('snapshot not stored')),self.assertRaises(RuntimeError):buy()
         self.assertEqual(Order.objects.count(),3);self.assertEqual(Ledger.objects.filter(type='withdraw').count(),3)
 
+    @override_settings(BOT_CONFIG={'telegram':{'admin_ids':[71,81],'token':'test'}})
+    def test_bot_submissions_survive_telegram_outage_without_replaying_receipts_or_email(self):
+        from django.core import mail
+        from .native_notices import save_submission
+        from .chat_notices import dispatch_email
+        from .order_notices import dispatch
+        import requests
+        NoticePreference.objects.create(pk=71,enabled=['incoming_ticket','incoming_receipt'])
+        NoticePreference.objects.create(pk=81,enabled=[],chat_email='fixture@example.org',email_topics=['incoming_ticket','incoming_receipt','web_order'])
+        auto='AUTO_INCREMENT' if connection.vendor=='mysql' else 'AUTOINCREMENT'
+        with connection.cursor() as c:
+            c.execute(f'CREATE TEMPORARY TABLE support_messages (id INTEGER PRIMARY KEY {auto},user_id BIGINT,topic VARCHAR(100),message_text TEXT,answered INTEGER DEFAULT 0)')
+            c.execute(f"CREATE TEMPORARY TABLE receipts (id INTEGER PRIMARY KEY {auto},user_id BIGINT,amount BIGINT,photo_id VARCHAR(128),payment_tracking_code VARCHAR(10),payment_method VARCHAR(20),status VARCHAR(20) DEFAULT 'pending')")
+        try:
+            for kind,data,n in [('ticket',('عنوان','private QA message'),100),('receipt',(25000,'private-photo','TESTREF','card',True),101)]:
+                pk=save_submission(kind,7,data,n);self.assertEqual(save_submission(kind,7,data,n),pk)
+            self.buy()
+            with patch('portal.order_notices.requests.post',side_effect=requests.ConnectionError):
+                self.assertEqual(dispatch()['retry'],1)
+            self.assertEqual(OrderDelivery.objects.filter(state='pending').count(),2)
+            self.assertEqual(dispatch_email()['accepted'],3)
+            for m in mail.outbox:
+                self.assertNotIn('private QA',m.body);self.assertNotIn('private-photo',m.body)
+            OrderDelivery.objects.update(due_at=timezone.now())
+            with patch('portal.order_notices.requests.post') as api:
+                api.return_value=Mock(status_code=200);api.return_value.json.return_value={'ok':True,'result':{'message_id':2,'chat':{'id':71}}}
+                self.assertEqual(dispatch()['sent'],2)
+                self.assertEqual({c.args[0].rsplit('/',1)[-1] for c in api.call_args_list},{'sendMessage','sendPhoto'})
+                self.assertEqual(dispatch()['sent'],0)
+        finally:
+            with connection.cursor() as c:c.execute('DROP TABLE receipts');c.execute('DROP TABLE support_messages')
+
     def test_admin_request_queue_only_exposes_and_processes_permitted_items(self):
         order=self.buy();ticket=Ticket.objects.create(user=self.other,subject='سؤال سفارش');queue='/admin/support/requests/'
         detail=queue+f'ticket/{ticket.pk}/';act=queue+f'order/{order.pk}/';counts='/admin/support/counts/'

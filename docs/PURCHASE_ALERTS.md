@@ -97,6 +97,20 @@ With the worker environment, `manage.py deliver_chat_emails --test` sends a
 labelled message to the enabled destinations without creating a customer chat.
 For this domain's outbound authentication, see [Cloudflare records](CHAT_MAIL_DNS.md).
 
+All listed Telegram admin notification types can also be selected independently for
+email. «ایمیل مثل تلگرام» copies the current selection; save it to opt in.
+Messages are multipart (plain text and RTL HTML). Incoming bot receipts/tickets
+commit with their outboxes. Telegram keeps its actionable private message; email
+contains an administrative summary, not a customer's attachment or message body.
+Transient Telegram failures remain queued across restarts.
+
+Supplier checks never publish a price. `/admin/prices/reviews/` keeps 30 days of
+reports, showing old/new source prices, units, merchant markup and pre-tax sales.
+One row can be approved at a custom markup in the panel; bulk approval retains the
+existing rates. Telegram's private report has five items per page and supports
+single decisions and explicit whole-report confirmation. Superseded observations,
+changed products and proposals older than 24 hours cannot overwrite newer prices.
+
 ## Website errors
 
 `/admin/portal/siteissue/` groups application HTTP 5xx errors and service

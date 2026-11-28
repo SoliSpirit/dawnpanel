@@ -65,16 +65,17 @@ class PriceSyncTests(TransactionTestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.price,1234)
 
-    def test_automatic_is_opt_in_and_limited(self):
+    def test_legacy_automatic_setting_cannot_write_a_price(self):
         self.config.enabled=True
         self.config.require_approval=False
         self.config.save()
-        self.assertEqual(self.fetch()['applied'],1)
+        self.assertEqual(self.fetch()['applied'],0)
+        self.assertFalse(apply_proposal(self.link.pk,automatic=True))
         self.rows[0]['price']=2000
         self.fetch()
         self.product.refresh_from_db()
         self.link.refresh_from_db()
-        self.assertEqual(self.product.price,1100)
+        self.assertEqual(self.product.price,1000)
         self.assertEqual(self.link.review_status,'pending')
 
     def test_scheduler_respects_enabled_interval_and_lease(self):
@@ -140,6 +141,36 @@ class PriceSyncTests(TransactionTestCase):
         self.fetch()
         self.link.refresh_from_db()
         self.assertIsNone(self.link.proposed_price)
+
+    @override_settings(BOT_CONFIG={'telegram':{'admin_ids':[71]}})
+    def test_frozen_report_markup_paging_and_safe_telegram_bulk_across_pages(self):
+        from django.core.exceptions import PermissionDenied
+        from .models import PriceReviewBatch,OrderDelivery,OperationNotice
+        from .review_queue import telegram_action,email_sheet
+        self._tools_staff('change_product','change_sourceproduct')
+        for i in range(14):
+            p=Product.objects.create(name=f'پلن {i}',category=self.category,price=1000)
+            SourceProduct.objects.create(product_id=p.pk,source='premstore',external_id=str(i+30),last_price=900)
+            self.rows.append({'external_id':str(i+30),'price':1300,'price_per':1,'available':True})
+        result=self.fetch();batch=PriceReviewBatch.objects.get(pk=result['review_batch']);url=f'/admin/prices/reviews/{batch.pk}/'
+        item=batch.items.get(link=self.link);self.assertEqual((item.previous,item.observed,item.base),(1000,1100,1000))
+        filename,content,mime=email_sheet(batch.pk)
+        self.assertEqual(mime,'text/csv');self.assertEqual(len(content.splitlines()),16);self.assertIn('1000,1100',content)
+        self.assertEqual(len(self.client.get(url).context['items']),12);self.assertEqual(len(self.client.get(url,{'page':2}).context['items']),3)
+        self.client.post(url,{'decision':'one','item':item.pk,'markup':'۲۵'})
+        self.product.refresh_from_db();self.assertEqual((self.product.price,self.product.product_profit_percent),(1100,25))
+        changed=batch.items.exclude(pk=item.pk).first();Product.objects.filter(pk=changed.product_id).update(price=1800)
+        op=OperationNotice.objects.get(topic='price_review');self.assertEqual(OrderDelivery.objects.filter(operation=op,recipient=71).update(state='sent',message_id=12),1)
+        cb=lambda a:f'pr:{batch.pk}:1:{a}:0'
+        for args in [(81,81,'private',12),(71,-1000,'supergroup',12),(71,71,'private',13)]:
+            with self.assertRaises(PermissionDenied):telegram_action(*args,cb('all'))
+        args=(71,71,'private',12)
+        self.assertIn('تمام صفحه‌ها',telegram_action(*args,cb('ask'))['text']);self.assertEqual(batch.items.filter(decision='applied').count(),1)
+        self.assertIn('منبع قبلی:',telegram_action(*args,f'pr:{batch.pk}:2:page:0')['text'])
+        telegram_action(*args,cb('all'));telegram_action(*args,cb('all'))
+        self.assertEqual(batch.items.filter(decision='applied').count(),14)
+        self.assertEqual(batch.items.get(pk=changed.pk).decision,'stale')
+        self.assertEqual(Product.objects.get(pk=changed.product_id).price,1800)
 
     def _tools_staff(self,*perms):
         editor=User.objects.create_user(username='price-tools',is_staff=True)

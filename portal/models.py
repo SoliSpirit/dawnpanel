@@ -157,6 +157,8 @@ class NoticePreference(models.Model):
     revision=models.PositiveBigIntegerField(default=0)
     chat_email=models.EmailField('ایمیل اعلان چت',blank=True,default='',db_default='')
     chat_email_enabled=models.BooleanField('اعلان ایمیلی چت',default=False,db_default=False)
+    # Existing chat consent remains independent. Other topics are opt-in.
+    email_topics=models.JSONField(default=list,db_default=[])
     class Meta:
         verbose_name='تنظیم اعلان';verbose_name_plural='اعلان‌های تلگرام و ایمیل'
         permissions=[('manage_chat_email','تنظیم مقصد ایمیل اعلان چت')]
@@ -168,6 +170,7 @@ class OperationNotice(models.Model):
     origin=models.CharField(max_length=12)
     actor_key=models.PositiveBigIntegerField(null=True)
     reference=models.CharField(max_length=40,blank=True)
+    notice_key=models.CharField(max_length=96,unique=True,null=True,editable=False)
     prepared=models.BooleanField(default=False,db_index=True)
     created_at=models.DateTimeField(auto_now_add=True)
 
@@ -424,7 +427,11 @@ class ChatMessage(models.Model):
 
 
 class ChatEmailDelivery(models.Model):
-    message=models.ForeignKey(ChatMessage,on_delete=models.CASCADE)
+    # Keep the deployed table and its pending chat deliveries during the upgrade.
+    message=models.ForeignKey(ChatMessage,on_delete=models.CASCADE,null=True)
+    event=models.ForeignKey(OrderEvent,on_delete=models.CASCADE,null=True)
+    operation=models.ForeignKey(OperationNotice,on_delete=models.CASCADE,null=True)
+    topic=models.CharField(max_length=24,default='web_chat',db_default='web_chat')
     recipient=models.PositiveBigIntegerField()
     destination_key=models.CharField(max_length=64)
     state=models.CharField(max_length=8,default='pending')
@@ -434,7 +441,12 @@ class ChatEmailDelivery(models.Model):
     last_error=models.CharField(max_length=40,blank=True)
     sent_at=models.DateTimeField(null=True)
     class Meta:
-        constraints=[models.UniqueConstraint(fields=['message','recipient'],name='chat_mail_message_recipient')]
+        constraints=[models.UniqueConstraint(fields=['message','recipient'],name='chat_mail_message_recipient'),
+                     models.UniqueConstraint(fields=['event','recipient'],name='mail_order_recipient'),
+                     models.UniqueConstraint(fields=['operation','recipient'],name='mail_op_recipient'),
+                     models.CheckConstraint(condition=(models.Q(message__isnull=False,event__isnull=True,operation__isnull=True)|
+                         models.Q(message__isnull=True,event__isnull=False,operation__isnull=True)|
+                         models.Q(message__isnull=True,event__isnull=True,operation__isnull=False)),name='mail_one_source')]
         indexes=[models.Index(fields=['state','due_at'],name='chat_mail_due')]
 
 class SupportPresence(models.Model):
@@ -498,3 +510,34 @@ class SourceSyncSettings(models.Model):
 
     def __str__(self):
         return self.get_source_display()
+
+
+class PriceReviewBatch(models.Model):
+    created_at=models.DateTimeField(auto_now_add=True,db_index=True)
+    kind=models.CharField(max_length=12)
+    ready=models.BooleanField(default=False)
+    class Meta:
+        default_permissions=()
+
+
+class PriceReviewItem(models.Model):
+    batch=models.ForeignKey(PriceReviewBatch,on_delete=models.CASCADE,related_name='items')
+    link=models.ForeignKey(SourceProduct,on_delete=models.CASCADE)
+    product_id=models.PositiveBigIntegerField()
+    label=models.CharField(max_length=500)
+    source=models.CharField(max_length=30)
+    observed_at=models.DateTimeField()
+    units=models.PositiveIntegerField(null=True)
+    previous=models.PositiveBigIntegerField(null=True)
+    observed=models.PositiveBigIntegerField(null=True)
+    base=models.PositiveBigIntegerField(null=True)
+    markup=models.DecimalField(max_digits=10,decimal_places=4,null=True)
+    status=models.CharField(max_length=20)
+    rank=models.PositiveSmallIntegerField()
+    decision=models.CharField(max_length=16,blank=True)
+    final_markup=models.DecimalField(max_digits=10,decimal_places=4,null=True)
+    class Meta:
+        default_permissions=()
+        ordering=['rank','source','label','pk']
+        constraints=[models.UniqueConstraint(fields=['batch','link'],name='review_once_per_link')]
+        indexes=[models.Index(fields=['batch','rank'],name='review_batch_rank')]

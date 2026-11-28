@@ -87,6 +87,24 @@ class OperationsTests(TestCase):
         self.assertEqual(self.client.get(self.issues).status_code,200)
         self.assertFalse(NoticePreference.objects.exists())
 
+    def test_html_mail_and_matrix_subscriptions_are_independent_and_snapshot_new_events(self):
+        from django.core import mail
+        from .models import ChatEmailDelivery
+        from .notice_topics import TOPICS,mail_topics
+        from .chat_notices import dispatch_email
+        new={'matrix':'1','recipient':71,'revision':0,'topics':['web_order'],'email_topics':list(TOPICS),'chat_email':'qa@example.org'}
+        self.client.post(self.pref,new);pref=NoticePreference.objects.get(pk=71)
+        self.assertEqual(mail_topics(pref),set(TOPICS));self.assertEqual(pref.enabled,['web_order'])
+        self.client.post(self.pref,{**new,'revision':0,'email_topics':[]});self.assertEqual(mail_topics(NoticePreference.objects.get(pk=71)),set(TOPICS))
+        for topic in ('catalog','site_error','incoming_ticket','incoming_receipt','lottery_warning'):
+            OperationNotice.objects.create(topic=topic,origin='system',summary='تست <qa>',reference='1')
+        self.assertEqual(ChatEmailDelivery.objects.filter(recipient=71).exclude(topic='management').count(),5)
+        self.assertEqual(dispatch_email()['accepted'],6)
+        for msg in mail.outbox:
+            self.assertEqual(msg.to,['qa@example.org']);self.assertEqual(msg.alternatives[0].mimetype,'text/html')
+            self.assertIn('dir="rtl"',msg.alternatives[0].content);self.assertNotIn('<qa>',msg.alternatives[0].content)
+        self.assertEqual(dispatch_email()['accepted'],0)
+
     def test_actual_5xx_are_grouped_redacted_and_reopened(self):
         with override_settings(ROOT_URLCONF=__name__):
             c=Client(raise_request_exception=False)

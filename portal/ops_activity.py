@@ -22,6 +22,7 @@ AUDITED = {
     'source.price.reject': ('catalog','رد قیمت پیشنهادی منبع'),
     'source.price.recheck': ('catalog','بررسی مجدد قیمت‌های انتخاب‌شده'),
     'source.price.fetch': ('catalog','دریافت فهرست قیمت منبع'),
+    'source.review.decide': ('catalog','تأیید قیمت‌های بررسی‌شده'),
     'catalog.profit.batch': ('catalog','تغییر گروهی سود محصولات'),
     'notice.settings': ('management','تغییر تنظیمات اعلان تلگرام'),
     'notice.email': ('management','تغییر تنظیمات ایمیل چت'),
@@ -69,7 +70,8 @@ def audit_notice(sender,instance,created,raw,using,**kwargs):
         label={'completed':'تکمیل سفارش','confirmed':'تأیید سفارش','cancelled':'لغو سفارش'}.get(instance.details.get('status'))
         summary=label or summary
     if key=='catalog.profit.batch':summary+=f" ({int(instance.details['count'])} محصول)"
-    if key=='source.price.apply' and instance.details.get('automatic'):return
+    if key=='source.price.apply' and (instance.details.get('automatic') or instance.details.get('batch_item')):return
+    if key in ('source.price.fetch','source.price.recheck') and instance.details.get('review_batch'):return
     OperationNotice.objects.using(using).create(topic=topic,summary=summary,origin='telegram' if bot else 'web',
         actor_key=actor,reference=numeric_ref(instance.object_ref))
 

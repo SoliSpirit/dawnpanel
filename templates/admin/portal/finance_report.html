@@ -1,22 +1,21 @@
 {% extends 'admin/base_site.html' %}{% load static ui l10n %}
 {% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-desk.css' %}">{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'operator-hub.js' %}" defer></script>{% endblock %}
 {% block content %}<div class="fin-report">
 <section class="fin-panel" aria-labelledby="fin-range">
 <div class="fin-head"><div><span class="fin-caption">بازهٔ گزارش</span><h2 id="fin-range">{% icon 'calendar' %} {{ caption }}</h2></div>
 <nav class="fin-periods" aria-label="بازهٔ گزارش">{% for key,label,n in periods %}<a href="{% querystring period=key page=None start=None end=None %}"{% if period == key %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav></div>
 <p class="fin-context">به وقت تهران · {% if basis == 'completed' %}بر اساس زمان تکمیل سفارش{% else %}بر اساس زمان ثبت خرید و وضعیت فعلی سفارش{% endif %}</p>
-<details class="fin-filters"{% if period == 'custom' or basis == 'completed' or channel or status or q or error %} open{% endif %}>
-<summary>{% icon 'sliders' %} جستجو، فیلترها و بازهٔ دلخواه {% icon 'chevron' %}</summary>
-<form method="get" class="fin-options">
+<form method="get" class="fin-options fin-toolbar">
+  <label>جستجو <input type="search" name="q" maxlength="100" value="{{ q }}" placeholder="خریدار، محصول یا کد پیگیری"></label>
   <label>بازه <select name="period">{% for key,label,n in periods %}<option value="{{ key }}"{% if period == key %} selected{% endif %}>{{ label }}</option>{% endfor %}<option value="custom"{% if period == 'custom' %} selected{% endif %}>تاریخ دلخواه</option></select></label>
   <label>شروع بازهٔ دلخواه (میلادی)<input type="date" dir="ltr" name="start" value="{{ start|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"></label>
   <label>پایان بازهٔ دلخواه (میلادی)<input type="date" dir="ltr" name="end" value="{{ end|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"></label>
   <label>مبنای تاریخ <select name="basis"><option value="placed">زمان ثبت خرید</option><option value="completed"{% if basis == 'completed' %} selected{% endif %}>زمان تکمیل سفارش</option></select></label>
   <label>مسیر خرید <select name="channel"><option value="">همه</option><option value="web"{% if channel == 'web' %} selected{% endif %}>سایت</option><option value="telegram"{% if channel == 'telegram' %} selected{% endif %}>ربات</option><option value="unknown"{% if channel == 'unknown' %} selected{% endif %}>ثبت‌نشده</option></select></label>
   <label>وضعیت <select name="status"><option value="">همه</option>{% for k,name in statuses.items %}<option value="{{ k }}"{% if status == k %} selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
-  <label>خریدار، محصول یا کد پیگیری <input type="search" name="q" maxlength="100" value="{{ q }}"></label>
   <div class="fin-actions"><button class="button default">نمایش گزارش</button><a href="{% url 'admin:finance_report' %}">پاک کردن فیلترها</a></div>
-</form></details>
+</form>
 {% if error %}<p class="errornote">{{ error }}</p>{% endif %}
 </section>
 <section aria-labelledby="fin-summary"><div class="fin-head"><h2 id="fin-summary">خلاصهٔ فروش و سود</h2><span class="fin-caption">همهٔ مبالغ به تومان</span></div>

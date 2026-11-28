@@ -44,6 +44,12 @@ class DeliveryError(Exception):
 
 
 def operation_message(event):
+    if event.topic=='price_review':
+        from .review_queue import telegram_page
+        return telegram_page(int(event.reference))
+    if event.topic in ('incoming_ticket','incoming_receipt'):
+        from .native_notices import telegram_payload
+        return telegram_payload(event)
     origin={'web':'پنل سایت','telegram':'ربات','system':'سایت'}[event.origin]
     text=f'{TOPICS[event.topic]}\n{event.summary}\nمبدأ: {origin}'
     if event.actor_key:text+=f'\nمدیر {"تلگرام" if event.origin=="telegram" else "سایت"}: #{event.actor_key}'
@@ -67,7 +73,8 @@ def send_private(recipient, payload, *, topic=None):
     token=settings.BOT_CONFIG.get('telegram',{}).get('token')
     if not token:raise DeliveryError('missing_token')
     try:
-        response=requests.post(f'https://api.telegram.org/bot{token}/sendMessage',
+        method='sendPhoto' if 'photo' in payload else ('sendDocument' if 'document' in payload else 'sendMessage')
+        response=requests.post(f'https://api.telegram.org/bot{token}/{method}',
                                json={**payload,'chat_id':recipient,'disable_notification':False},
                                allow_redirects=False,timeout=(4,8))
         try:data=response.json()
@@ -138,9 +145,11 @@ def dispatch(limit=20):
                                 last_error=str(error),due_at=timezone.now()+timedelta(seconds=wait))
             key='muted' if state=='muted' else ('stopped' if error.permanent else 'retry')
             counts[key]=counts.get(key,0)+changed
-            if changed and error.retry_after:
+            if changed and (error.retry_after or str(error) in ('network','missing_token') or str(error).startswith('telegram_5')):
                 until_retry=timezone.now()+timedelta(seconds=wait)
-                OrderDelivery.objects.filter(recipient=row.recipient,state='pending',due_at__lt=until_retry).update(due_at=until_retry)
+                others=OrderDelivery.objects.filter(state='pending',due_at__lt=until_retry)
+                if error.retry_after:others=others.filter(recipient=row.recipient)
+                others.update(due_at=until_retry)
                 break
         else:
             counts['sent']+=live.update(state='sent',lease=None,last_error='',sent_at=timezone.now(),message_id=message_id)

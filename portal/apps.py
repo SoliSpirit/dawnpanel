@@ -4,4 +4,4 @@ class PortalConfig(AppConfig):
     name='portal'
     verbose_name='دان پنل'
     def ready(self):
-        from . import ops_activity  # register the audit receiver once
+        from . import ops_activity, chat_notices  # transactional notice receivers

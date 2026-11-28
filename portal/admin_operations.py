@@ -9,7 +9,7 @@ from django.urls import path,reverse
 from django.utils import timezone
 
 from .models import Audit,ChatEmailDelivery,NoticePreference,OrderDelivery,SiteIssue
-from .notice_topics import DEFAULT_TOPICS,TOPICS,recipients
+from .notice_topics import DEFAULT_TOPICS,TOPICS,recipients,mail_topics
 
 
 class TopicForm(forms.Form):
@@ -45,6 +45,34 @@ class PreferenceAdmin(admin.ModelAdmin):
         can_email=edit and request.user.has_perm('portal.manage_chat_email')
         if request.method=='POST':
             if not edit:raise PermissionDenied
+            if 'matrix' in request.POST:
+                form=TopicForm(request.POST)
+                if not form.is_valid() or len(request.POST.getlist('recipient'))!=1 or form.cleaned_data['recipient'] not in ids:raise PermissionDenied
+                data=form.cleaned_data;tg=set(data['topics'])
+                if not can_email and ('email_topics' in request.POST or 'chat_email' in request.POST):raise PermissionDenied
+                emails=set(request.POST.getlist('email_topics'))
+                if emails-TOPICS.keys():raise PermissionDenied
+                try:
+                    address=forms.EmailField(required=bool(emails),max_length=254).clean(request.POST.get('chat_email','')) if can_email else ''
+                except forms.ValidationError:
+                    self.message_user(request,'برای اعلان ایمیلی یک آدرس معتبر وارد کنید. تغییرات ذخیره نشد.',messages.ERROR)
+                    return HttpResponseRedirect(request.path)
+                with transaction.atomic():
+                    row,_=NoticePreference.objects.select_for_update().get_or_create(pk=data['recipient'],defaults={'enabled':sorted(DEFAULT_TOPICS)})
+                    if row.revision!=data['revision']:
+                        self.message_user(request,'تنظیمات تغییر کرده؛ دوباره بررسی کنید.',messages.WARNING)
+                        return HttpResponseRedirect(request.path)
+                    removed=set(row.enabled)-tg
+                    OrderDelivery.objects.filter(recipient=row.pk,state__in=('pending','stopped')).filter(
+                        Q(operation__topic__in=removed)|Q(event__channel__in=[c for c,t in [('web','web_order'),('telegram','bot_order')] if t in removed])).update(state='muted',last_error='muted')
+                    if can_email:
+                        jobs=ChatEmailDelivery.objects.filter(recipient=row.pk,state__in=('pending','stopped'))
+                        if address==row.chat_email:jobs=jobs.exclude(topic__in=emails)
+                        jobs.update(state='muted',lease=None,last_error='changed')
+                        row.chat_email=address;row.chat_email_enabled='web_chat' in emails;row.email_topics=sorted(emails-{'web_chat'})
+                    row.enabled=sorted(tg);row.revision+=1;row.save()
+                    Audit.objects.create(actor=request.user,action='notice.settings',object_ref=str(row.pk))
+                self.message_user(request,'انتخاب‌های این مدیر ذخیره شد.');return HttpResponseRedirect(request.path)
             if 'email_settings' in request.POST:
                 if not can_email:raise PermissionDenied
                 if len(request.POST.getlist('recipient'))!=1:raise PermissionDenied
@@ -91,13 +119,15 @@ class PreferenceAdmin(admin.ModelAdmin):
             accepted=Max('sent_at'))} if can_email else {}
         for i in ids:
             row=stored.get(i);enabled=row.enabled if row else DEFAULT_TOPICS
-            f=TopicForm(initial={'recipient':i,'revision':row.revision if row else 0,'topics':list(enabled)},auto_id=f'pref_{i}_%s')
-            f.fields['topics'].disabled=not edit
-            mail=ChatEmailForm(initial={'recipient':i,'revision':row.revision if row else 0,'chat_email':row.chat_email if row else '',
-                'chat_email_enabled':bool(row and row.chat_email_enabled)},auto_id=f'mail_{i}_%s') if can_email else None
-            cards.append((i,f,stats.get(i,{}),mail,email_stats.get(i,{})))
+            groups=[('فروش و قیمت',('web_order','bot_order','order_status','catalog','price_review','finance')),
+                    ('پشتیبانی',('web_chat','support','incoming_ticket','incoming_receipt')),
+                    ('مدیریت و سلامت',('management','staff_session','site_error','lottery_warning'))]
+            selected=mail_topics(row) if row and can_email else set()
+            cards.append({'id':i,'revision':row.revision if row else 0,'address':row.chat_email if row and can_email else '',
+                'groups':[(title,[(key,TOPICS[key],key in enabled,key in selected) for key in keys]) for title,keys in groups],
+                'telegram':stats.get(i,{}),'mail':email_stats.get(i,{})})
         return render(request,'admin/portal/notice_preferences.html',{**self.admin_site.each_context(request),
-            'opts':self.opts,'title':'اعلان‌های تلگرام و ایمیل','cards':cards,'editable':edit})
+            'opts':self.opts,'title':'اعلان‌های تلگرام و ایمیل','cards':cards,'editable':edit,'can_email':can_email})
 
 
 @admin.register(SiteIssue)

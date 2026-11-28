@@ -27,6 +27,8 @@
 .fin-options label{display:grid;gap:5px;font-size:13px;font-weight:550}
 .fin-options :is(input,select){display:block;width:100%;min-width:0;max-width:100%;margin:0;padding:6px 10px;border:1px solid var(--dp-line);border-radius:8px;color:var(--dp-ink);background-color:var(--dp-soft);font:inherit;min-height:44px}
 .fin-options input[type=date]{text-align:center}
+.fin-toolbar{padding-top:12px;border-top:1px solid var(--dp-line);grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))}
+.fin-toolbar [hidden]{display:none}
 .fin-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px}
 .fin-actions .button.default,.fin-table .button{background:var(--dp-accent);color:var(--dp-surface);padding:8px 16px;border:0;border-radius:9px;min-height:44px;font:inherit}
 .fin-actions a{display:inline-flex;align-items:center;min-height:40px;font-size:13px}

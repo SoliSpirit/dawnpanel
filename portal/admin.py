@@ -226,11 +226,9 @@ class RankAdmin(AuditedAdmin): list_display=['name','min_spending']
 @admin.register(SourceSyncSettings)
 class SourceSyncSettingsAdmin(StateListMixin,AuditedAdmin):
     state_fields=('enabled',)
-    indicator_fields=('require_approval',)
-    state_words={'require_approval':('تأیید دستی','اعمال خودکار')}
-    list_hint='دریافت زمان‌بندی‌شده با یک کلیک تغییر می‌کند. روش تأیید قیمت را از صفحهٔ تنظیمات همان منبع تغییر بده.'
-    list_display=['source','enabled','require_approval','interval_minutes','last_success','last_error']
-    fields=['source','enabled','require_approval','interval_minutes','max_change_percent',
+    list_hint='پایش، گزارش مقایسه می‌سازد. قیمت فروش فقط پس از تأیید مدیر تغییر می‌کند.'
+    list_display=['source','enabled','interval_minutes','last_success','last_error']
+    fields=['source','enabled','interval_minutes',
             'last_attempt','last_success','last_error']
     readonly_fields=['last_attempt','last_success','last_error']
     actions=['fetch_prices']
@@ -247,16 +245,19 @@ class SourceSyncSettingsAdmin(StateListMixin,AuditedAdmin):
     def has_change_permission(self,request,obj=None):
         return super().has_change_permission(request,obj) and request.user.has_perm('portal.change_product')
 
-    @admin.action(description='دریافت قیمت‌ها اکنون (مطابق حالت تأیید/خودکار)',permissions=['change'])
+    @admin.action(description='دریافت گزارش مقایسهٔ قیمت‌ها',permissions=['change'])
     def fetch_prices(self,request,queryset):
-        from .price_sync import sync_source
+        from .price_sync import sync_source,finish_batch
+        from django.shortcuts import redirect
         from django.contrib import messages
-        for config in queryset:
+        batch=PriceReviewBatch.objects.create(kind='manual')
+        for config in queryset.order_by('pk'):
             try:
-                result=sync_source(config.source,actor=request.user)
-                self.message_user(request,f'{config}: {result}')
+                sync_source(config.source,actor=request.user,batch=batch)
             except Exception:
                 self.message_user(request,f'{config}: دریافت ناموفق بود؛ وضعیت منبع را بررسی کنید.',level=messages.ERROR)
+        finish_batch(batch)
+        if batch.items.exists():return redirect('admin:price_review',batch.pk)
 
 
 @admin.register(SourceProduct)

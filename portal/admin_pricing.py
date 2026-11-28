@@ -13,8 +13,9 @@ from django.utils.decorators import method_decorator
 from django.utils.html import format_html
 from django.views.decorators.csrf import csrf_protect
 
-from .models import Audit, Product, SourceProduct
-from .price_sync import sync_source
+from .models import Audit, Product, SourceProduct,PriceReviewBatch
+from .price_sync import sync_source,finish_batch
+from django.urls import reverse
 from .pricing import BusinessError
 from .product_media import ProfitPercentField
 from .supplier_clients import SupplierError
@@ -164,17 +165,21 @@ class PriceToolsAdminMixin:
             groups[link.source].append(link.pk)
         if not groups:
             self.message_user(request,'هیچ‌کدام از این محصولات به منبع قیمت متصل نیستند.',messages.WARNING)
+            return
+        batch=PriceReviewBatch.objects.create(kind='manual')
         deadline = monotonic()+35
         for source, ids in sorted(groups.items()):
             name = {'denapanel':'دناپنل','premstore':'پریم‌استور'}.get(source,source)
             try:
-                result = sync_source(source,link_ids=ids,actor=request.user,deadline=deadline)
+                result = sync_source(source,link_ids=ids,actor=request.user,deadline=deadline,batch=batch)
             except (BusinessError,SupplierError) as error:
                 self.message_user(request,f'{name}: {error}',messages.ERROR)
             else:
                 text = '، '.join(f'{fa_number(result[k])} {label}' for k,label in [
                     ('checked','بررسی'),('available','موجود'),('unavailable','ناموجود'),('missing','پیدا نشده'),('pending','پیشنهاد قیمت')])
                 self.message_user(request,f'{name}: {text}.')
+        finish_batch(batch)
+        if batch.items.exists():return HttpResponseRedirect(reverse('admin:price_review',args=[batch.pk]))
 
     @method_decorator(csrf_protect)
     def changelist_view(self,request,extra_context=None):
@@ -194,7 +199,6 @@ class PriceToolsAdminMixin:
                 raise Http404
             if profit:
                 return self.set_profit(request,rows)
-            self.recheck_selected(request,rows)
-            return HttpResponseRedirect(request.get_full_path())
+            return self.recheck_selected(request,rows) or HttpResponseRedirect(request.get_full_path())
         return super().changelist_view(request,{'can_recheck_all':self.model is SourceProduct and self.has_recheck_permission(request),
                                                 **(extra_context or {})})

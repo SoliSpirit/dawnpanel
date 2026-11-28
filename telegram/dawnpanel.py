@@ -1,6 +1,8 @@
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton, LabeledPrice
 from telegram.helpers import escape
 from telegram.error import BadRequest, TelegramError
+from telegram.request import HTTPXRequest
+import httpx
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler, TypeHandler, PreCheckoutQueryHandler
 import mysql.connector
 from mysql.connector import Error
@@ -4903,33 +4905,7 @@ async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_T
     text = update.message.text
     user = update.effective_user
     topic = context.user_data.get('support_topic', 'مشخص نشده')
-    ticket_id = create_support_ticket(user.id, topic, text)
-
-    support_message = (
-        f"📨 <b>پیام پشتیبانی جدید</b>\n\n"
-        f"👤 کاربر: {user.full_name}\n"
-        f"🆔 آیدی: <code>{user.id}</code>\n"
-        f"📱 یوزرنیم: @{user.username or 'ندارد'}\n"
-        f"📝 موضوع: {topic}\n"
-        f"💬 پیام: {text}\n"
-        f"📅 تاریخ: {get_jalali_datetime()}\n\n"
-        f"💡 <b>برای پاسخ به کاربر، روی دکمه زیر کلیک کنید.</b>"
-    )
-
-    reply_keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💬 پاسخ به کاربر", callback_data=f"reply_support_{ticket_id}_{user.id}")]
-    ])
-
-    for admin_id in await asyncio.to_thread(integration.notice_recipients,'incoming_ticket'):
-        try:
-            await context.bot.send_message(
-                chat_id=admin_id, 
-                text=support_message, 
-                parse_mode="HTML",
-                reply_markup=reply_keyboard
-            )
-        except:
-            pass
+    await asyncio.to_thread(integration.submission,'ticket',user.id,(topic,text),update.update_id)
 
     await update.message.reply_text(
         "✅ پیام شما با موفقیت ارسال شد.\n\n"
@@ -6247,35 +6223,8 @@ def create_charge_handler():
         user = update.effective_user
         amount = context.user_data.get('amount', 0)
         payment_tracking = context.user_data.get('payment_tracking', '')
-        receipt_id = save_receipt(user.id, amount, photo_id, payment_tracking, context.user_data.get('payment_method', 'card'))
-        context.user_data.pop('waiting_for_receipt_photo', None)
-
-        for admin_id in await asyncio.to_thread(integration.notice_recipients,'incoming_receipt'):
-            try:
-                safe_name = html.escape(str(user.full_name or '-'))
-                safe_username = '@' + html.escape(str(user.username).lstrip('@')) if user.username else 'ندارد'
-                caption = (
-                    f"📸 رسید جدید\n\n"
-                    f"🆔 #{receipt_id}\n"
-                    f"👤 {safe_name}\n"
-                    f"🔹 یوزرنیم: {safe_username}\n"
-                    f"🔢 آیدی عددی: <code>{user.id}</code>\n"
-                    f"💰 {format_amount(amount)} تومان\n"
-                    f"🛒 <code>{payment_tracking}</code>"
-                )
-                if is_photo:
-                    await context.bot.send_photo(
-                        admin_id, photo=photo_id, caption=caption, 
-                        reply_markup=get_admin_action_keyboard(user.id, amount, receipt_id, payment_tracking), 
-                        parse_mode="HTML"
-                    )
-                else:
-                    await context.bot.send_document(
-                        admin_id, document=photo_id, caption=caption, 
-                        reply_markup=get_admin_action_keyboard(user.id, amount, receipt_id, payment_tracking), 
-                        parse_mode="HTML"
-                    )
-            except: pass
+        await asyncio.to_thread(integration.submission,'receipt',user.id,(amount,photo_id,payment_tracking,context.user_data.get('payment_method','card'),is_photo),update.update_id)
+        context.user_data.pop('waiting_for_receipt_photo',None)
 
         await update.message.reply_text(
             "✅ رسید با موفقیت ارسال شد.\n\n📝 پس از بررسی توسط ادمین، موجودی شما شارژ خواهد شد.", 
@@ -10169,19 +10118,7 @@ async def run_lottery(update, context, target_type='all', target_value=0):
         err = str(exc).lower()
         if "forbidden" in err or "bot was blocked" in err or "user is deactivated" in err or "chat not found" in err:
             mark_user_blocked(winner_id)
-            admin_text = (
-                "🚨 <b>برنده قرعه‌کشی ربات را بلاک کرده است</b>\n\n"
-                f"🆔 آیدی عددی: <code>{winner_id}</code>\n"
-                f"💰 مبلغ جایزه: <b>{format_amount(amount)} تومان</b>\n"
-                f"🎯 بخش: {escape(group_label)}\n\n"
-                "❌ هیچ مبلغی به این کاربر واریز نشد.\n"
-                "⚠️ قرعه‌کشی به‌صورت خودکار ادامه داده نشد."
-            )
-            for admin_id in await asyncio.to_thread(integration.notice_recipients,'lottery_warning'):
-                try:
-                    await context.bot.send_message(chat_id=admin_id, text=admin_text, parse_mode="HTML")
-                except Exception:
-                    logger.exception("failed notifying admin about blocked lottery winner=%s", winner_id)
+            await asyncio.to_thread(integration.lottery_notice,update.update_id,winner_id,amount)
             try:
                 await update.effective_message.edit_text(
                     "🚨 <b>قرعه‌کشی متوقف شد</b>\n\n"
@@ -10196,20 +10133,7 @@ async def run_lottery(update, context, target_type='all', target_value=0):
             return
         # خطاهای غیر از بلاک شدن را لاگ می‌کنیم و برای جلوگیری از پرداخت اشتباه، پرداخت را متوقف می‌کنیم.
         logger.exception("failed checking lottery winner availability user=%s", winner_id)
-        for admin_id in await asyncio.to_thread(integration.notice_recipients,'lottery_warning'):
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=(
-                        "⚠️ <b>بررسی برنده قرعه‌کشی ناموفق بود</b>\n\n"
-                        f"🆔 آیدی: <code>{winner_id}</code>\n"
-                        f"💰 جایزه: <b>{format_amount(amount)} تومان</b>\n"
-                        "❌ برای جلوگیری از واریز اشتباه، جایزه پرداخت نشد."
-                    ),
-                    parse_mode="HTML",
-                )
-            except Exception:
-                pass
+        await asyncio.to_thread(integration.lottery_notice,update.update_id,winner_id,amount)
         return
 
     # Record the lottery and credit the winner.
@@ -11964,6 +11888,26 @@ async def publication_callback(update: Update,context: ContextTypes.DEFAULT_TYPE
     except Exception:
         await query.answer('پیام‌رسان محصول را انتخاب و دوباره تلاش کنید.',show_alert=True)
 
+async def price_review_callback(update,context):
+    query=update.callback_query;chat=update.effective_chat
+    if not chat or not query.message or chat.type!='private' or chat.id!=update.effective_user.id or chat.id not in ADMIN_IDS:
+        await query.answer('این عملیات مخصوص گفتگوی خصوصی مدیر است.',show_alert=True);return
+    await query.answer()
+    try:payload=await asyncio.to_thread(integration.review_callback,chat.id,chat.id,chat.type,query.message.message_id,query.data)
+    except Exception:
+        await query.message.reply_text('گزارش معتبر نیست یا دسترسی ندارید. گزارش جاری را در پنل ببینید.');return
+    kb=payload.get('reply_markup',{}).get('inline_keyboard',[])
+    try:await query.edit_message_text(payload['text'],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(**x) for x in row] for row in kb]))
+    except BadRequest as exc:
+        if 'not modified' not in str(exc).lower():raise
+
+
+async def backup_group_id(update,context):
+    chat=update.effective_chat
+    if update.effective_user.id in ADMIN_IDS and chat.type=='supergroup':
+        await update.effective_message.reply_text(f'شناسهٔ این گروه: {chat.id}\nبرای اتصال بکاپ، این شناسه را به مسئول سرور بدهید.')
+
+
 def main():
     logger.info("Bot starting")
     print("Connecting...")
@@ -11972,10 +11916,17 @@ def main():
     else: 
         print("Warning: bot started without database.")
 
-    app = Application.builder().token(TOKEN).build()
+    # Retry failed connections (before the request is sent). Never replay billing
+    # handlers or uploads blindly on an ambiguous read timeout.
+    def transport(pool):
+        return HTTPXRequest(connection_pool_size=pool,connect_timeout=8,
+            httpx_kwargs={'transport':httpx.AsyncHTTPTransport(retries=2,limits=httpx.Limits(max_connections=pool))})
+    app = Application.builder().token(TOKEN).request(transport(64)).get_updates_request(transport(1)).build()
 
     # ترتیب handlerها خیلی مهمه!
     app.add_handler(TypeHandler(Update, track_user_activity), group=-1)
+    app.add_handler(CallbackQueryHandler(price_review_callback,pattern=r'^pr:'))
+    app.add_handler(CommandHandler('backup_id',backup_group_id))
     # TypeHandler بالا همه Updateها را پوشش می‌دهد؛ بنابراین پیام‌های معمولی، /start،
     # Reply Keyboard و Inline/Callback همگی last_activity_at را به‌روزرسانی می‌کنند.
     app.add_handler(CallbackQueryHandler(publication_callback,pattern="^achannel_(web|tg|rubika|eitaa|bale|ai|telegram)_[0-9]+$"))
@@ -12031,7 +11982,7 @@ def main():
     print("Automatic transaction verification service started successfully.")
 
     print("Bot started successfully.")
-    app.run_polling()
+    app.run_polling(bootstrap_retries=-1,drop_pending_updates=False)
 
 if __name__ == "__main__":
     main()

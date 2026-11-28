@@ -13,6 +13,24 @@ from portal.order_notices import approval_buttons
 from portal.notice_topics import recipients,subscribers
 
 
+def submission(kind,uid,data,update_id):
+    from portal.native_notices import save_submission
+    try:return save_submission(kind,uid,data,update_id)
+    finally:close_old_connections()
+
+
+def lottery_notice(update_id,winner,amount):
+    from portal.native_notices import native_event
+    try:native_event('lottery_warning',winner,f'lottery:{update_id}',f'بررسی برنده ناموفق بود. جایزهٔ {amount:,} تومانی پرداخت نشد.')
+    finally:close_old_connections()
+
+
+def review_callback(*args):
+    from portal.review_queue import telegram_action
+    try:return telegram_action(*args)
+    finally:close_old_connections()
+
+
 def notice_recipients(topic):
     """Call off the event loop. A settings failure must not disclose a muted message."""
     import logging

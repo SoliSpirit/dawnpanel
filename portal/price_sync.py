@@ -5,7 +5,8 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Audit, Product, SourceProduct, SourceSyncSettings
+from .models import Audit, Product, SourceProduct, SourceSyncSettings, PriceReviewBatch, PriceReviewItem, OperationNotice,OrderDelivery
+from .notice_topics import subscribers
 from .services import BusinessError
 from .supplier_clients import fetch_catalogue
 from .source_links import product_page
@@ -17,11 +18,13 @@ def price_signature(product):
 
 
 @transaction.atomic
-def apply_proposal(pk, actor=None, *, automatic=False, expected_observed_at=None):
+def apply_proposal(pk, actor=None, *, automatic=False, expected_observed_at=None, markup=None, review=False, telegram_admin_id=None):
+    if automatic:return False
     link = SourceProduct.objects.select_for_update().get(pk=pk)
     if expected_observed_at is not None and link.observed_at != expected_observed_at:
         raise BusinessError('قیمت پیشنهادی تغییر کرده؛ دوباره بررسی کنید.')
-    if link.review_status != 'pending' or not link.proposed_price or not link.available:
+    if not link.available or not (link.review_status=='pending' and link.proposed_price or
+            review and markup is not None and link.review_status=='unchanged' and link.last_price):
         raise BusinessError('قیمت تأییدنشدهٔ معتبری برای اعمال وجود ندارد.')
     if not link.observed_at or link.observed_at < timezone.now() - timedelta(hours=24):
         raise BusinessError('قیمت پیشنهادی قدیمی است؛ دوباره دریافت کنید.')
@@ -33,25 +36,38 @@ def apply_proposal(pk, actor=None, *, automatic=False, expected_observed_at=None
         link.review_status = 'conflict'
         link.save(update_fields=['review_status'])
         return False
-    if automatic:
-        config = SourceSyncSettings.objects.select_for_update().get(source=link.source)
-        if not config.enabled or config.require_approval or not link.sync_enabled:
-            return False
-        delta = abs(Decimal(link.proposed_price) - product.price) * 100 / max(product.price, 1)
-        if delta > config.max_change_percent:
-            return False
-    before = product.price
-    product.price = link.proposed_price
-    product.save(update_fields=['price'])
+    before,old_markup = product.price,product.product_profit_percent
+    product.price = link.proposed_price or link.last_price
+    if markup is not None:
+        if not isinstance(markup,Decimal) or not markup.is_finite() or not 0<=markup<1000000 or markup.as_tuple().exponent < -4:
+            raise BusinessError('درصد سود معتبر نیست.')
+        product.product_profit_percent=markup
+    product.save(update_fields=['price','product_profit_percent'])
     link.review_status = 'applied'
     link.proposed_price = None
     link.save(update_fields=['review_status','proposed_price'])
     Audit.objects.create(actor=actor, action='source.price.apply', object_ref=str(product.pk),
-                         details={'source':link.source,'old':before,'new':product.price,'automatic':automatic})
+                         details={'source':link.source,'old':before,'new':product.price,'old_markup':str(old_markup),
+                                  'markup':str(product.product_profit_percent),'batch_item':review,'telegram_admin_id':telegram_admin_id})
     return True
 
 
-def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=None):
+@transaction.atomic
+def finish_batch(batch):
+    batch=PriceReviewBatch.objects.select_for_update().get(pk=batch.pk)
+    if batch.ready:return
+    n=batch.items.count()
+    if not n:
+        batch.delete()
+        return
+    batch.ready=True;batch.save(update_fields=['ready'])
+    pending=batch.items.filter(status='pending').count()
+    op=OperationNotice.objects.create(topic='price_review',origin='system',summary=f'گزارش بررسی {n} محصول؛ {pending} پیشنهاد قیمت منتظر تأیید.',
+                                   reference=str(batch.pk),prepared=True)
+    OrderDelivery.objects.bulk_create([OrderDelivery(operation=op,recipient=key,due_at=timezone.now()) for key in subscribers('price_review')])
+
+
+def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=None, batch=None):
     """A targeted recheck observes exactly these mappings, including paused ones.
 
     It never moves the full-catalog schedule or applies a merchant price.
@@ -79,7 +95,7 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
     try:
         rows = fetch_catalogue(source, deadline=deadline)
         indexed = {str(row['external_id']): row for row in rows}
-        pending = applied = 0
+        pending = 0
         present = missing = sold_out = 0
         observed = timezone.now()
         with transaction.atomic():
@@ -89,9 +105,12 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
             if not SourceSyncSettings.objects.select_for_update().filter(source=source,running_until=lease).exists():
                 raise BusinessError('مهلت بررسی پایان یافته است؛ دوباره تلاش کنید.')
             products = Product.objects.in_bulk([link.product_id for link in links])
+            report=batch or PriceReviewBatch.objects.create(kind='scheduled' if due_only else 'manual')
+            items=[]
             for link in links:
                 row = indexed.get(link.external_id)
                 product = products.get(link.product_id)
+                previous=link.last_price or None
                 link.proposed_price = None
                 link.observed_at = link.updated_at = observed
                 link.available = bool(row and row['available'])
@@ -126,20 +145,23 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
                         link.proposed_price = row['price']
                         link.review_status = 'pending'
                         pending += 1
+                status=link.review_status
+                items.append(PriceReviewItem(batch=report,link=link,product_id=link.product_id,source=source,
+                    label=product.name if product else f'محصول #{link.product_id}',observed_at=observed,
+                    units=row['price_per'] if row else None,previous=previous,observed=row['price'] if row else None,
+                    base=product.price if product and product.price_currency=='TOMAN' and product.price_amount is None else None,
+                    markup=product.product_profit_percent if product else None,status=status,
+                    rank=0 if status=='pending' else (2 if status=='unchanged' else 1)))
             SourceProduct.objects.bulk_update(links, ['proposed_price','observed_at','updated_at','available',
                 'last_price','item_url','review_status','price_baseline'],batch_size=100)
-        # No network I/O inside row locks or financial transactions.
-        if not targeted and config.enabled and not config.require_approval:
-            for p in links:
-                if p.review_status == 'pending':
-                    applied += bool(apply_proposal(p.pk,actor,automatic=True,expected_observed_at=observed))
-        result={'received':len(rows),'checked':len(links),'available':present,'unavailable':sold_out,
-                'missing':missing,'pending':pending,'applied':applied}
-        with transaction.atomic():
+            PriceReviewItem.objects.bulk_create(items,batch_size=150)
+            result={'received':len(rows),'checked':len(links),'available':present,'unavailable':sold_out,
+                    'missing':missing,'pending':pending,'applied':0,'review_batch':report.pk}
             SourceSyncSettings.objects.filter(source=source,running_until=lease).update(running_until=None,
                 **({} if targeted else {'last_success':timezone.now(),'last_error':''}))
             Audit.objects.create(actor=actor,action='source.price.recheck' if targeted else 'source.price.fetch',
-                object_ref=source,details={**result,**({'links':link_ids} if targeted else {})})
+                 object_ref=source,details={**result,**({'links':link_ids} if targeted else {})})
+            if batch is None:finish_batch(report)
         return result
     except Exception:
         SourceSyncSettings.objects.filter(source=source,running_until=lease).update(running_until=None,
