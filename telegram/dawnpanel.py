@@ -2565,11 +2565,11 @@ def update_product(product_id, field, value):
     if not connection: return False
     try:
         cursor = connection.cursor()
-        valid_fields = ['name', 'description', 'price', 'price_per', 'min_order', 'max_order', 'need_link', 'category_id', 'target_type', 'target_prompt', 'price_currency', 'price_amount', 'product_profit_percent']
+        valid_fields = ['name', 'description', 'price', 'min_order', 'max_order', 'need_link', 'category_id', 'target_type', 'target_prompt', 'price_currency', 'price_amount', 'product_profit_percent']
         if field not in valid_fields:
             return False
         cursor.execute(f"UPDATE products SET {field} = %s WHERE id = %s", (value, product_id))
-        if field in ('price','price_per','price_currency','price_amount','product_profit_percent'):
+        if field in ('price','price_currency','price_amount','product_profit_percent'):
             cursor.execute("DELETE FROM portal_productsaleoverride WHERE product_id=%s",(product_id,))
         connection.commit()
         cursor.close()
@@ -8690,7 +8690,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['edit_field'] = 'price_per'
         context.user_data['admin_state'] = 'edit_product_value'
         await query.message.reply_text(
-            "✏️ لطفاً تعداد جدید «قیمت به ازای» را وارد کنید:\n\nبرای لغو /cancel را بزنید."
+            "قیمت برای چند عدد است؟ برای یک گروه یا کانال تکی «۱»، برای بستهٔ هزار‌تایی «۱۰۰۰» یا تعداد دلخواه را وارد کنید. ابتدا پیش‌نمایش را می‌بینید.\n\nبرای لغو /cancel را بزنید."
         )
         return ADMIN_EDIT_PRODUCT_VALUE
 
@@ -9491,7 +9491,7 @@ async def handle_admin_add_product_price_per(update: Update, context: ContextTyp
 
     try:
         price_per = int(text) if text != '/skip' else 1
-        if price_per <= 0:
+        if not 1 <= price_per <= 100_000_000:
             raise ValueError
         context.user_data['new_product_price_per'] = price_per
     except Exception:
@@ -9716,7 +9716,22 @@ async def handle_admin_edit_product_value(update: Update, context: ContextTypes.
     if not product_id or not field:
         return ConversationHandler.END
 
-    numeric_fields = {'price', 'price_amount', 'price_per', 'min_order', 'max_order', 'product_profit_percent'}
+    if field=='price_per':
+        uid=update.effective_user.id
+        if update.effective_chat.type!='private' or update.effective_chat.id!=uid or uid not in ADMIN_IDS:
+            return ConversationHandler.END
+        try:d=await asyncio.to_thread(integration.catalog_pack,product_id,text_value,uid)
+        except integration.BusinessError as exc:
+            await update.message.reply_text(str(exc));return ADMIN_EDIT_PRODUCT_VALUE
+        token=f"pc:{d['pk']}:{d['units']}:{d['proof']}"
+        await update.message.reply_text(f"{d['name']}\nمبنای قیمت: از هر {d['old']:,} به هر {d['units']:,} عدد.\n"
+            f"مبلغ بسته: {d['pack']:,} تومان پیش از مالیات.\nسفارش {d['min_order']:,} عددی با مالیات: از {d['before']:,} به {d['after']:,} تومان.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('ثبت مبنای قیمت',callback_data=token)],
+                                               [InlineKeyboardButton('بازگشت',callback_data=f'aproductdetail_{product_id}')]]))
+        context.user_data.pop('edit_product_id',None);context.user_data.pop('edit_field',None)
+        context.user_data.pop('admin_state',None)
+        return ConversationHandler.END
+    numeric_fields = {'price', 'price_amount', 'min_order', 'max_order', 'product_profit_percent'}
 
     if field in numeric_fields:
         try:
@@ -9736,9 +9751,6 @@ async def handle_admin_edit_product_value(update: Update, context: ContextTypes.
             await update.message.reply_text("❌ لطفاً فقط یک عدد معتبر وارد کنید:")
             return ADMIN_EDIT_PRODUCT_VALUE
 
-        if field == 'price_per' and value == 0:
-            await update.message.reply_text("❌ «قیمت به ازای» نمی‌تواند صفر باشد:")
-            return ADMIN_EDIT_PRODUCT_VALUE
 
         if field == 'min_order' and value == 0:
             await update.message.reply_text("❌ حداقل سفارش باید بیشتر از صفر باشد:")
@@ -11902,6 +11914,19 @@ async def publication_callback(update: Update,context: ContextTypes.DEFAULT_TYPE
 
 _busy_price_messages=set()
 
+async def catalog_pack_callback(update,context):
+    q=update.callback_query;chat=update.effective_chat;uid=update.effective_user.id
+    match=re.fullmatch(r'pc:([1-9][0-9]{0,15}):([1-9][0-9]{0,8}):([0-9a-f]{20})',q.data or '')
+    if not (match and chat and q.message and chat.type=='private' and chat.id==uid and uid in ADMIN_IDS):
+        await q.answer('درخواست معتبر نیست.',show_alert=True);return
+    pk,units,proof=match.groups()
+    await q.answer()
+    try:
+        d=await asyncio.to_thread(integration.catalog_pack,int(pk),int(units),uid,proof)
+        text=f"مبنای {d['name']}: {d['pack']:,} تومان برای هر {d['units']:,} عدد."
+    except integration.BusinessError as exc:text=str(exc)
+    await q.edit_message_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('مشخصات محصول',callback_data=f'aproductdetail_{pk}')]]))
+
 async def price_review_callback(update,context):
     query=update.callback_query;chat=update.effective_chat
     if not chat or not query.message or chat.type!='private' or chat.id!=update.effective_user.id or chat.id not in ADMIN_IDS:
@@ -11946,6 +11971,7 @@ def main():
     # ترتیب handlerها خیلی مهمه!
     app.add_handler(TypeHandler(Update, track_user_activity), group=-1)
     app.add_handler(CallbackQueryHandler(price_review_callback,pattern=r'^pr:',block=False))
+    app.add_handler(CallbackQueryHandler(catalog_pack_callback,pattern=r'^pc:'))
     app.add_handler(CommandHandler('backup_id',backup_group_id))
     # TypeHandler بالا همه Updateها را پوشش می‌دهد؛ بنابراین پیام‌های معمولی، /start،
     # Reply Keyboard و Inline/Callback همگی last_activity_at را به‌روزرسانی می‌کنند.

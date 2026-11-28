@@ -701,6 +701,69 @@ class PriceSyncTests(TransactionTestCase):
         self.assertEqual((self.product.price,fresh.decision),(1234,'stale'))
         self.assertFalse(Audit.objects.filter(action='source.price.apply').exists())
 
+    def test_single_group_basis_is_per_mapping_preserves_pack_and_freezes_older_observations(self):
+        from .models import PriceReviewItem,ProductSaleOverride,Audit
+        from .pricing import pricing_for
+        self._tools_staff('change_product','change_sourceproduct')
+        self.product.price_per=1000;self.product.save();self.link.source='denapanel';self.link.save()
+        ProductSaleOverride.objects.create(product=self.product,units=1000,amount=350001)
+        other=Product.objects.create(category=self.category,name='Member pack',price=50000,price_per=1000)
+        SourceProduct.objects.create(product_id=other.pk,source='denapanel',external_id='12',last_price=50000)
+        rows=[{'external_id':'11','price':300000,'price_per':1000,'available':True},
+              {'external_id':'12','price':55000,'price_per':1000,'available':True}]
+        def check():
+            with patch('portal.price_sync.fetch_catalogue',return_value=rows):
+                return PriceReviewItem.objects.get(link=self.link,batch_id=sync_source('denapanel')['review_batch'])
+        old=check();url=f'/admin/prices/packs/{self.product.pk}/'
+        for bad in ('۰','-۱','۱٫۵','۱۰۰٬۰۰۰٬۰۰۱'):
+            self.assertIsNone(self.client.post(url,{'mode':'preview','units':bad}).context['preview'])
+        selected=self.client.post(url,{'mode':'preview','units':'۱'}).context['preview']
+        self.assertEqual((selected['before'],selected['after']),(351,350001))
+        self.client.post(url,{'mode':'save','units':10,'proof':selected['proof']})  # wrong denominator
+        self.product.refresh_from_db();self.assertEqual(self.product.price_per,1000)
+        self.assertEqual(self.client.post(url,{'mode':'save','units':'۱','proof':selected['proof']}).status_code,302)
+        self.client.post(url,{'mode':'save','units':'۱','proof':selected['proof']})
+        self.product.refresh_from_db();self.link.refresh_from_db()
+        self.assertEqual((self.product.price,self.product.fixed_sale,self.link.pack_override,self.link.review_status),
+                         (1000,350001,1,'conflict'))
+        self.assertEqual(pricing_for(self.product).quote(1).total,350001)
+        self.assertEqual(Audit.objects.filter(action='product.pack.change').count(),1)
+        self.client.post(f'/admin/prices/reviews/{old.batch_id}/',{'decision':'all'})
+        old.refresh_from_db();self.assertEqual((old.units,old.decision),(1000,'stale'))
+        fresh=check()
+        self.assertEqual((fresh.previous_units,fresh.units,fresh.feed_units,fresh.sale_units,fresh.status),(1000,1,1000,1,'pending'))
+        self.client.post('/admin/portal/sourceproduct/',{'_dp_approve':fresh.pk})
+        self.product.refresh_from_db();other.refresh_from_db()
+        self.assertEqual((self.product.price,self.product.price_per,self.product.fixed_sale,other.price_per),(300000,1,350001,1000))
+        back=self.client.post(url,{'mode':'preview','basis':'feed'}).context['preview']
+        self.client.post(url,{'mode':'save','basis':'feed','proof':back['proof']})
+        self.link.refresh_from_db();self.product.refresh_from_db()
+        self.assertEqual((self.link.pack_override,self.product.price_per,self.product.fixed_sale),(None,1000,350001))
+
+    @override_settings(BOT_CONFIG={'telegram':{'admin_ids':[71,81]}})
+    def test_pack_confirmation_is_private_bound_to_actor_and_requires_current_pricing(self):
+        from django.core.exceptions import PermissionDenied
+        from .models import OrderDelivery,PriceReviewItem
+        from .telegram_reviews import telegram_action
+        self._tools_staff('change_product')  # can't override a supplier denominator
+        pk=self.fetch()['review_batch'];i=PriceReviewItem.objects.get(batch_id=pk)
+        self.assertEqual(self.client.post(f'/admin/prices/packs/{self.product.pk}/',{'mode':'preview','units':10}).status_code,404)
+        out=OrderDelivery.objects.filter(operation__reference=str(pk),operation__topic='price_review')
+        out.update(state='sent',message_id=25)
+        def click(action,uid=71):return telegram_action(uid,uid,'private',25,action)
+        choose=f'pr:{pk}:1:uk:{i.pk}'
+        preview=click(choose)
+        confirm=preview['reply_markup']['inline_keyboard'][0][0]['callback_data']
+        self.assertLessEqual(len(confirm.encode()),64)
+        with self.assertRaises(PermissionDenied):telegram_action(71,71,'private',26,confirm)
+        self.assertIn('پیش‌نمایش تازه',click(confirm,81)['text'])
+        Product.objects.filter(pk=self.product.pk).update(price=1200)
+        self.assertIn('پیش‌نمایش تازه',click(confirm)['text'])
+        self.product.refresh_from_db();self.assertEqual(self.product.price_per,1)
+        current=click(choose)['reply_markup']['inline_keyboard'][0][0]['callback_data']
+        click(current);self.link.refresh_from_db();self.product.refresh_from_db()
+        self.assertEqual((self.product.price_per,self.link.pack_override),(1000,1000))
+
     def test_inline_monitoring_respects_permissions_and_price_approval(self):
         self.fetch()
         user=User.objects.create_user(username='price-monitor',is_staff=True)

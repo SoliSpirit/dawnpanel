@@ -58,7 +58,13 @@ class SourceApprovalMixin:
                                '<button type="submit" name="_dp_approve" value="{}" class="dp-price-button dp-approve" '
                                'formnovalidate aria-label="تأیید و اعمال قیمت: {}">تأیید و اعمال قیمت</button></div>',
                                obj.get_review_status_display(),fa_number(reviewed_sale(i)),fa_number(i.units),str(i.pk),i.label)
-        return [approval_status if c=='observation' else c for c in cols]
+        @admin.display(description='قیمت منبع (تومان)',ordering='last_price')
+        def source_with_units(obj):
+            cell=self.supplier_price(obj)
+            if not self.has_change_permission(request,obj):return cell
+            return format_html('{}<small class="catalog-row-category"><a class="dp-source-page" href="{}">تنظیم مبنای قیمت</a></small>',
+                               cell,reverse('admin:pack_editor',args=[obj.product_id]))
+        return [approval_status if c=='observation' else source_with_units if c=='supplier_price' else c for c in cols]
 
     def apply_review_item(self,request,item,*,reject=False):
         count,_=decide(item.batch_id,item_pk=item.pk,reject=reject,actor=request.user,request=request,site=self.admin_site)

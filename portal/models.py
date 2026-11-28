@@ -480,6 +480,8 @@ class SourceProduct(models.Model):
     family_name=models.CharField('نام خانواده محصول',max_length=500,blank=True,default='')
     family_summary=models.TextField('معرفی خانواده محصول',blank=True,default='')
     last_price=models.PositiveBigIntegerField()
+    pack_override=models.PositiveIntegerField('تعداد مبنای تعیین‌شده توسط مدیر',null=True,blank=True,editable=False,
+                                               validators=[MinValueValidator(1),MaxValueValidator(100_000_000)])
     sync_enabled=models.BooleanField('دریافت قیمت این محصول',default=True)
     proposed_price=models.PositiveBigIntegerField('قیمت پیشنهادی تومان',null=True,blank=True)
     price_baseline=models.JSONField(default=dict,editable=False)
@@ -492,7 +494,9 @@ class SourceProduct(models.Model):
     updated_at=models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints=[models.UniqueConstraint(fields=['source','external_id'],name='unique_source_product')]
+        constraints=[models.UniqueConstraint(fields=['source','external_id'],name='unique_source_product'),
+                     models.CheckConstraint(condition=models.Q(pack_override__isnull=True)|models.Q(
+                         pack_override__gte=1,pack_override__lte=100_000_000),name='source_pack_override_range')]
         verbose_name='قیمت منبع محصول'
         verbose_name_plural='بررسی قیمت محصولات'
 
@@ -504,6 +508,19 @@ class SourceProduct(models.Model):
         from .source_links import product_page
         return (product_page(self.source,self.item_url,self.external_id)
                 or product_page(self.source,self.source_url,self.external_id))
+
+    @property
+    def feed_units(self):
+        """Last declared supplier denominator; older observations saved it as source_price_per."""
+        from .source_catalog import DENA_PRICE_PER
+        default={'denapanel':DENA_PRICE_PER,'premstore':1}.get(self.source)
+        value=self.price_baseline.get('feed_price_per',self.price_baseline.get('source_price_per',default))
+        return int(value) if str(value).isascii() and str(value).isdecimal() and 0<int(value)<=100_000_000 else None
+
+    @property
+    def observed_units(self):
+        value=self.price_baseline.get('source_price_per',self.feed_units)
+        return int(value) if str(value).isascii() and str(value).isdecimal() and 0<int(value)<=100_000_000 else None
 
 
 class SourceSyncSettings(models.Model):
@@ -544,6 +561,9 @@ class PriceReviewItem(models.Model):
     source=models.CharField(max_length=30)
     observed_at=models.DateTimeField()
     units=models.PositiveIntegerField(null=True)
+    feed_units=models.PositiveIntegerField(null=True,editable=False)
+    previous_units=models.PositiveIntegerField(null=True,editable=False)
+    sale_units=models.PositiveIntegerField(null=True,editable=False)
     previous=models.PositiveBigIntegerField(null=True)
     observed=models.PositiveBigIntegerField(null=True)
     base=models.PositiveBigIntegerField(null=True)

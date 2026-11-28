@@ -16,7 +16,6 @@ from django.views.decorators.http import require_GET,require_POST
 from .admin_overview import date_label,midnight
 from .models import Account,Audit,Order,OrderCost,SourceProduct
 from .pricing import ceil_div
-from .source_catalog import DENA_PRICE_PER
 
 PERIODS=(('today','امروز',1),('yesterday','دیروز',1),('week','۷ روز اخیر',7),('month','۳۰ روز اخیر',30),('year','۳۶۵ روز اخیر',365))
 STATUSES={'pending':'منتظر بررسی','confirmed':'در حال انجام','approved':'تأییدشده','processing':'در حال پردازش',
@@ -27,7 +26,7 @@ def snapshot_cost(order,p,pricing):
     source='';estimate=at=None
     link=SourceProduct.objects.filter(product_id=p.pk).first()
     now=timezone.now()
-    units={'denapanel':DENA_PRICE_PER,'premstore':1}.get(link.source) if link else None
+    units=link.observed_units if link and link.source in ('denapanel','premstore') else None
     if (units and p.price_per==units and link.available and link.last_price>0 and link.observed_at
             and now-timedelta(hours=24)<=link.observed_at<=now and link.review_status in ('pending','applied','unchanged')):
         estimate=ceil_div(link.last_price*order.quantity,units);source=link.source;at=link.observed_at

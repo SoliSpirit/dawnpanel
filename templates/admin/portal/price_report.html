@@ -13,4 +13,8 @@
   </form>
   <details class="op-markup"><summary>محاسبهٔ فروش با درصد سود</summary><form class="op-row-action" method="post">{% csrf_token %}<input type="hidden" name="item" value="{{ i.pk|unlocalize }}"><label>درصد سود روی قیمت منبع <input name="markup" inputmode="decimal" dir="ltr" value="{{ i.markup|unlocalize }}" required maxlength="12"></label><div>فروش محاسبه‌شده: <output data-price-preview="{{ i.observed|unlocalize }}">{{ i.percent_sale|fa_number }} تومان</output></div><button name="decision" value="one">تأیید با این درصد</button></form></details>
 {% else %}{% if i.live_sale != None %}<p>فروش فعلی برای {{ i.live_units|fa_number }} عدد: <strong>{{ i.live_sale|fa_number }} تومان</strong></p>{% endif %}<a class="op-edit-current" href="{% url 'admin:current_sale_price' batch.pk i.pk %}">{% icon 'pen' %} ویرایش قیمت فعلی محصول</a>{% endif %}{% endif %}
+{% if i.feed_units and i.feed_units != i.units %}<small>تعداد اعلام‌شدهٔ منبع: {{ i.feed_units|fa_number }} · مبنای تعیین‌شده: {{ i.units|fa_number }}</small>{% endif %}
+{% if i.previous_units and i.previous_units != i.units %}<small>قیمت قبلی منبع برای هر {{ i.previous_units|fa_number }} عدد بود.</small>{% endif %}
+{% if i.before_units and i.before_units != i.units %}<small>فروش هنگام بررسی برای هر {{ i.before_units|fa_number }} عدد بود.</small>{% endif %}
+{% if can_edit %}<a class="op-edit-current" href="{% url 'admin:pack_editor' i.product_id %}">{% icon 'sliders' %} تنظیم مبنای قیمت</a>{% endif %}
 </article>{% empty %}<p>ردیفی با این وضعیت وجود ندارد.</p>{% endfor %}</div>{% include 'partials/pagination.html' %}</div>{% endblock %}

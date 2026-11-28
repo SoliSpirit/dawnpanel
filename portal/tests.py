@@ -118,6 +118,25 @@ class SecurityAndCommerceTests(TransactionTestCase):
         with patch.object(OrderCost.objects,'create',side_effect=RuntimeError('snapshot not stored')),self.assertRaises(RuntimeError):buy()
         self.assertEqual(Order.objects.count(),3);self.assertEqual(Ledger.objects.filter(type='withdraw').count(),3)
 
+    def test_custom_pack_charges_both_wallets_and_uses_observed_cost_per_single_group(self):
+        from .pack_basis import pack_change
+        self.product.price_per=1000;self.product.min_order=self.product.max_order=1;self.product.save()
+        SourceProduct.objects.create(product_id=self.product.pk,source='denapanel',external_id='qa-pack',last_price=800)
+        old=pricing_for(self.product).quote(1)
+        with self.settings(BOT_CONFIG={'telegram':{'admin_ids':[71]}}):
+            plan=pack_change(self.product.pk,'۱',telegram_id=71)
+            pack_change(self.product.pk,1,telegram_id=71,proof=plan['proof'])
+        from .price_sync import sync_source
+        with patch('portal.price_sync.fetch_catalogue',return_value=[{'external_id':'qa-pack','price':850,'price_per':1000,'available':True}]):
+            sync_source('denapanel')
+        self.product.refresh_from_db();q=pricing_for(self.product).quote(1)
+        self.assertEqual((old.total,q.total),(1,1000))
+        with self.assertRaises(BusinessError):place_order(self.account,self.product.pk,1,'test',uuid.uuid4(),old.total,old.breakdown)
+        web=place_order(self.account,self.product.pk,1,'test',uuid.uuid4(),q.total,q.breakdown)
+        bot,_=place_bot_order(self.otherwallet.pk,self.product.pk,1,'test',q.total,q.breakdown)
+        self.assertEqual((web.cost_record.estimated,OrderCost.objects.get(order_id=bot).estimated),(850,850))
+        self.assertEqual(list(Ledger.objects.filter(type='withdraw').values_list('amount',flat=True)),[-1000,-1000])
+
     @override_settings(BOT_CONFIG={'telegram':{'admin_ids':[71,81],'token':'test'}})
     def test_bot_submissions_survive_telegram_outage_without_replaying_receipts_or_email(self):
         from django.core import mail

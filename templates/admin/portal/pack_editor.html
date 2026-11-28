@@ -1,0 +1,20 @@
+{% extends 'admin/base_site.html' %}{% load static ui l10n %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'operator-hub.css' %}">{% endblock %}
+{% block content %}<section class="op-hub op-live-price"><article class="op-card">
+  <header><h2>{{ p.name|default:'مبنای قیمت' }}</h2><a href="{% url 'admin:portal_product_change' product_id %}">مشخصات محصول</a></header>
+  {% if error %}<p class="errornote" role="alert">{{ error }}</p>{% endif %}
+  {% if p %}<p>فروش فعلی: <strong>{{ p.pack|fa_number }} تومان برای هر {{ p.old|fa_number }} عدد</strong>، پیش از مالیات{% if p.fixed %} (فروش ثابت){% endif %}.</p>
+  {% if p.link %}<p>تعداد اعلام‌شدهٔ منبع: <b>{{ p.feed|default_if_none:'—'|fa_number }}</b>{% if p.override %} · مبنای تعیین‌شده توسط مدیر: {{ p.override|fa_number }}{% endif %} · {% include 'admin/portal/supplier_page_link.html' with url=p.link.evidence_url label=p.name only %}</p>{% endif %}
+  <p>مبلغ بسته ثابت می‌ماند؛ فقط تعدادِ مقابل آن عوض می‌شود. برای یک گروه یا کانال تکی «۱» و برای بستهٔ هزار‌تایی «۱۰۰۰» وارد کن. حداقل و حداکثر سفارش جداگانه تنظیم می‌شوند.</p>
+  {% if preview %}<section class="op-card"><h3>پیش‌نمایش برای هر {{ preview.units|fa_number }} عدد</h3>
+    <p>{{ p.pack|fa_number }} تومان برای هر {{ preview.units|fa_number }} عدد، پیش از مالیات.</p>
+    <p>مبلغ پرداختی سفارش {{ p.min_order|fa_number }} عددی: قبلاً {{ p.before|fa_number }} تومان؛ پس از ثبت <strong>{{ preview.after|fa_number }} تومان</strong>.</p>
+    {% if p.link %}<p>بررسی بعدیِ همین محصول با این مبنا انجام می‌شود. پیشنهادهای مبنای قبلی قابل تأیید نخواهند بود.</p>{% endif %}
+    <form method="post">{% csrf_token %}<input type="hidden" name="proof" value="{{ preview.proof }}"><input type="hidden" name="units" value="{{ preview.units|unlocalize }}"><input type="hidden" name="basis" value="{% if preview.choice == 'feed' %}feed{% else %}custom{% endif %}">
+      <button class="op-primary" name="mode" value="save">ثبت مبنای قیمت</button> <a href="{% url 'admin:pack_editor' product_id %}">بازگشت</a></form></section>
+  {% else %}<form class="op-sale-form" method="post">{% csrf_token %}<input type="hidden" name="mode" value="preview">
+    <label>قیمت به‌ازای چند عدد؟<input name="units" inputmode="numeric" dir="ltr" required maxlength="18" value="{% if entered %}{{ entered }}{% else %}{{ p.old|unlocalize }}{% endif %}"></label>
+    <button class="op-primary" name="basis" value="custom">پیش‌نمایش قیمت</button>
+    {% if p.link and p.feed %}<button name="basis" value="feed" formnovalidate>استفاده از مبنای منبع ({{ p.feed|fa_number }})</button>{% endif %}
+  </form>{% endif %}{% endif %}
+</article></section>{% endblock %}

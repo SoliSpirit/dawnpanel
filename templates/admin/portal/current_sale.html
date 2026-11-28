@@ -2,6 +2,7 @@
 {% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'operator-hub.css' %}">{% endblock %}
 {% block content %}<section class="op-hub op-live-price"><article class="op-card">
   <header><h2>{{ p.name }}</h2><a href="{{ report_url }}">بازگشت به گزارش</a></header>
+  <a href="{% url 'admin:pack_editor' p.pk %}">تنظیم مبنای قیمت · هر {{ p.price_per|fa_number }} عدد</a>
   <p>{% include 'admin/portal/supplier_page_link.html' with url=source_page label=p.name only %}</p>
   {% if valid %}<p>فروش فعلی برای {{ p.price_per|fa_number }} عدد: <strong>{{ old|fa_number }} تومان</strong> پیش از مالیات.</p>
   <p>مبلغ جدید مستقیماً روی محصول ثبت می‌شود. «قیمت هنگام بررسی» در گزارش، سابقهٔ همان زمان است.</p>

@@ -10,6 +10,7 @@ from django.urls import reverse
 
 from .models import OrderDelivery, PriceReviewBatch
 from .notice_topics import subscribers
+from .pack_basis import pack_change
 from .price_sync import sync_source
 from .pricing import BusinessError
 from .review_queue import NAMES, batch_url, decide, display_row, live_pending
@@ -17,7 +18,7 @@ from .supplier_clients import SupplierError
 from .templatetags.ui import fa_datetime, fa_number
 
 PER_PAGE = 5
-CALLBACK = re.compile(r'pr:([1-9][0-9]{0,15}):([1-9][0-9]{0,7}):(home|pending|items|detail[pa]|(?:approve|reject|recheck)[hpa]|ask|all|page|one):([0-9]{1,16})')
+CALLBACK = re.compile(r'pr:([1-9][0-9]{0,15}):([1-9][0-9]{0,7}):(home|pending|items|detail[pa]|(?:approve|reject|recheck)[hpa]|basis|u[1kf](?:_[a-f0-9]{20})?|ask|all|page|one):([0-9]{1,16})')
 
 
 def button(batch, action, title, *, page=1, item=0):
@@ -84,6 +85,7 @@ def digest(batch, notice=''):
     if n:nav.insert(0,button(batch,'pending',f'فهرست {fa_number(n)} پیشنهاد'))
     bottom=[web(batch)]
     if n:bottom.insert(0,button(batch,'ask','تأیید همه…'))
+    if first:keys.append([button(batch,'basis','تنظیم مبنای همین محصول',item=first.pk)])
     return packet(lines,[*keys,nav,bottom])
 
 
@@ -117,21 +119,24 @@ def detail_card(batch,pk,page,pending,*,notice=''):
     lines=[f'<b>{name(i,110)}</b>',f'{escape(i.source_label)} · گزارش {fa_number(batch.pk)}']
     if batch.kind=='recheck':lines+=['بررسی مجدد · '+fa_datetime(i.observed_at)]
     if i.units:lines.append(f'مبنای قیمت: هر {money(i.units)} عدد')
+    if i.feed_units and i.feed_units!=i.units:lines.append(f'تعداد اعلام‌شدهٔ منبع: {money(i.feed_units)}')
     lines+=[i.current_label]
     if notice:lines+=['',notice]
-    lines+=['','<b>فروش پیش از مالیات</b> · تومان',f'هنگام بررسی: {money(i.sale_before)}']
+    before=f' · هر {money(i.before_units)} عدد' if i.before_units and i.before_units!=i.units else ''
+    lines+=['','<b>فروش پیش از مالیات</b> · تومان',f'هنگام بررسی: {money(i.sale_before)}{before}']
     if i.sale_after is not None:
         label={'applied':'تأییدشده','rejected':'پیشنهاد ردشده'}.get(i.decision,'پیشنهادی')
         lines.append(f'{label}: <b>{money(i.sale_after)}</b>')
     lines+=['','<b>قیمت منبع</b> · تومان']
-    if i.previous==i.observed and i.observed is not None:lines.append(f'بدون تغییر: {money(i.observed)}')
-    else:lines.extend([f'قبلی: {money(i.previous)}',f'تازه: {money(i.observed)}'])
+    prev=f' · هر {money(i.previous_units)} عدد' if i.previous_units and i.previous_units!=i.units else ''
+    if i.previous==i.observed and i.observed is not None and not prev:lines.append(f'بدون تغییر: {money(i.observed)}')
+    else:lines.extend([f'قبلی: {money(i.previous)}{prev}',f'تازه: {money(i.observed)}'])
     keys=item_controls(batch,i,'p' if pending else 'a',page)
     if not i.source_page:lines.append('لینک صفحهٔ منبع در دسترس نیست.')
     if notice and (i.decision or not i.current_observation):
         next_pk=live_pending(batch).exclude(pk=i.pk).values_list('pk',flat=True).first()
         if next_pk:keys.insert(0,[button(batch,'detailp','پیشنهاد بعدی ←',item=next_pk)])
-    keys.append([web(batch,i,editable=i.editable)])
+    keys.append([button(batch,'basis','تنظیم مبنای قیمت',item=i.pk),web(batch,i,editable=i.editable)])
     if batch.kind!='recheck':
         keys.append([button(batch,'pending' if pending else 'items','فهرست محصولات',page=page),
                      button(batch,'home','خلاصهٔ گزارش')])
@@ -162,6 +167,28 @@ def telegram_digest(batch_pk):
     return digest(batch)
 
 
+def pack_card(batch,pk,action,user):
+    i=batch.items.filter(pk=pk).first()
+    if not i:raise PermissionDenied
+    code,_,proof=action.partition('_')
+    choice={'basis':None,'u1':1,'uk':1000,'uf':'feed'}[code]
+    back=[button(batch,'detaila','بازگشت به محصول',item=pk)]
+    try:d=pack_change(i.product_id,choice,telegram_id=user,item=i,proof=proof or None)
+    except BusinessError as exc:
+        return packet([escape(str(exc))],[[button(batch,'basis','مشاهدهٔ مبنای فعلی',item=pk)],back])
+    if proof:return packet([f'<b>{name(i,80)}</b>',f'مبنای فعلی: {money(d["pack"])} تومان برای هر {money(d["units"])} عدد.',
+                            'برای دریافت پیشنهاد با این مبنا، قیمت منبع را دوباره بررسی کنید.'],[back])
+    lines=[f'<b>{name(i,80)}</b>',f'فروش فعلی: {money(d["pack"])} تومان برای هر {money(d["old"])} عدد، پیش از مالیات.']
+    if choice is not None:
+        lines+=['',f'مبنای جدید: هر {money(d["units"])} عدد · مبلغ بسته ثابت می‌ماند.',
+                f'سفارش {money(d["min_order"])} عددی با مالیات: از {money(d["before"])} به <b>{money(d["after"])} تومان</b>.']
+        return packet(lines,[[button(batch,code+'_'+d['proof'],'ثبت مبنای قیمت',item=pk)],[button(batch,'basis','بازگشت',item=pk)]])
+    keys=[[button(batch,'u1','تکی · ۱ عدد',item=pk),button(batch,'uk','بستهٔ ۱٬۰۰۰ عددی',item=pk)],
+          [{'text':'تعداد دلخواه در سایت','url':'https://dawnpanel.ir'+reverse('admin:pack_editor',args=[i.product_id])}]]
+    if d['feed']:keys[1].append(button(batch,'uf',f'مبنای منبع · {money(d["feed"])}',item=pk))
+    return packet(lines+['','تعداد مبنای قیمت را برای پیش‌نمایش انتخاب کن:'],[*keys,back])
+
+
 def telegram_action(user_id,chat_id,chat_type,message_id,data):
     match=CALLBACK.fullmatch(data or '')
     if not match or chat_type!='private' or user_id!=chat_id or user_id not in subscribers('price_review'):raise PermissionDenied
@@ -171,8 +198,9 @@ def telegram_action(user_id,chat_id,chat_type,message_id,data):
     batch=PriceReviewBatch.objects.filter(pk=int(raw_pk),ready=True).first()
     if not batch:raise BusinessError('مهلت گزارش تمام شده است.')
     page=int(raw_page);target=int(raw_target)
-    item_action=action.startswith(('approve','reject','recheck','detail')) or action=='one'
+    item_action=action.startswith(('approve','reject','recheck','detail','u')) or action in ('one','basis')
     if item_action!=bool(target):raise PermissionDenied
+    if action=='basis' or action.startswith('u'):return pack_card(batch,target,action,user_id)
     if action in ('detailp','detaila','one'):
         # Old messages' «تأیید ۱ · نام محصول» now open its comparison first.
         return detail_card(batch,target,page,action=='detailp')

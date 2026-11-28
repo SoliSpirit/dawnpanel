@@ -20,6 +20,7 @@ def price_signature(product):
 
 def matches_baseline(product,link,signature):
     return (product.price_currency=='TOMAN' and product.price_amount is None and
+            product.price_per==(link.pack_override or link.feed_units) and
             str(product.price_per)==link.price_baseline.get('source_price_per') and
             all(link.price_baseline.get(k)==v for k,v in signature.items()))
 
@@ -137,6 +138,9 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
                 row = indexed.get(link.external_id)
                 product = products.get(link.product_id)
                 previous=link.last_price or None
+                previous_units=link.observed_units if previous is not None else None
+                feed_units=row['price_per'] if row else None
+                units=(link.pack_override or feed_units) if row else None
                 link.proposed_price = None
                 link.observed_at = link.updated_at = observed
                 link.available = bool(row and row['available'])
@@ -155,15 +159,15 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
                     link.review_status = 'conflict'
                 else:
                     baseline = price_signature(product)
-                    baseline['source_price_per'] = str(row['price_per'])
                     # Preserve a rejected observation until source price changes.
-                    rejected = link.review_status == 'rejected' and link.price_baseline.get('rejected_price') == row['price']
+                    rejected = (link.review_status == 'rejected' and previous_units==units and
+                                link.price_baseline.get('rejected_price') == row['price'])
                     link.price_baseline = baseline
                     if rejected:
                         link.price_baseline['rejected_price'] = row['price']
                         link.review_status = 'rejected'
                     elif (product.price_currency != 'TOMAN' or product.price_amount is not None
-                          or product.price_per != row['price_per']):
+                          or product.price_per != units):
                         link.review_status = 'conflict'
                     elif product.price == row['price']:
                         link.review_status = 'unchanged'
@@ -171,10 +175,13 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
                         link.proposed_price = row['price']
                         link.review_status = 'pending'
                         pending += 1
+                if row:
+                    link.price_baseline.update(feed_price_per=str(feed_units),source_price_per=str(units))
                 status=link.review_status
                 items.append(PriceReviewItem(batch=report,link=link,product_id=link.product_id,source=source,
                     label=product.name if product else f'محصول #{link.product_id}',observed_at=observed,
-                    units=row['price_per'] if row else None,previous=previous,observed=row['price'] if row else None,
+                    units=units,feed_units=feed_units,previous_units=previous_units,sale_units=product.price_per if product else None,
+                    previous=previous,observed=row['price'] if row else None,
                     base=product.price if product and product.price_currency=='TOMAN' and product.price_amount is None else None,
                     markup=product.product_profit_percent if product else None,fixed_before=product.fixed_sale if product else None,status=status,
                     rank=0 if status=='pending' else (2 if status=='unchanged' else 1)))

@@ -157,6 +157,18 @@ Each source is fetched once per operation. A manual recheck can observe a paused
 item; it does not enable its schedule, apply a new sale price or postpone a
 full scheduled run. Remaining stock/approval rules still apply.
 
+**تنظیم مبنای قیمت** (source list, review card or product editor) controls how
+many units one pack amount buys. For a single old group choose 1; for members
+sold by the thousand choose 1000; other positive whole counts are supported.
+The preview shows the payable minimum order before and after. Confirmation
+keeps the amount per pack, any fixed sale, tax, order limits and channel flags.
+For a linked SKU it also records that explicit interpretation of the supplier's
+quote. Recheck to get a fresh proposal. Reports preserve the declared feed
+unit, effective observation unit and old units separately. “Use supplier basis”
+removes the override. No name-based update or historical repricing is performed.
+The private Telegram review offers 1, 1000 and the supplier setting; the bot's
+catalogue editor accepts a custom count. Both require the same price preview.
+
 In either price monitoring or Products, click **سود فروش** on a row, or select
 products and use **تنظیم درصد سود انتخاب‌ها**. Enter a percentage or `0` for no
 markup. This sets the merchant's existing per-SKU percentage on the selected

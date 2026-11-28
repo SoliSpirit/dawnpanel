@@ -41,10 +41,11 @@ class DawnAdminSite(AdminSite):
 
     def get_urls(self):
         from django.urls import path
-        from . import admin_desk as desk, chat, finance, review_queue
+        from . import admin_desk as desk, chat, finance, review_queue,pack_basis
         def workspace(fn,**kwargs):return self.admin_view(partial(fn,site=self,**kwargs))
         return [path('order-alerts/',self.admin_view(self.order_alerts),name='order_alerts'),
             path('prices/reviews/',workspace(review_queue.reports),name='price_reports'),
+            path('prices/packs/<int:pk>/',workspace(pack_basis.pack_editor),name='pack_editor'),
             path('prices/reviews/<int:pk>/',workspace(review_queue.report),name='price_review'),
             path('prices/reviews/<int:pk>/items/<int:item_pk>/price/',workspace(review_queue.current_price),name='current_sale_price'),
             path('support/counts/',workspace(desk.desk_counts),name='desk_counts'),

@@ -94,6 +94,9 @@ class ProductAdmin(PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
             return format_html('<img src="{}" alt="{}" width="240"><p>تصویر آمادهٔ حالت شب</p>',product_image(obj,'dark'),obj.name)
         return 'تصویر شب دسته‌بندی نمایش داده می‌شود.'
     def save_model(self,request,obj,form,change):
+        if change:
+            # Existing packs have their own confirmed writer. Do not restore a stale denominator.
+            obj.price_per=Product.objects.select_for_update().values_list('price_per',flat=True).get(pk=obj.pk)
         super().save_model(request,obj,form,change)
         if change and {'price','product_profit_percent','price_per','price_amount','price_currency'}.intersection(form.changed_data):
             ProductSaleOverride.objects.filter(product_id=obj.pk).delete()
@@ -323,8 +326,8 @@ class SourceProductAdmin(SourceApprovalMixin,PriceToolsAdminMixin,StateListMixin
     @admin.display(description='آخرین قیمت منبع (تومان)',ordering='last_price')
     def supplier_price(self,obj):
         from .templatetags.ui import fa_number
-        return format_html('<strong>{}</strong><small class="catalog-row-category">{}</small>',
-                           fa_number(obj.last_price),self.source_page(obj))
+        return format_html('<strong>{}</strong><small class="catalog-row-category">برای هر {} عدد · {}</small>',
+                           fa_number(obj.last_price),fa_number(obj.observed_units or '—'),self.source_page(obj))
 
     @admin.display(description='محصول')
     def product_label(self,obj):

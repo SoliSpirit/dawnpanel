@@ -53,6 +53,7 @@ def display_row(i):
     i.current_label=LABEL.get(i.decision or ('stale' if stale else i.status),i.status)
     i.source_label=NAMES.get(i.source,i.source)
     i.source_page=source_page(i,i.link)
+    i.before_units=i.sale_units or i.units
     i.sale_before=i.fixed_before if i.fixed_before is not None else sale(i.base,i.markup)
     i.percent_sale=sale(i.observed,i.markup)
     i.sale_after=reviewed_sale(i)
@@ -88,13 +89,14 @@ def toman_input(value):
 
 def email_sheet(pk):
     data=io.StringIO();w=csv.writer(data)
-    w.writerow(['محصول','منبع','تعداد مبنا','قیمت قبلی منبع','قیمت جدید منبع','فروش هنگام بررسی','فروش پیشنهادی پیش از مالیات','وضعیت','لینک صفحهٔ منبع'])
+    w.writerow(['محصول','منبع','تعداد مبنا','قیمت قبلی منبع','قیمت جدید منبع','فروش هنگام بررسی','فروش پیشنهادی پیش از مالیات','وضعیت','لینک صفحهٔ منبع','مبنای قبلی منبع','مبنای فروش هنگام بررسی','تعداد اعلام‌شدهٔ منبع'])
     rows=PriceReviewItem.objects.filter(batch_id=int(pk),batch__ready=True).select_related('link')
     if not rows.exists():return None
     for i in rows.iterator():
         display_row(i);label=' '.join(i.label.split())
         if label.startswith(('=','+','-','@')):label="'"+label
-        w.writerow([label,i.source_label,i.units,i.previous,i.observed,i.sale_before,i.sale_after,i.current_label,i.source_page])
+        w.writerow([label,i.source_label,i.units,i.previous,i.observed,i.sale_before,i.sale_after,i.current_label,i.source_page,
+                    i.previous_units or i.units,i.before_units,i.feed_units or i.units])
     return (f'prices-{int(pk)}.csv','\ufeff'+data.getvalue(),'text/csv')
 
 
@@ -188,7 +190,9 @@ def report(request,site,pk):
         return redirect(request.get_full_path()+(f'#item-{item.pk}' if item else ''))
     mode=request.GET.get('show','all');rows=batch.items.all()
     if mode=='pending':rows=live_pending(batch)
-    elif mode=='changed':rows=rows.exclude(observed=F('previous'))
+    elif mode=='changed':
+        from django.db.models import Q
+        rows=rows.filter(~Q(observed=F('previous'))|Q(previous_units__isnull=False,units__isnull=False)&~Q(units=F('previous_units')))
     else:mode='all'
     if focus:=request.GET.get('item'):
         if not re.fullmatch('[1-9][0-9]{0,17}',focus):raise PermissionDenied

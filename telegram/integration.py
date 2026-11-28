@@ -31,6 +31,12 @@ def review_callback(*args):
     finally:close_old_connections()
 
 
+def catalog_pack(product_id,units,user_id,proof=None):
+    from portal.pack_basis import pack_change
+    try:return pack_change(product_id,units,telegram_id=user_id,proof=proof)
+    finally:close_old_connections()
+
+
 def notice_recipients(topic):
     """Call off the event loop. A settings failure must not disclose a muted message."""
     import logging

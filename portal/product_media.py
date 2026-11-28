@@ -75,6 +75,11 @@ class ProductImageForm(forms.ModelForm):
         self.fields['seo_description'].widget=forms.Textarea(attrs={'rows':3,'maxlength':160})
         for name in ['picture','night_picture']:self.fields[name].widget.attrs['accept']='image/jpeg,image/png,image/webp'
         self.fields['price_per'].help_text='قیمت بالا برای چند عدد است؟ برای اشتراک تکی: ۱؛ برای خدمات هزار‌تایی: ۱۰۰۰.'
+        if self.instance.pk:
+            self.fields['price_per'].disabled=True
+            from django.urls import reverse
+            self.fields['price_per'].help_text=format_html('<a href="{}">تنظیم مبنای قیمت</a> · تکی، هزار‌تایی یا تعداد دلخواه',
+                                                           reverse('admin:pack_editor',args=[self.instance.pk]))
         self.fields['max_order'].help_text='اختیاری؛ خالی یعنی بدون سقف.'
         self.fields['target_type'].label='نوع مقصد در ربات'
         target_choices=[('channel_group','لینک کانال یا گروه'),('numeric_id','شناسه عددی'),('email','ایمیل خریدار'),('username','نام کاربری تلگرام'),('custom','اطلاعات دلخواه'),('none','بدون دریافت اطلاعات')]
