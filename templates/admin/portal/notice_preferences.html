@@ -2,11 +2,15 @@
 {% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'fx-review.css' %}">{% endblock %}
 {% block content %}<section class="fx-review">
 <p>برای هر مدیر ربات، پیام‌هایی را که باید در گفت‌وگوی خصوصی تلگرام بگیرد انتخاب کنید. برای قطع همهٔ پیام‌های این فهرست، همهٔ تیک‌های همان مدیر را بردارید و ذخیره کنید.</p>
-<div class="fx-card-grid">{% for chat,form,stats in cards %}<article class="fx-card">
+<div class="fx-card-grid">{% for chat,form,stats,mail,email_stats in cards %}<article class="fx-card">
   <form method="post">{% csrf_token %}{{ form.recipient }}{{ form.revision }}
     <fieldset><legend>مدیر تلگرام · <bdi dir="ltr">{{ chat|unlocalize }}</bdi></legend>
     {% for box in form.topics %}<div>{{ box }}</div>{% endfor %}</fieldset>
     {% if editable %}<button type="submit" class="button default">ذخیرهٔ تنظیمات این مدیر</button>{% endif %}
   </form><p>صف ارسال: {{ stats.waiting|default:0 }} · متوقف: {{ stats.stopped|default:0 }}{% if stats.last_sent %} · آخرین تحویل به تلگرام: {{ stats.last_sent|date:'j F، H:i' }}{% endif %}</p>
+  {% if mail %}<form method="post">{% csrf_token %}<input type="hidden" name="email_settings" value="1">{{ mail.recipient }}{{ mail.revision }}
+    <fieldset><legend>ایمیل چت آنلاین</legend><p>{{ mail.chat_email.label_tag }} {{ mail.chat_email }}</p><label>{{ mail.chat_email_enabled }} {{ mail.chat_email_enabled.label }}</label>
+    <p>اعلان فقط لینک میز گفت‌وگو را می‌فرستد. متن مشتری در پنل دیده می‌شود.</p></fieldset><button class="button" type="submit">ذخیرهٔ ایمیل چت</button></form>
+  <p>صف ایمیل: {{ email_stats.waiting|default:0 }} · متوقف: {{ email_stats.stopped|default:0 }}{% if email_stats.accepted %} · آخرین پذیرش توسط سرور ایمیل: {{ email_stats.accepted|date:'j F، H:i' }}{% endif %}</p>{% endif %}
   </article>{% empty %}<p>در تنظیمات خصوصی ربات هنوز شناسهٔ مدیر ثبت نشده است.</p>{% endfor %}</div>
 </section>{% endblock %}

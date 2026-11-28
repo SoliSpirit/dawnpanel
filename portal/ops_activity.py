@@ -9,6 +9,7 @@ from .notice_topics import recipients
 
 
 AUDITED = {
+    'finance.cost':('finance','ثبت بهای واقعی تأمین سفارش'),
     'ticket.reply': ('support','پاسخ مدیر به تیکت'),
     'ticket.close': ('support','بستن تیکت توسط مدیر'),
     'chat.reply': ('support','پاسخ مدیر به گفتگوی پشتیبانی'),
@@ -23,6 +24,7 @@ AUDITED = {
     'source.price.fetch': ('catalog','دریافت فهرست قیمت منبع'),
     'catalog.profit.batch': ('catalog','تغییر گروهی سود محصولات'),
     'notice.settings': ('management','تغییر تنظیمات اعلان تلگرام'),
+    'notice.email': ('management','تغییر تنظیمات ایمیل چت'),
     'issue.resolve': ('management','علامت‌گذاری خطا به‌عنوان رفع‌شده'),
     'issue.reopen': ('management','بازگشایی خطای سایت'),
     'account.login': ('staff_session','ورود مدیر به سایت'),

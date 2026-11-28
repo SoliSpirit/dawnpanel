@@ -1,0 +1,11 @@
+{% extends 'admin/base_site.html' %}{% load static %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'chat.css' %}"><link rel="stylesheet" href="{% static 'admin-desk.css' %}">{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'chat_desk.js' %}" defer></script>{% endblock %}
+{% block content %}
+<p>پیام‌های خوانده‌نشده کنار هر گفتگو مشخص است. با باز کردن گفتگو، فقط پیام‌هایی که نمایش داده شوند خوانده‌شده می‌شوند.</p>
+<div id="chat-desk" class="chat-desk" data-list-url="{% url 'admin:desk_chat_api' %}" data-initial-thread="{{ initial_thread }}">
+  <aside class="desk-sidebar"><h2>گفتگوها <span id="desk-count"></span></h2><div id="desk-conversations"></div></aside>
+  <section class="desk-thread"><div class="desk-thread-head"><h2 id="desk-title">یک گفتگو را انتخاب کنید</h2><button type="button" id="desk-close-thread" disabled>بستن گفتگو</button></div>
+    <div class="desk-messages chat-messages" id="desk-messages" role="log" aria-live="polite"></div><p id="desk-error" role="status"></p>
+    <form id="desk-form">{% csrf_token %}<label class="visually-hidden" for="desk-body">پاسخ پشتیبان</label><textarea id="desk-body" maxlength="2000" rows="2" placeholder="پاسخ به بازدیدکننده…" required disabled></textarea><button class="button" type="submit" disabled>ارسال پاسخ</button></form>
+  </section></div>{% endblock %}

@@ -179,7 +179,7 @@ def settle(user,ticket_id,data):
 
 @login_required
 @require_POST
-def settle_view(request,pk):
+def settle_view(request,pk,*,return_route='ticket'):
     if not can_settle(request.user):raise PermissionDenied
     form=SettleForm(request.POST)
     if form.is_valid():
@@ -188,4 +188,4 @@ def settle_view(request,pk):
         else:messages.success(request,'شارژ ثبت شد.')
     else:
         messages.error(request,' · '.join(text for errors in form.errors.values() for text in errors))
-    return redirect('ticket',pk=pk)
+    return redirect(return_route,pk=pk)

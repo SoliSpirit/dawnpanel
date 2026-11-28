@@ -1,15 +1,1 @@
-{% extends 'account_base.html' %}{% load ui %}
-{% block account %}
-<div class="section-title"><div><span class="eyebrow">تیکت #{{ ticket.pk }} / {{ ticket.get_status_display }}</span>
-<h1>{{ ticket.subject }}</h1></div>{% if ticket.status != 'closed' %}<form method="post" action="{% url 'close_ticket' ticket.pk %}">{% csrf_token %}<button class="outline-button">بستن تیکت</button></form>{% endif %}</div>
-{% if topup %}<section class="panel"><h2>درخواست شارژ دستی</h2>
-<p>مقدار درخواستی: <bdi>{{ topup.units|floatformat:'-12' }} {{ topup.code }}</bdi> · نرخ خرید هنگام درخواست: {{ topup.requested_rate|fa_number }} تومان</p>
-{% if topup.credited %}<p>مبلغ ثبت‌شده در کیف پول: <strong>{{ topup.credited|fa_number }} تومان</strong></p>
-{% elif ticket.status != 'closed' %}<p>در انتظار بررسی پشتیبانی. شبکه، مبلغ و آدرس واریز را در همین تیکت هماهنگ کنید.</p>{% else %}<p>این درخواست بدون شارژ بسته شد.</p>{% endif %}</section>{% endif %}
-<div class="thread">{% for message in thread %}<article class="message {% if message.author.is_staff %}staff-message{% endif %}">
-<div><strong>{% if message.author.is_staff %}پشتیبانی دان پنل{% else %}کاربر{% endif %}</strong><time>{{ message.created_at|date:'Y/m/d H:i' }}</time></div>{{ message.body|linebreaks }}</article>{% endfor %}</div>
-{% if ticket.status != 'closed' %}<div class="panel spaced"><h2>{% if staff_reply %}پاسخ پشتیبانی{% else %}ارسال پیام{% endif %}</h2><form method="post">{% csrf_token %}{{ form.as_p }}<button class="button">ارسال پاسخ ←</button></form></div>{% endif %}
-{% if settle_form %}<section class="panel spaced"><h2>ثبت واریز تأییدشده</h2>
-<p>نرخ تسویهٔ فعلی: هر {{ topup.code }} برابر {{ settle_rate|fa_number }} تومان. مبلغ ثبت‌شده برابر مقدار دریافت‌شده ضرب‌در این نرخ و رُند به پایین است.</p>
-<form method="post" action="{% url 'settle_crypto' ticket.pk %}">{% csrf_token %}{{ settle_form.as_p }}<button type="submit" class="button">تأیید و شارژ کیف پول</button></form></section>{% endif %}
-{% endblock %}
+{% extends 'account_base.html' %}{% block account %}{% include 'partials/ticket_thread.html' %}{% endblock %}

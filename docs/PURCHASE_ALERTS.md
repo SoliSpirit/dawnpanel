@@ -65,6 +65,38 @@ explicit CLI `--test --test-topic catalog` honours the same subscription.
 The owner can delegate `view_noticepreference`/`change_noticepreference`; these
 permissions cannot add a Telegram recipient not in the server allowlist.
 
+## Live website chat
+
+Customer messages also enqueue `web_chat` Telegram deliveries and independent
+email deliveries in the chat transaction. Each channel snapshots its subscribed
+recipients and rechecks before sending. A new message nonce is unique within
+the thread. Old conversations initialize the unread counter, not the outboxes.
+Each delivery contains a link under `/admin/support/chat/`; opening it requires
+the usual staff session and support permission. The chat text stays on the site.
+
+The manager with `change_noticepreference` and `manage_chat_email` sets
+each destination at `/admin/portal/noticepreference/`. To install the SMTP
+worker after migration, create a root-owned `0600` `/etc/dawnpanel/chat-mail.env`
+containing `DAWN_SMTP_HOST`, `DAWN_SMTP_PORT` (587), `DAWN_SMTP_USER`,
+`DAWN_SMTP_FROM` and `DAWN_SMTP_PASSWORD`. Use a dedicated SMTP-only
+application credential for the sender. The worker uses verified STARTTLS;
+the web and bot services do not need that credential.
+
+```sh
+install -m 644 /opt/dawnpanel/current/deploy/dawnpanel-chat-email.{service,timer} /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now dawnpanel-chat-email.timer
+systemctl start dawnpanel-chat-email.service
+```
+
+The email timer retries temporary failures with backoff. Changing or muting
+a destination suppresses queued emails. An in-flight network transmission
+cannot be recalled; a lost acknowledgement may cause a repeat. The timestamp
+in the settings screen indicates SMTP acceptance, not Gmail inbox placement.
+With the worker environment, `manage.py deliver_chat_emails --test` sends a
+labelled message to the enabled destinations without creating a customer chat.
+For this domain's outbound authentication, see [Cloudflare records](CHAT_MAIL_DNS.md).
+
 ## Website errors
 
 `/admin/portal/siteissue/` groups application HTTP 5xx errors and service

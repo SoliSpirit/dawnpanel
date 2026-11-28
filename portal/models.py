@@ -155,8 +155,11 @@ class NoticePreference(models.Model):
     recipient=models.PositiveBigIntegerField(primary_key=True)
     enabled=models.JSONField(default=list)
     revision=models.PositiveBigIntegerField(default=0)
+    chat_email=models.EmailField('ایمیل اعلان چت',blank=True,default='',db_default='')
+    chat_email_enabled=models.BooleanField('اعلان ایمیلی چت',default=False,db_default=False)
     class Meta:
-        verbose_name='تنظیم اعلان تلگرام';verbose_name_plural='تنظیمات اعلان تلگرام'
+        verbose_name='تنظیم اعلان';verbose_name_plural='اعلان‌های تلگرام و ایمیل'
+        permissions=[('manage_chat_email','تنظیم مقصد ایمیل اعلان چت')]
 
 
 class OperationNotice(models.Model):
@@ -381,11 +384,26 @@ class OrderAmounts(models.Model):
     tax_amount=models.PositiveBigIntegerField('مبلغ مالیات')
 
 
+class OrderCost(models.Model):
+    order=models.OneToOneField(Order,primary_key=True,on_delete=models.CASCADE,db_constraint=False,related_name='cost_record')
+    estimated=models.PositiveBigIntegerField(null=True,editable=False)
+    source=models.CharField(max_length=12,blank=True,default='',editable=False)
+    basis_at=models.DateTimeField(null=True,editable=False)
+    actual=models.PositiveBigIntegerField(null=True,editable=False)
+    revision=models.PositiveBigIntegerField(default=0,editable=False)
+    updated_at=models.DateTimeField(null=True,editable=False)
+    class Meta:
+        default_permissions=()
+        permissions=[('view_financial_report','مشاهدهٔ گزارش مالی خریدها و سود'),
+                     ('record_order_cost','ثبت بهای واقعی تأمین سفارش')]
+
+
 class ChatConversation(models.Model):
     id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
     visitor_key=models.CharField(max_length=64,unique=True)
     user=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
     status=models.CharField(max_length=12,choices=[('waiting','منتظر پاسخ'),('open','در گفتگو'),('closed','بسته')],default='waiting')
+    staff_read_through=models.PositiveBigIntegerField(default=0,db_default=0,editable=False)
     created_at=models.DateTimeField(auto_now_add=True)
     updated_at=models.DateTimeField(auto_now=True,db_index=True)
     class Meta:
@@ -403,6 +421,21 @@ class ChatMessage(models.Model):
     class Meta:
         ordering=['id']
         constraints=[models.UniqueConstraint(fields=['conversation','nonce'],name='unique_chat_message_nonce')]
+
+
+class ChatEmailDelivery(models.Model):
+    message=models.ForeignKey(ChatMessage,on_delete=models.CASCADE)
+    recipient=models.PositiveBigIntegerField()
+    destination_key=models.CharField(max_length=64)
+    state=models.CharField(max_length=8,default='pending')
+    due_at=models.DateTimeField()
+    lease=models.UUIDField(null=True)
+    attempts=models.PositiveIntegerField(default=0)
+    last_error=models.CharField(max_length=40,blank=True)
+    sent_at=models.DateTimeField(null=True)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['message','recipient'],name='chat_mail_message_recipient')]
+        indexes=[models.Index(fields=['state','due_at'],name='chat_mail_due')]
 
 class SupportPresence(models.Model):
     user=models.OneToOneField(User,on_delete=models.CASCADE)

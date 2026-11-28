@@ -12,7 +12,7 @@
 <span class="customer-nav-label">بیشتر با دان‌پنل</span>
 <a {% if request.path == '/account/gift/' %}aria-current="page"{% endif %} href="{% url 'gift' %}">{% icon 'spark' %} کد هدیه</a>
 <a {% if request.path == '/account/referrals/' %}aria-current="page"{% endif %} href="{% url 'referrals' %}">{% icon 'chat' %} دعوت دوستان</a>
-{% if user.is_staff %}<span class="customer-nav-label">مدیریت فروشگاه</span><a href="{% url 'admin:index' %}">{% icon 'shield' %} پنل مدیریت</a>{% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}">{% icon 'chat' %} گفتگوی آنلاین</a>{% endif %}{% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'staff' %}">{% icon 'clock' %} رسیدگی به درخواست‌ها</a>{% endif %}{% endif %}
+{% if user.is_staff %}<span class="customer-nav-label">مدیریت فروشگاه</span><a href="{% url 'admin:index' %}">{% icon 'shield' %} پنل مدیریت {% if perms.portal.change_chatconversation %}<span class="desk-counter" data-desk-count="chat" title="پیام‌های خوانده‌نشدهٔ چت" hidden></span>{% endif %}</a>{% endif %}
 <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button">خروج از حساب</button></form></aside>
 <div class="account-main">{% block account %}{% endblock %}</div></section>
 {% endblock %}

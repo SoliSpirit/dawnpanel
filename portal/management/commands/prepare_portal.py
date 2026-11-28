@@ -28,8 +28,10 @@ class Command(BaseCommand):
         roles={'پشتیبان':['view_ticket','change_ticket','view_account','view_chatconversation','change_chatconversation'],'مدیر سفارش':['view_order','change_order','view_ledger','view_legacyuser','view_ticket','change_ticket'],'مدیر محصول':['view_product','add_product','change_product','view_category','add_category','change_category'],'نویسنده':['view_post','add_post','change_post'],'مدیر ارشد':['view_chatconversation','change_chatconversation','view_order','change_order','view_ledger','view_legacyuser','change_legacyuser','view_ticket','change_ticket','view_account','view_product','add_product','change_product','view_category','add_category','change_category','view_post','add_post','change_post','view_audit','view_currency','add_currency','change_currency','view_giftcode','add_giftcode','change_giftcode','view_memberrank','add_memberrank','change_memberrank']}
         roles['مدیر محصول'] += ['view_sourceproduct','change_sourceproduct','view_sourcesyncsettings']
         roles['مدیر ارشد'] += ['view_sourceproduct','change_sourceproduct','view_sourcesyncsettings','change_sourcesyncsettings']
+        roles['مدیر مالی'] = ['view_order','view_financial_report','record_order_cost']
         for name,permissions in roles.items():
-            group,_=Group.objects.get_or_create(name=name)
-            group.permissions.set(Permission.objects.filter(content_type__app_label='portal',codename__in=permissions))
+            # A preset initializes a group; subsequent releases must not undo the owner's grants/revocations.
+            group,created=Group.objects.get_or_create(name=name)
+            if created:group.permissions.set(Permission.objects.filter(content_type__app_label='portal',codename__in=permissions))
         for name,threshold in [('همراه',0),('نقره‌ای',1000000),('طلایی',10000000)]: MemberRank.objects.get_or_create(name=name,defaults={'min_spending':threshold})
         self.stdout.write(self.style.SUCCESS('Schema and role permissions ready'))

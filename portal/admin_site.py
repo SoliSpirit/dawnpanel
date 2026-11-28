@@ -1,4 +1,4 @@
-from functools import wraps
+from functools import partial,wraps
 from django.contrib.admin import AdminSite
 from django.contrib.admin.apps import AdminConfig
 from django.core.exceptions import PermissionDenied
@@ -41,7 +41,20 @@ class DawnAdminSite(AdminSite):
 
     def get_urls(self):
         from django.urls import path
-        return [path('order-alerts/',self.admin_view(self.order_alerts),name='order_alerts'),*super().get_urls()]
+        from . import admin_desk as desk, chat, finance
+        def workspace(fn,**kwargs):return self.admin_view(partial(fn,site=self,**kwargs))
+        return [path('order-alerts/',self.admin_view(self.order_alerts),name='order_alerts'),
+            path('support/counts/',workspace(desk.desk_counts),name='desk_counts'),
+            path('support/chat/',workspace(desk.chat_desk),name='chat_desk'),
+            path('support/chat/api/',self.admin_view(chat.support_list),name='desk_chat_api'),
+            path('support/chat/api/<uuid:pk>/',self.admin_view(chat.support_thread),name='desk_chat_thread'),
+            path('support/requests/',workspace(desk.requests_desk),name='requests_desk'),
+            path('support/requests/order/<int:pk>/',workspace(desk.order_action),name='desk_order'),
+            path('support/requests/ticket/<int:pk>/',workspace(desk.ticket_action,action='show'),name='desk_ticket'),
+            path('support/requests/ticket/<int:pk>/close/',workspace(desk.ticket_action,action='close'),name='desk_ticket_close'),
+            path('support/requests/ticket/<int:pk>/settle/',workspace(desk.ticket_action,action='settle'),name='desk_ticket_settle'),
+            path('finance/',workspace(finance.finance_report),name='finance_report'),
+            path('finance/orders/<int:pk>/cost/',workspace(finance.record_cost),name='finance_cost'),*super().get_urls()]
 
     def order_alerts(self,request):
         from django.http import HttpResponseNotAllowed,JsonResponse

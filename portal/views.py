@@ -359,8 +359,9 @@ def tickets(request):
     return render(request,'tickets.html',{'tickets':Ticket.objects.filter(user=request.user)[:50],'form':form,'title':'پشتیبانی و تیکت‌ها'})
 
 @login_required
-def ticket_detail(request,pk):
-    staff=request.user.has_perm('portal.change_ticket')
+def ticket_detail(request,pk,*,site=None):
+    staff=request.user.is_staff and request.user.has_perm('portal.change_ticket')
+    route='admin:desk_ticket' if site else 'ticket'
     rows=Ticket.objects.all() if staff else Ticket.objects.filter(user=request.user)
     ticket=get_object_or_404(rows,pk=pk)
     form=ReplyForm(request.POST or None)
@@ -372,11 +373,11 @@ def ticket_detail(request,pk):
                 ticket=get_object_or_404(rows.select_for_update(),pk=pk)
                 if ticket.status=='closed':
                     messages.error(request,'این تیکت بسته شده است.')
-                    return redirect('ticket',pk=pk)
+                    return redirect(route,pk=pk)
                 TicketMessage.objects.create(ticket=ticket,author=request.user,body=form.cleaned_data['body'])
                 ticket.status='answered' if staff else 'open';ticket.save()
                 if staff: Audit.objects.create(actor=request.user,action='ticket.reply',object_ref=str(pk))
-            return redirect('ticket',pk=pk)
+            return redirect(route,pk=pk)
     from .crypto_topups import can_settle,SettleForm,current_buy
     from .exchange_rates import RateError
     entry=getattr(ticket,'crypto_topup',None)
@@ -386,34 +387,37 @@ def ticket_detail(request,pk):
             buy=current_buy(entry.code)
             settle_form=SettleForm(initial={'units':format(entry.units.normalize(),'f'),'expected':buy})
         except RateError:pass
-    return render(request,'ticket.html',{'ticket':ticket,'thread':ticket.messages.select_related('author'),'form':form,'title':ticket.subject,
+    return render(request,'admin/portal/desk_ticket.html' if site else 'ticket.html',{**(site.each_context(request) if site else {}),
+        'close_route':'admin:desk_ticket_close' if site else 'close_ticket','settle_route':'admin:desk_ticket_settle' if site else 'settle_crypto',
+        'ticket':ticket,'thread':ticket.messages.select_related('author'),'form':form,'title':ticket.subject,
         'staff_reply':staff,'topup':entry,'settle_form':settle_form,'settle_rate':buy})
 
 @require_POST
 @login_required
 @transaction.atomic
-def close_ticket(request,pk):
+def close_ticket(request,pk,*,return_route='ticket'):
     ticket=get_object_or_404(Ticket.objects.select_for_update(),pk=pk)
-    if ticket.user_id!=request.user.pk and not request.user.has_perm('portal.change_ticket'): return HttpResponseForbidden()
+    if ticket.user_id!=request.user.pk and not (request.user.is_staff and request.user.has_perm('portal.change_ticket')): return HttpResponseForbidden()
     if ticket.status!='closed':
         ticket.status='closed';ticket.save()
         if request.user.is_staff and request.user.has_perm('portal.change_ticket'):
             Audit.objects.create(actor=request.user,action='ticket.close',object_ref=str(pk))
-    return redirect('ticket',pk=pk)
+    return redirect(return_route,pk=pk)
 
 @login_required
 def staff(request):
     if not request.user.is_staff: return HttpResponseForbidden()
-    can_orders=request.user.has_perm('portal.change_order')
-    can_tickets=request.user.has_perm('portal.change_ticket')
-    return render(request,'staff.html',{'can_chat':request.user.has_perm('portal.change_chatconversation'),'title':'میز مدیریت','pending_orders':Order.objects.filter(status__in=['pending','confirmed','approved'])[:30] if can_orders else [],'support_tickets':Ticket.objects.exclude(status='closed')[:30] if can_tickets else [],'can_orders':can_orders,'can_tickets':can_tickets,'revenue':Order.objects.filter(status='completed').aggregate(total=Sum('total_price'))['total'] or 0 if can_orders else None})
+    if not any(request.user.has_perm('portal.'+p) for p in ['change_order','change_ticket']):
+        return redirect('admin:chat_desk' if request.user.has_perm('portal.change_chatconversation') else 'admin:index')
+    return redirect('admin:requests_desk')
 
 @require_POST
 @permission_required('portal.change_order',raise_exception=True)
 def staff_order(request,pk):
+    if not request.user.is_staff:return HttpResponseForbidden()
     try: change_order(request.user,pk,request.POST.get('status'),request.POST.get('note','')[:2000]);messages.success(request,'سفارش به‌روزرسانی شد.')
     except BusinessError as e: messages.error(request,str(e))
-    return redirect('staff')
+    return redirect('admin:requests_desk')
 
 def blog(request): return render(request,'blog.html',{'page':Paginator(Post.objects.filter(published=True),9).get_page(request.GET.get('page')),'title':'وبلاگ دان پنل','description':'راهنماهای کاربردی مدیریت کانال، محتوای بهتر و استفاده از خدمات روبیکا، ایتا و بله.'})
 

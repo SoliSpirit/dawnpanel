@@ -2,7 +2,7 @@
 {% block title %}{{ title }} | مدیریت دان‌پنل{% endblock %}
 {% block content_title %}{% if workspace_page and title %}<h1 class="dp-page-heading" data-tone="{{ workspace_page.tone }}"><span class="dp-group-icon">{% icon workspace_page.icon %}</span>{{ title }}</h1>{% else %}{{ block.super }}{% endif %}{% endblock %}
 {% block dark-mode-vars %}<link rel="stylesheet" href="{% static 'admin/css/dark_mode.css' %}"><script src="{% static 'theme.js' %}"></script>{% endblock %}
-{% block extrahead %}{{ block.super }}<link rel="icon" type="image/svg+xml" href="{% static 'brand/dawn-mark.svg' %}"><script src="{% static 'workspace.js' %}" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="icon" type="image/svg+xml" href="{% static 'brand/dawn-mark.svg' %}"><script src="{% static 'workspace.js' %}" defer></script>{% if perms.portal.change_chatconversation or perms.portal.change_order or perms.portal.change_ticket %}{% include 'partials/desk_counts_assets.html' %}{% endif %}{% endblock %}
 {% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-panel.css' %}"><link rel="stylesheet" href="{% static 'workspace.css' %}"><link rel="stylesheet" href="{% static 'admin-command.css' %}">{% endblock %}
 {% block branding %}
   {% if is_nav_sidebar_enabled %}<button hidden type="button" class="dp-rail-toggle" aria-label="منوی مدیریت" aria-controls="workspace-rail" aria-expanded="true">{% icon 'layers' %}</button>{% endif %}
@@ -10,6 +10,7 @@
 {% endblock %}
 {% block usertools %}{% if has_permission %}
   <div class="dawn-admin-tools">
+    {% if perms.portal.change_chatconversation %}<a class="dp-nav-link" aria-label="گفتگوی آنلاین، پیام‌های خوانده‌نشده" href="{% url 'admin:chat_desk' %}">{% icon 'chat' %}<span class="desk-counter" data-desk-count="chat" hidden></span></a>{% endif %}
     <button class="theme-toggle" type="button" data-theme-toggle aria-label="تغییر تم"><span data-theme-icon aria-hidden="true">☾</span></button>
     <details class="dp-profile" name="admin-header-menus"><summary><span class="dp-avatar" aria-hidden="true">{{ user.first_name|first|default:'د' }}</span><span class="dp-profile-name">{{ user.get_full_name|default:'حساب مدیریت' }}</span>{% icon 'chevron' %}<span class="visually-hidden">منوی حساب</span></summary>
       <div class="dp-popover"><strong>{{ user.get_full_name|default:'حساب مدیریت' }}</strong><a href="{% url 'catalog' %}">مشاهده فروشگاه {% icon 'left' %}</a><form method="post" action="{% url 'admin:logout' %}">{% csrf_token %}<button type="submit">خروج از حساب</button></form></div>

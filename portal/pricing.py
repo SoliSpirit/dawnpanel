@@ -52,6 +52,7 @@ class Pricing:
     min_order: int
     max_order: int | None
     tax_bps: int
+    base_pack: Decimal | None = None  # exact checkout conversion, before markup; reference, not an invoice
 
     def amounts(self, quantity):
         return Quote(ceil_div(self.pack * quantity, self.price_per), self.tax_bps)
@@ -92,4 +93,4 @@ def pricing_for(product):
     bps = int(product.tax_percent * 100)
     if pack <= 0 or not 0 <= bps <= 10_000:
         raise BusinessError('قیمت یا مالیات محصول نیاز به بررسی دارد.')
-    return Pricing(pack, product.price_per, product.min_order, product.max_order, bps)
+    return Pricing(pack, product.price_per, product.min_order, product.max_order, bps,amount)

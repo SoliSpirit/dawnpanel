@@ -8,7 +8,7 @@ from django.shortcuts import render
 from django.urls import path,reverse
 from django.utils import timezone
 
-from .models import Audit,NoticePreference,OrderDelivery,SiteIssue
+from .models import Audit,ChatEmailDelivery,NoticePreference,OrderDelivery,SiteIssue
 from .notice_topics import DEFAULT_TOPICS,TOPICS,recipients
 
 
@@ -17,6 +17,17 @@ class TopicForm(forms.Form):
     revision=forms.IntegerField(widget=forms.HiddenInput,min_value=0)
     topics=forms.MultipleChoiceField(label='پیام‌های دریافتی',choices=tuple(TOPICS.items()),required=False,
                                      widget=forms.CheckboxSelectMultiple)
+
+
+class ChatEmailForm(forms.Form):
+    recipient=forms.IntegerField(widget=forms.HiddenInput,min_value=1,max_value=2**52-1)
+    revision=forms.IntegerField(widget=forms.HiddenInput,min_value=0)
+    chat_email=forms.EmailField(label='آدرس Gmail یا ایمیل مقصد',required=False,max_length=254,widget=forms.EmailInput(attrs={'dir':'ltr','autocomplete':'off'}))
+    chat_email_enabled=forms.BooleanField(label='ارسال ایمیل برای پیام جدید چت',required=False)
+    def clean(self):
+        d=super().clean()
+        if d.get('chat_email_enabled') and not d.get('chat_email'):self.add_error('chat_email','ایمیل مقصد را وارد کنید.')
+        return d
 
 
 @admin.register(NoticePreference)
@@ -31,8 +42,27 @@ class PreferenceAdmin(admin.ModelAdmin):
         if not self.has_view_or_change_permission(request):raise PermissionDenied
         if request.method not in ('GET','HEAD','POST'):return HttpResponseNotAllowed(['GET','HEAD','POST'])
         ids=recipients();edit=self.has_change_permission(request)
+        can_email=edit and request.user.has_perm('portal.manage_chat_email')
         if request.method=='POST':
             if not edit:raise PermissionDenied
+            if 'email_settings' in request.POST:
+                if not can_email:raise PermissionDenied
+                if len(request.POST.getlist('recipient'))!=1:raise PermissionDenied
+                form=ChatEmailForm(request.POST)
+                if not form.is_valid():
+                    self.message_user(request,'آدرس ایمیل و تنظیمات فرم را بررسی کنید.',messages.ERROR)
+                elif form.cleaned_data['recipient'] not in ids:raise PermissionDenied
+                else:
+                    d=form.cleaned_data
+                    with transaction.atomic():
+                        row,_=NoticePreference.objects.select_for_update().get_or_create(pk=d['recipient'],defaults={'enabled':sorted(DEFAULT_TOPICS)})
+                        if row.revision!=d['revision']:self.message_user(request,'صفحه قدیمی است؛ تنظیمات را دوباره بررسی کنید.',messages.WARNING)
+                        elif (row.chat_email,row.chat_email_enabled)!=(d['chat_email'],d['chat_email_enabled']):
+                            row.chat_email,row.chat_email_enabled=d['chat_email'],d['chat_email_enabled'];row.revision+=1;row.save()
+                            ChatEmailDelivery.objects.filter(recipient=row.pk,state__in=('pending','stopped')).update(state='muted',last_error='changed')
+                            Audit.objects.create(actor=request.user,action='notice.email',object_ref=str(row.pk))
+                            self.message_user(request,'تنظیمات ایمیل چت ذخیره شد.')
+                return HttpResponseRedirect(reverse('admin:portal_noticepreference_changelist'))
             form=TopicForm(request.POST)
             if not form.is_valid() or len(request.POST.getlist('recipient'))!=1 or form.cleaned_data['recipient'] not in ids:
                 raise PermissionDenied
@@ -56,13 +86,18 @@ class PreferenceAdmin(admin.ModelAdmin):
         stats={r['recipient']:r for r in OrderDelivery.objects.filter(recipient__in=ids).values('recipient').annotate(
             waiting=Count('pk',filter=Q(state__in=('pending','sending'))),
             stopped=Count('pk',filter=Q(state='stopped')),last_sent=Max('sent_at'))}
+        email_stats={r['recipient']:r for r in ChatEmailDelivery.objects.filter(recipient__in=ids).values('recipient').annotate(
+            waiting=Count('pk',filter=Q(state__in=('pending','sending'))),stopped=Count('pk',filter=Q(state='stopped')),
+            accepted=Max('sent_at'))} if can_email else {}
         for i in ids:
             row=stored.get(i);enabled=row.enabled if row else DEFAULT_TOPICS
             f=TopicForm(initial={'recipient':i,'revision':row.revision if row else 0,'topics':list(enabled)},auto_id=f'pref_{i}_%s')
             f.fields['topics'].disabled=not edit
-            cards.append((i,f,stats.get(i,{})))
+            mail=ChatEmailForm(initial={'recipient':i,'revision':row.revision if row else 0,'chat_email':row.chat_email if row else '',
+                'chat_email_enabled':bool(row and row.chat_email_enabled)},auto_id=f'mail_{i}_%s') if can_email else None
+            cards.append((i,f,stats.get(i,{}),mail,email_stats.get(i,{})))
         return render(request,'admin/portal/notice_preferences.html',{**self.admin_site.each_context(request),
-            'opts':self.opts,'title':'تنظیمات اعلان تلگرام','cards':cards,'editable':edit})
+            'opts':self.opts,'title':'اعلان‌های تلگرام و ایمیل','cards':cards,'editable':edit})
 
 
 @admin.register(SiteIssue)

@@ -1,11 +1,11 @@
 import hashlib,secrets,uuid
 from datetime import timedelta
 from django.db import transaction
-from django.db.models import Q,OuterRef,Subquery,Case,When,Value,IntegerField
+from django.db.models import Q,F,Count,OuterRef,Subquery,Case,When,Value,IntegerField
 from django.http import JsonResponse,HttpResponseForbidden
-from django.shortcuts import render,get_object_or_404
+from django.shortcuts import redirect,get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_http_methods,require_POST
+from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.middleware.csrf import get_token
 from django.utils import timezone
@@ -68,6 +68,8 @@ def customer_chat(request):
             if created:
                 if request.user.is_authenticated and conversation.user_id is None:conversation.user=request.user
                 conversation.status='waiting';conversation.save()
+                from .chat_notices import queue_message
+                queue_message(message)
         return JsonResponse({'id':message.pk,'conversation':str(conversation.pk),'status':conversation.status})
     after=parameters(request)
     if after is None:return JsonResponse({'error':'درخواست نامعتبر است.'},status=400)
@@ -78,7 +80,11 @@ def customer_chat(request):
 @login_required
 def chat_desk(request):
     if not can_support(request.user):return HttpResponseForbidden()
-    return render(request,'chat_desk.html',{'title':'میز گفتگوی آنلاین'})
+    return redirect('admin:chat_desk')
+
+
+def unread_messages():
+    return ChatMessage.objects.filter(from_staff=False,pk__gt=F('conversation__staff_read_through')).exclude(conversation__status='closed')
 
 @require_http_methods(['GET','POST'])
 def support_list(request):
@@ -86,18 +92,36 @@ def support_list(request):
     if request.method=='POST':
         SupportPresence.objects.update_or_create(user=request.user)
         return JsonResponse({'ok':True})
+    try:page=int(request.GET.get('page','1'))
+    except ValueError:page=0
+    if not 1<=page<=1_000_000:return JsonResponse({'error':'شماره صفحه معتبر نیست.'},status=400)
     latest=ChatMessage.objects.filter(conversation_id=OuterRef('pk')).order_by('-id')
-    rows=ChatConversation.objects.annotate(last_body=Subquery(latest.values('body')[:1]),queue_order=Case(When(status='waiting',then=Value(0)),When(status='open',then=Value(1)),default=Value(2),output_field=IntegerField())).select_related('user').order_by('queue_order','-updated_at')[:80]
-    return JsonResponse({'conversations':[{'id':str(row.pk),'label':row.user.username if row.user_id else 'مهمان '+str(row.pk)[:6],'status':row.status,'preview':(row.last_body or '')[:90],'updated_at':row.updated_at} for row in rows]})
+    rows=ChatConversation.objects.annotate(last_body=Subquery(latest.values('body')[:1]),
+        unread=Count('messages',filter=Q(messages__from_staff=False,messages__pk__gt=F('staff_read_through'))),
+        queue_order=Case(When(status='waiting',then=Value(0)),When(status='open',then=Value(1)),default=Value(2),output_field=IntegerField())).select_related('user').order_by('queue_order','-updated_at','pk')
+    rows=list(rows[(page-1)*40:page*40+1])
+    return JsonResponse({'unread':unread_messages().count(),'more':len(rows)>40,'conversations':[{'id':str(row.pk),'label':row.user.username if row.user_id else 'مهمان '+str(row.pk)[:6],'status':row.status,'unread':row.unread if row.status!='closed' else 0,'preview':(row.last_body or '')[:90],'updated_at':row.updated_at} for row in rows[:40]]})
 
 @require_http_methods(['GET','POST'])
 def support_thread(request,pk):
     if not can_support(request.user):return JsonResponse({'error':'دسترسی مجاز نیست.'},status=403)
     conversation=get_object_or_404(ChatConversation,pk=pk)
     if request.method=='POST':
+        if request.POST.get('action')=='read':
+            through=request.POST.get('through','')
+            if not through.isascii() or not through.isdecimal() or len(through)>19 or not 0<int(through)<2**63:
+                return JsonResponse({'error':'شناسهٔ پیام نامعتبر است.'},status=400)
+            if not conversation.messages.filter(pk=int(through)).exists():return JsonResponse({'error':'پیام متعلق به این گفتگو نیست.'},status=400)
+            ChatConversation.objects.filter(pk=pk,staff_read_through__lt=int(through)).update(staff_read_through=int(through))
+            return JsonResponse({'ok':True})
         if request.POST.get('action')=='close':
             with transaction.atomic():
-                if ChatConversation.objects.filter(pk=pk).exclude(status='closed').update(status='closed',updated_at=timezone.now()):
+                conversation=ChatConversation.objects.select_for_update().get(pk=pk)
+                if conversation.status!='closed':
+                    if conversation.messages.filter(from_staff=False,pk__gt=conversation.staff_read_through).exists():
+                        return JsonResponse({'error':'پیام خوانده‌نشده دارید. ابتدا پیام تازه را ببینید و سپس گفتگو را ببندید.'},status=409)
+                    conversation.staff_read_through=conversation.messages.order_by('-pk').values_list('pk',flat=True).first() or 0
+                    conversation.status='closed';conversation.save()
                     Audit.objects.create(actor=request.user,action='chat.close',object_ref=str(pk))
             return JsonResponse({'ok':True,'status':'closed'})
         body,nonce=parse_message(request)
@@ -107,7 +131,9 @@ def support_thread(request,pk):
             conversation=ChatConversation.objects.select_for_update().get(pk=pk)
             message,created=ChatMessage.objects.get_or_create(conversation=conversation,nonce=nonce,defaults={'body':body,'author':request.user,'from_staff':True})
             if created:
-                conversation.status='open';conversation.save()
+                # Sending a reply is not an acknowledgement of messages that arrived while typing.
+                conversation.status='waiting' if conversation.messages.filter(from_staff=False,pk__gt=conversation.staff_read_through).exists() else 'open'
+                conversation.save(update_fields=['status','updated_at'])
                 Audit.objects.create(actor=request.user,action='chat.reply',object_ref=str(pk))
         return JsonResponse({'id':message.pk,'status':conversation.status})
     after=parameters(request)

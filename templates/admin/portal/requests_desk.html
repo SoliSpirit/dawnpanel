@@ -1,0 +1,14 @@
+{% extends 'admin/base_site.html' %}{% load static ui %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-desk.css' %}">{% endblock %}
+{% block content %}<div class="service-desk">
+  {% if perms.portal.change_ticket %}<section><h2>تیکت‌های باز و پاسخ‌داده‌شده</h2>
+  {% for t in tickets %}<article><a href="{% url 'admin:desk_ticket' t.pk %}"><strong>#{{ t.pk|fa_number }} · {{ t.subject }}</strong></a> · {{ t.get_status_display }}<small>{{ t.user.username }} · {{ t.updated_at|date:'j F، H:i' }}</small></article>{% empty %}<p>تیکت بازی وجود ندارد.</p>{% endfor %}
+  {% if tickets.has_previous %}<a href="{% querystring tp=tickets.previous_page_number %}">صفحه قبل</a>{% endif %} {% if tickets.has_next %}<a href="{% querystring tp=tickets.next_page_number %}">صفحه بعد</a>{% endif %}</section>{% endif %}
+  {% if perms.portal.change_order %}<section><h2>سفارش‌های در جریان</h2>
+  {% for o in orders %}<article><strong>{{ o.product_name }}</strong> · <bdi>{{ o.tracking_code }}</bdi><small>{{ o.quantity|fa_number }} عدد · {{ o.total_price|fa_number }} تومان · {{ o.status_label }}</small>
+    {% if o.target_link %}<p><bdi>{{ o.target_link }}</bdi></p>{% endif %}
+    <form method="post" action="{% url 'admin:desk_order' o.pk %}">{% csrf_token %}
+    <label>عملیات <select name="status">{% if o.status == 'pending' %}<option value="confirmed">شروع انجام</option>{% endif %}<option value="completed">تکمیل سفارش</option><option value="cancelled">لغو و بازگشت وجه</option></select></label>
+    <label>توضیح <input name="note" maxlength="2000"></label><button type="submit" class="button">ثبت وضعیت</button></form></article>{% empty %}<p>سفارشی در انتظار رسیدگی نیست.</p>{% endfor %}
+    {% if orders.has_previous %}<a href="{% querystring op=orders.previous_page_number %}">صفحه قبل</a>{% endif %} {% if orders.has_next %}<a href="{% querystring op=orders.next_page_number %}">صفحه بعد</a>{% endif %}</section>{% endif %}
+</div>{% endblock %}

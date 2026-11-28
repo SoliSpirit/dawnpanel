@@ -1,0 +1,18 @@
+[Unit]
+Description=Send DawnPanel live chat email notifications
+After=network-online.target mariadb.service
+
+[Service]
+Type=oneshot
+User=dawnpanel
+Group=dawnpanel
+WorkingDirectory=/opt/dawnpanel/current
+EnvironmentFile=/etc/dawnpanel/web.env
+EnvironmentFile=-/etc/dawnpanel/chat-mail.env
+ExecStart=/opt/dawnpanel/venv/bin/python manage.py deliver_chat_emails
+TimeoutStartSec=75
+UMask=0027
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true

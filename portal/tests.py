@@ -45,6 +45,86 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.product.product_profit_percent=Decimal('7.5')
         self.assertEqual(price_for(self.product,11)[0],119)
 
+    def test_finance_keeps_tax_refunds_and_unknown_cost_out_of_gross_profit(self):
+        self.product.product_profit_percent=20;self.product.save()
+        ProductTax.objects.create(product=self.product,percent=10)
+        quote=pricing_for(self.product).quote(100);self.assertEqual(quote.total,1320)
+        buy=lambda:place_order(self.account,self.product.pk,100,'target',uuid.uuid4(),quote.total,quote.breakdown)
+        web=buy();bot,_=place_bot_order(self.otherwallet.pk,self.product.pk,100,'target',quote.total,quote.breakdown)
+        cancelled=buy()
+        change_order(None,web.pk,'completed','');change_order(None,bot,'completed','');change_order(None,cancelled.pk,'cancelled','')
+        legacy=Order.objects.create(user=self.wallet,tracking_code='UNTAXED-HISTORY',product_name='گذشته',
+            quantity=1,unit_price=500,total_price=500,status='completed',completed_at=timezone.now())
+        self.user.first_name='نیلوفر';self.user.save();self._grant_list_permissions('view_order')
+        url='/admin/finance/';cost=f'{url}orders/{web.pk}/cost/'
+        self.assertEqual(self.client.get(url).status_code,404);self._grant_list_permissions('view_financial_report')
+        self.assertEqual(self.client.post(cost,{'cost':1400,'revision':0}).status_code,404)
+        self._grant_list_permissions('record_order_cost')
+        self.assertEqual(self.client.post(cost,{'cost':-1,'revision':0}).status_code,400)
+        self.assertEqual(self.client.get(cost).status_code,405)
+        self.assertRedirects(self.client.post(cost+'?status=completed',{'cost':'۱۴۰۰','revision':0}),url+'?status=completed')
+        self.client.post(cost,{'cost':1,'revision':0})
+        self.assertEqual(Audit.objects.filter(action='finance.cost',actor=self.user).count(),1)
+        self.assertEqual(OrderCost.objects.get(order=web).actual,1400)
+        self.client.post(f'{url}orders/{legacy.pk}/cost/',{'cost':50,'revision':0})
+        self.product.price=5000;self.product.save()
+        page=self.client.get(url);m=page.context['metrics']
+        self.assertContains(page,'نیلوفر');self.assertContains(page,self.product.name)
+        self.assertEqual((m['buyers'],m['count'],m['placed'],m['completed'],m['cancelled']),(2,4,4460,3140,1320))
+        self.assertEqual((m['before_tax'],m['tax'],m['tax_missing']),(2400,240,1))
+        self.assertEqual((m['known'],m['profit'],m['estimates'],m['est_profit'],m['missing']),(1,-200,1,200,1))
+        self.assertEqual([(o.pk,o.report_profit) for o in page.context['items'] if o.pk in (legacy.pk,cancelled.pk)],[(legacy.pk,None),(cancelled.pk,None)])
+        for params,expected in [({'channel':'telegram'},[bot]),({'channel':'unknown'},[legacy.pk]),({'q':'نیلوفر','channel':'web','status':'completed'},[web.pk]),({'q':'--42'},[])]:
+            self.assertEqual([o.pk for o in self.client.get(url,params).context['items']],expected)
+
+    def test_finance_uses_tehran_midnight_and_the_selected_placement_or_completion_date(self):
+        from .admin_overview import midnight
+        self._grant_list_permissions('view_order','view_financial_report')
+        edge=midnight(timezone.localdate())
+        earlier=self.buy();today=self.buy();future=self.buy()
+        Order.objects.filter(pk=earlier.pk).update(created_at=edge-timedelta(seconds=1),completed_at=edge,status='completed')
+        Order.objects.filter(pk=today.pk).update(created_at=edge)
+        Order.objects.filter(pk=future.pk).update(created_at=edge+timedelta(days=1))
+        def ids(**params):return [o.pk for o in self.client.get('/admin/finance/',params).context['items']]
+        self.assertEqual(ids(),[today.pk]);self.assertEqual(ids(period='yesterday'),[earlier.pk])
+        self.assertEqual(ids(period='today',basis='completed'),[earlier.pk]);self.assertEqual(ids(period='yesterday',basis='completed'),[])
+        day=(timezone.localdate()-timedelta(days=1)).isoformat()
+        self.assertEqual(ids(period='custom',start=day,end=day),[earlier.pk])
+
+    def test_cost_snapshot_matches_supplier_unit_and_never_uses_todays_price_for_an_old_purchase(self):
+        now=timezone.now();self.product.price_per=1000;self.product.save()
+        link=SourceProduct.objects.create(product_id=self.product.pk,source='denapanel',external_id='qa',
+            last_price=2150,available=True,observed_at=now,review_status='pending')
+        def buy():return place_order(self.account,self.product.pk,11,'qa',uuid.uuid4(),pricing_for(self.product).quote(11).total)
+        first=buy();self.assertEqual((first.cost_record.estimated,first.cost_record.source),(24,'denapanel'))
+        link.last_price=5000;link.observed_at=now-timedelta(hours=25);link.save()
+        old=buy();self.assertFalse(OrderCost.objects.filter(order=old).exists())
+        self.assertEqual(OrderCost.objects.get(order=first).estimated,24)
+        self.product.price_per=100;self.product.product_profit_percent=25;self.product.save()
+        link.observed_at=now;link.save()
+        web=buy();self.assertEqual((web.cost_record.source,web.cost_record.estimated),('base',110))
+        with patch.object(OrderCost.objects,'create',side_effect=RuntimeError('snapshot not stored')),self.assertRaises(RuntimeError):buy()
+        self.assertEqual(Order.objects.count(),3);self.assertEqual(Ledger.objects.filter(type='withdraw').count(),3)
+
+    def test_admin_request_queue_only_exposes_and_processes_permitted_items(self):
+        order=self.buy();ticket=Ticket.objects.create(user=self.other,subject='سؤال سفارش');queue='/admin/support/requests/'
+        detail=queue+f'ticket/{ticket.pk}/';act=queue+f'order/{order.pk}/';counts='/admin/support/counts/'
+        self.assertEqual(self.client.get(queue).status_code,404)
+        self._grant_list_permissions('change_ticket')
+        self.assertEqual(self.client.get(counts).json(),{'requests':1})
+        self.assertNotContains(self.client.get(queue),order.tracking_code);self.assertContains(self.client.get(queue),ticket.subject)
+        self.assertEqual(self.client.post(act,{'status':'completed'}).status_code,404)
+        self.assertContains(self.client.get(detail),detail+'close/')
+        self.assertRedirects(self.client.post(detail,{'body':'پیگیری شد'}),detail)
+        self.assertEqual(self.client.get(counts).json(),{'requests':0})
+        self._grant_list_permissions('change_order')
+        self.assertEqual(self.client.get(counts).json(),{'requests':1})
+        self.assertRedirects(self.client.post(detail+'close/'),detail)
+        self.assertRedirects(self.client.post(act,{'status':'cancelled'}),queue)
+        self.assertEqual(self.client.get(counts).json(),{'requests':0});self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance,10000)
+        self.assertEqual(self.client.get('/staff/')['Location'],queue)
+
     def test_review_charge_receipt_and_full_refund_include_order_level_tax(self):
         Currency.objects.create(code='USD',name='Dollar',rate=1000)
         self.product.price_currency='USD';self.product.price_amount=Decimal('1.1')
@@ -265,6 +345,9 @@ class SecurityAndCommerceTests(TransactionTestCase):
             self.skipTest('Legacy schema preparation runs only on MariaDB')
         from io import StringIO
         from django.core.management import call_command
+        from django.contrib.auth.models import Group
+        staff=Group.objects.create(name='پشتیبان')
+        staff.permissions.add(Permission.objects.get(content_type__app_label='portal',codename='view_ticket'))
         Product.objects.filter(pk=self.product.pk).update(platform='telegram',show_on_website=False)
         with connection.cursor() as cursor:
             cursor.execute('CREATE TEMPORARY TABLE phone_verification_codes (verification_code VARCHAR(64) NULL,last_code VARCHAR(8) NULL,expires_at DATETIME NULL)')
@@ -274,6 +357,9 @@ class SecurityAndCommerceTests(TransactionTestCase):
                 cursor.execute('DROP TEMPORARY TABLE phone_verification_codes')
         self.product.refresh_from_db()
         self.assertEqual((self.product.platform,self.product.show_on_website,self.product.show_on_telegram),('telegram',False,True))
+        self.assertEqual(set(staff.permissions.values_list('codename',flat=True)),{'view_ticket'})
+        finance=Group.objects.get(name='مدیر مالی')
+        self.assertEqual(set(finance.permissions.values_list('codename',flat=True)),{'view_order','view_financial_report','record_order_cost'})
 
     def test_other_operational_flags_preserve_related_values(self):
         self._grant_list_permissions('change_campaign','change_post','change_currency','change_giftcode')
@@ -1009,10 +1095,13 @@ class SecurityAndCommerceTests(TransactionTestCase):
             self.assertEqual(self.client.post(settle,transfer).status_code,403)
             self._grant_list_permissions('change_ticket')
             self.assertEqual(self.client.post(settle,transfer).status_code,403)
+            desk=f'/admin/support/requests/ticket/{ticket.pk}/'
+            self.assertEqual(self.client.post(desk+'settle/',transfer).status_code,404)
             self._grant_list_permissions('settle_crypto_topup')
-            self.client.post(settle,{**transfer,'expected':1})
+            self.assertContains(self.client.get(desk),desk+'settle/')
+            self.client.post(desk+'settle/',{**transfer,'expected':1})
             self.assertFalse(Ledger.objects.exists())
-            self.client.post(settle,transfer);self.client.post(settle,transfer)
+            self.assertRedirects(self.client.post(desk+'settle/',transfer),desk);self.client.post(settle,transfer)
             self.wallet.refresh_from_db();self.assertEqual(self.wallet.balance,570000)
             self.assertEqual(Ledger.objects.get().amount,560000)
             second=self.client.post(url,get_data(self.client));self.assertEqual(second.status_code,302)

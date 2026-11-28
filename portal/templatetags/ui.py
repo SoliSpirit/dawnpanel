@@ -16,6 +16,14 @@ def fa_number(value):
 
 
 @register.filter
+def fa_datetime(value):
+    from django.utils import timezone
+    from portal.admin_overview import date_label,DIGITS
+    local=timezone.localtime(value)
+    return f"{date_label(local.date())}، {local:%H:%M}".translate(DIGITS)
+
+
+@register.filter
 def fa_decimal(value):
     """Keep fractional toman on indicative per-unit references."""
     try:text=format(Decimal(value),',f')

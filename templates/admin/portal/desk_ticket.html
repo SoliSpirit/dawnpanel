@@ -1,0 +1,3 @@
+{% extends 'admin/base_site.html' %}{% load static %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-desk.css' %}">{% endblock %}
+{% block content %}<a href="{% url 'admin:requests_desk' %}">بازگشت به درخواست‌ها</a><div class="desk-ticket">{% include 'partials/ticket_thread.html' %}</div>{% endblock %}

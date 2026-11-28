@@ -142,6 +142,8 @@ def _charge_order(wallet, product, quantity, target, quoted_total, quoted_breakd
         product_id=product.pk,product_name=product.name,target_link=target,quantity=quantity,
         unit_price=ceil_div(pricing.pack,pricing.price_per),total_price=quote.total)
     OrderAmounts.objects.create(order=order,subtotal=quote.subtotal,tax_percent=quote.tax_percent,tax_amount=quote.tax_amount)
+    from .finance import snapshot_cost
+    snapshot_cost(order,product,pricing)
     event=OrderEvent.objects.create(order=order,channel=channel)
     Ledger.objects.create(user=wallet,amount=-quote.total,type='withdraw',description=f'خرید {event.get_channel_display()}: {order.tracking_code}')
     return order

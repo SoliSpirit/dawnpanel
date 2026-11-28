@@ -33,7 +33,7 @@ def order_message(event):
     rows=approval_buttons(o.pk) if event.channel=='telegram' and o.status=='pending' else []
     rows.append([{'text':'جزئیات سفارش در مدیریت','url':'https://dawnpanel.ir'+reverse('admin:portal_order_change',args=[o.pk])}])
     if event.channel=='web' and o.status=='pending':
-        rows.append([{'text':'رسیدگی در میز سفارش‌ها','url':'https://dawnpanel.ir'+reverse('staff')}])
+        rows.append([{'text':'رسیدگی در میز سفارش‌ها','url':'https://dawnpanel.ir'+reverse('admin:requests_desk')}])
     return {'text':text,'reply_markup':{'inline_keyboard':rows},'link_preview_options':{'is_disabled':True}}
 
 
@@ -47,13 +47,16 @@ def operation_message(event):
     origin={'web':'پنل سایت','telegram':'ربات','system':'سایت'}[event.origin]
     text=f'{TOPICS[event.topic]}\n{event.summary}\nمبدأ: {origin}'
     if event.actor_key:text+=f'\nمدیر {"تلگرام" if event.origin=="telegram" else "سایت"}: #{event.actor_key}'
-    if event.reference:text+=f'\nشناسه: {event.reference}'
+    if event.reference and event.topic!='web_chat':text+=f'\nشناسه: {event.reference}'
     payload={'text':text,'link_preview_options':{'is_disabled':True}}
     if event.topic=='site_error':
         route=SiteIssue.objects.filter(pk=event.reference).values_list('route',flat=True).first()
         if route:payload['text']+=f'\nمسیر برنامه: {route}'
         path=reverse('admin:portal_siteissue_change',args=[event.reference])
         payload['reply_markup']={'inline_keyboard':[[{'text':'بررسی خطا در پنل','url':'https://dawnpanel.ir'+path}]]}
+    elif event.topic=='web_chat':
+        from .chat_notices import desk_link
+        payload['reply_markup']={'inline_keyboard':[[{'text':'پاسخ به گفتگو','url':desk_link(event.reference)}]]}
     return payload
 
 

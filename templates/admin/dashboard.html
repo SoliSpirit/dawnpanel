@@ -15,7 +15,7 @@
       <h1><span class="desk-hero-mark">{% icon 'gauge' %}</span>داشبورد فروشگاه</h1>
       <div class="desk-hero-actions">
         {% if perms.portal.add_product %}<a class="desk-button primary" href="{% url 'admin:portal_product_add' %}">{% icon 'plus' %} افزودن محصول</a>
-        {% elif perms.portal.change_order or perms.portal.change_ticket %}<a class="desk-button primary" href="{% url 'staff' %}">{% icon 'inbox' %} میز رسیدگی</a>
+        {% elif perms.portal.change_order or perms.portal.change_ticket %}<a class="desk-button primary" href="{% url 'admin:requests_desk' %}">{% icon 'inbox' %} رسیدگی به درخواست‌ها</a>
         {% elif perms.portal.add_post %}<a class="desk-button primary" href="{% url 'admin:portal_post_add' %}">{% icon 'plus' %} نوشتن مقاله</a>{% endif %}
         {% if task_count and perms.portal.add_product %}<a class="desk-button ghost" href="#queue">{% icon 'inbox' %} صف رسیدگی · {{ task_count|fa_number }}</a>
         {% else %}<a class="desk-button ghost" href="{% url 'catalog' %}">{% icon 'store' %} مشاهده فروشگاه</a>{% endif %}
@@ -60,7 +60,7 @@
       </section>{% endif %}
       {% if perms.portal.view_ticket %}<section class="desk-panel" id="tickets" aria-labelledby="tickets-title">
         <div class="desk-panel-head">{% include 'admin/overview/panel_title.html' with heading_id='tickets-title' eyebrow='پشتیبانی مشتریان' heading='آخرین تیکت‌های فعال' symbol='headset' tone='indigo' only %}<a class="desk-link" href="{% url 'admin:portal_ticket_changelist' %}">همه تیکت‌ها {% icon 'left' %}</a></div>
-        <ul class="desk-tickets">{% for ticket in recent_tickets %}<li><a href="{% if perms.portal.change_ticket %}{% url 'ticket' ticket.pk %}{% else %}{% url 'admin:portal_ticket_change' ticket.pk %}{% endif %}">
+        <ul class="desk-tickets">{% for ticket in recent_tickets %}<li><a href="{% if perms.portal.change_ticket %}{% url 'admin:desk_ticket' ticket.pk %}{% else %}{% url 'admin:portal_ticket_change' ticket.pk %}{% endif %}">
           <span class="desk-symbol" data-tone="{% if ticket.priority == 'urgent' %}amber{% else %}indigo{% endif %}">{% if ticket.priority == 'urgent' %}{% icon 'alert' %}{% else %}{% icon 'ticket' %}{% endif %}</span><span><strong>{{ ticket.subject }}</strong><small>شماره {{ ticket.pk|fa_number }} · {{ ticket.get_status_display }}{% if ticket.priority == 'urgent' %} · فوری{% endif %}</small></span>{% icon 'chevron' %}
         </a></li>{% empty %}<li class="desk-empty">{% icon 'chat' %}<strong>تیکت فعالی وجود ندارد.</strong></li>{% endfor %}</ul>
       </section>{% endif %}
@@ -74,8 +74,9 @@
       {% if perms.portal.view_siteissue or perms.portal.change_siteissue %}<a href="{% url 'admin:portal_siteissue_changelist' %}">{% icon 'alert' %} خطاهای سایت</a>{% endif %}
       {% if perms.portal.view_product %}<a href="{% url 'admin:portal_product_changelist' %}">{% icon 'box' %} محصولات و مالیات</a>{% endif %}
       {% if perms.portal.view_sourcesyncsettings %}<a href="{% url 'admin:portal_sourcesyncsettings_changelist' %}">{% icon 'sliders' %} تنظیمات قیمت منابع</a>{% endif %}
-      {% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'staff' %}">{% icon 'inbox' %} میز رسیدگی</a>{% endif %}
-      {% if perms.portal.change_chatconversation %}<a href="{% url 'chat_desk' %}">{% icon 'chat' %} گفتگوی آنلاین</a>{% endif %}
+      {% if perms.portal.change_order or perms.portal.change_ticket %}<a href="{% url 'admin:requests_desk' %}">{% icon 'inbox' %} رسیدگی به درخواست‌ها <span class="desk-counter" data-desk-count="requests" hidden></span></a>{% endif %}
+      {% if perms.portal.change_chatconversation %}<a href="{% url 'admin:chat_desk' %}">{% icon 'chat' %} گفتگوی آنلاین <span class="desk-counter" data-desk-count="chat" hidden></span></a>{% endif %}
+      {% if perms.portal.view_order and perms.portal.view_financial_report %}<a href="{% url 'admin:finance_report' %}">{% icon 'plot' %} گزارش مالی خریدها</a>{% endif %}
       {% if perms.portal.add_post %}<a href="{% url 'admin:portal_post_add' %}">{% icon 'pen' %} نوشتن مقاله</a>{% endif %}
     </div>
     <div class="desk-tool-groups">{% for group in workspace_groups %}<details name="desk-tools" data-tone="{{ group.tone }}"><summary>{% include 'admin/overview/group_label.html' with group=group only %}<span class="desk-tool-count">{{ group.models|length|fa_number }} {% icon 'chevron' %}</span></summary>

@@ -3,13 +3,16 @@
 <div class="retail-wrap header-main">
 <a class="shop-brand" href="/" aria-label="دان‌پنل، صفحه اصلی"><img src="{% static 'brand/dawn-mark.svg' %}" alt="نشان دان‌پنل" width="48" height="48"><span><strong>دان‌پنل</strong><small>فروشگاه خدمات دیجیتال</small></span></a>
 <form class="header-search" method="get" action="/services/" role="search"><label class="visually-hidden" for="global-search">جستجو در فروشگاه</label>{% icon 'search' %}<input id="global-search" name="q" value="{{ q|default:'' }}" placeholder="دنبال چه محصولی می‌گردی؟" maxlength="100"><button type="submit">جستجو</button></form>
-<div class="shop-actions"><button class="theme-toggle" type="button" data-theme-toggle aria-label="فعال‌کردن حالت روز" aria-pressed="false"><span data-theme-icon aria-hidden="true">☀</span></button><a class="account-entry" href="/account/">{% icon 'user' %}<span><small>{% if user.is_authenticated %}خوش آمدی{% else %}ورود / ثبت‌نام{% endif %}</small><b>حساب کاربری</b></span></a><a class="wallet-entry" href="/account/charge/" aria-label="شارژ کیف پول">{% icon 'wallet' %}</a></div>
+<div class="shop-actions"><button class="theme-toggle" type="button" data-theme-toggle aria-label="فعال‌کردن حالت روز" aria-pressed="false"><span data-theme-icon aria-hidden="true">☀</span></button>
+{% if user.is_staff and perms.portal.change_chatconversation %}<a class="staff-chat-entry" href="{% url 'admin:chat_desk' %}" aria-label="میز گفتگوی آنلاین" title="گفتگوی آنلاین">{% icon 'chat' %}<span class="desk-counter" data-desk-count="chat" hidden></span></a>{% endif %}
+<a class="account-entry" href="/account/">{% icon 'user' %}<span><small>{% if user.is_authenticated %}خوش آمدی{% else %}ورود / ثبت‌نام{% endif %}</small><b>حساب کاربری</b></span></a><a class="wallet-entry" href="/account/charge/" aria-label="شارژ کیف پول">{% icon 'wallet' %}</a></div>
 </div>
 <div class="retail-wrap header-bottom">
 <details class="category-menu"><summary>{% icon 'grid' %}دسته‌بندی محصولات</summary><div class="category-dropdown">{% include 'partials/catalog_navigation.html' %}</div></details>
 <nav aria-label="ناوبری اصلی"><a href="/services/">فروشگاه</a><a href="/ai/">هوش مصنوعی</a><a href="/blog/">مجله دان‌پنل</a><a href="/faq/">سوالات متداول</a><a href="/contact/">ارتباط با ما</a><a href="/about/">درباره ما</a></nav>
 <a href="/account/tickets/" class="header-support">{% icon 'headset' %}پشتیبانی</a></div>
 </header>
+{% if user.is_staff and perms.portal.change_chatconversation %}{% include 'partials/desk_counts_assets.html' %}{% endif %}
 {% if messages %}<div class="wrap notices" role="status">{% for message in messages %}<p class="notice {{ message.tags }}">{{ message }}</p>{% endfor %}</div>{% endif %}
 <main>{% block content %}{% endblock %}</main>
 <section class="retail-wrap service-promises" aria-label="راهنمای خرید"><div>{% icon 'shield' %}<span><strong>تأیید پیش از پرداخت</strong><small>مبلغ نهایی را بررسی کن</small></span></div><div>{% icon 'wallet' %}<span><strong>حساب یکپارچه</strong><small>کیف پول و سفارش‌ها در یک پنل</small></span></div><div>{% icon 'headset' %}<span><strong>کنار تو هستیم</strong><small>گفتگوی آنلاین و تیکت</small></span></div><div>{% icon 'clock' %}<span><strong>پیگیری ساده</strong><small>وضعیت سفارش در حساب تو</small></span></div></section>

@@ -1,0 +1,36 @@
+{% extends 'admin/base_site.html' %}{% load static ui l10n %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin-desk.css' %}">{% endblock %}
+{% block content %}<section class="fin-report">
+<nav class="fin-periods" aria-label="بازهٔ گزارش">{% for key,label,n in periods %}<a href="{% querystring period=key page=None start=None end=None %}"{% if period == key %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>
+<form method="get" class="fin-options">
+  <label>بازه <select name="period">{% for key,label,n in periods %}<option value="{{ key }}"{% if period == key %} selected{% endif %}>{{ label }}</option>{% endfor %}<option value="custom"{% if period == 'custom' %} selected{% endif %}>تاریخ دلخواه</option></select></label>
+  <label>از تاریخ (میلادی)<input type="date" name="start" value="{{ start|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"></label>
+  <label>تا تاریخ (میلادی)<input type="date" name="end" value="{{ end|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"></label>
+  <label>مبنای تاریخ <select name="basis"><option value="placed">زمان ثبت خرید</option><option value="completed"{% if basis == 'completed' %} selected{% endif %}>زمان تکمیل سفارش</option></select></label>
+  <label>مسیر خرید <select name="channel"><option value="">همه</option><option value="web"{% if channel == 'web' %} selected{% endif %}>سایت</option><option value="telegram"{% if channel == 'telegram' %} selected{% endif %}>ربات</option><option value="unknown"{% if channel == 'unknown' %} selected{% endif %}>ثبت‌نشده</option></select></label>
+  <label>وضعیت <select name="status"><option value="">همه</option>{% for k,name in statuses.items %}<option value="{{ k }}"{% if status == k %} selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+  <label>خریدار، محصول یا کد پیگیری <input name="q" maxlength="100" value="{{ q }}"></label><button class="button default">نمایش گزارش</button>
+</form>
+{% if error %}<p class="errornote">{{ error }}</p>{% endif %}
+<h2>{{ caption }}</h2><p>همهٔ مبالغ به تومان و به وقت تهران است. مبنای این گزارش: {% if basis == 'completed' %}سفارش‌های تکمیل‌شده در این بازه{% else %}خریدهای ثبت‌شده در این بازه و وضعیت فعلی آن‌ها{% endif %}.</p>
+<div class="fin-metrics">
+  <div class="fin-card">مبلغ کل سفارش‌های این گزارش<strong>{{ metrics.placed|fa_number }}</strong><small>{{ metrics.count|fa_number }} سفارش · {{ metrics.buyers|fa_number }} خریدار</small></div>
+  <div class="fin-card">فروش تکمیل‌شده با مالیات<strong>{{ metrics.completed|fa_number }}</strong><small>{{ metrics.done|fa_number }} سفارش · مالیات ثبت‌شده {{ metrics.tax|fa_number }}</small></div>
+  <div class="fin-card">فروش پیش از مالیات<strong>{% if metrics.tax_missing and metrics.done == metrics.tax_missing %}—{% else %}{{ metrics.before_tax|fa_number }}{% endif %}</strong><small>سفارش‌های تکمیل‌شده با تفکیک مالیات</small></div>
+  <div class="fin-card">مبلغ سفارش‌های لغوشده یا ردشده<strong>{{ metrics.cancelled|fa_number }}</strong><small>در فروش تکمیل‌شده محاسبه نمی‌شود.</small></div>
+  <div class="fin-card">سود ناخالص با بهای واقعی<strong>{% if metrics.known %}{{ metrics.profit|fa_number }}{% else %}—{% endif %}</strong><small>{{ metrics.known|fa_number }} سفارش تکمیل‌شده با بهای قطعی</small></div>
+  <div class="fin-card">سود ناخالص برآوردی<strong>{% if metrics.estimates %}{{ metrics.est_profit|fa_number }}{% else %}—{% endif %}</strong><small>{{ metrics.estimates|fa_number }} سفارش با مرجع قیمت هنگام خرید</small></div>
+</div>
+<p>سود ناخالص = مبلغ فروشِ پیش از مالیات منهای بهای تأمین؛ هزینه‌های عملیاتی و کارمزدها از آن کسر نشده‌اند. تعداد سفارش تکمیل‌شده بدون اطلاعات کافی برای سود: <b>{{ metrics.missing|fa_number }}</b>.{% if metrics.tax_missing %} برای {{ metrics.tax_missing|fa_number }} سفارش، تفکیک مالیات ثبت نشده است.{% endif %}</p>
+<div class="fin-scroll" tabindex="0" role="region" aria-label="جدول خریدها"><table class="fin-table"><thead><tr><th>خریدار</th><th>سفارش و تاریخ</th><th>محصول</th><th>تعداد</th><th>مبلغ خرید</th><th>بهای تأمین</th><th>سود ناخالص</th><th>وضعیت</th></tr></thead>
+<tbody>{% for o in items %}<tr>
+  <td>{% if o.buyer_url %}<a href="{{ o.buyer_url }}">{{ o.buyer }}</a>{% else %}{{ o.buyer }}{% endif %}<small dir="ltr">#{{ o.user_id|unlocalize }}</small></td>
+  <td><a href="{% url 'admin:portal_order_change' o.pk %}"><bdi>{{ o.tracking_code }}</bdi></a><small>ثبت: {{ o.created_at|fa_datetime }}</small>{% if o.completed_at %}<small>تکمیل: {{ o.completed_at|fa_datetime }}</small>{% endif %}<small>{{ o.orderevent.get_channel_display|default:'مسیر ثبت‌نشده' }}</small></td>
+  <td>{{ o.product_name }}</td><td>{{ o.quantity|fa_number }}</td><td>{{ o.total_price|fa_number }}{% if o.amounts %}<small>مالیات: {{ o.amounts.tax_amount|fa_number }}</small>{% endif %}</td>
+  <td>{% if o.report_cost != None %}{{ o.report_cost|fa_number }}{% else %}—{% endif %}<small>{{ o.cost_label }}</small>
+  {% if can_cost %}<details><summary>ثبت بهای واقعی</summary><form method="post" action="{% url 'admin:finance_cost' o.pk %}{% querystring %}">{% csrf_token %}
+    <input type="hidden" name="revision" value="{{ o.cost_record.revision|default:0|unlocalize }}"><label>بهای کل این سفارش (تومان)<input name="cost" inputmode="numeric" dir="ltr" maxlength="15" required></label><button type="submit" class="button">ذخیره</button></form></details>{% endif %}</td>
+  <td>{% if o.report_profit != None %}{{ o.report_profit|fa_number }}<small>{{ o.cost_label }}</small>{% else %}—{% endif %}</td><td>{{ o.status_label }}</td>
+</tr>{% empty %}<tr><td colspan="8">در این بازه و با این فیلترها خریدی ثبت نشده است.</td></tr>{% endfor %}</tbody></table></div>
+{% include 'partials/pagination.html' %}
+</section>{% endblock %}

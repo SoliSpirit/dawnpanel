@@ -1,0 +1,5 @@
+.desk-counter{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding-inline:4px;border-radius:1em;background:#ae3146;color:#fff;font-size:12px;font-weight:700;line-height:1}
+.desk-counter[hidden],.desk-chat-flash[hidden]{display:none!important}
+.staff-chat-entry{position:relative;display:inline-grid;place-items:center;min-width:42px;min-height:44px}.staff-chat-entry .desk-counter{position:absolute;inset-block-start:-2px;inset-inline-end:-3px}
+.desk-chat-flash{position:fixed;z-index:1100;inset-inline-end:18px;bottom:20px;max-width:calc(100vw - 36px);box-sizing:border-box;padding:14px 18px;border:1px solid var(--dp-line,#bbb);border-radius:12px;background:var(--dp-surface,#fff);box-shadow:0 6px 24px #0003}
+.desk-chat-flash a{font-weight:700}.desk-chat-flash button{margin-inline-start:14px;font:inherit;cursor:pointer}
