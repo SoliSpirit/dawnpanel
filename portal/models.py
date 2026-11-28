@@ -82,6 +82,11 @@ class Product(models.Model):
     def tax_percent(self):
         policy = getattr(self, 'tax_policy', None)
         return policy.percent if policy else 0
+    @property
+    def fixed_sale(self):
+        if self.price_currency!='TOMAN':return None
+        policy=getattr(self,'sale_override',None)
+        return policy.amount if policy and policy.units==self.price_per else None
     def get_absolute_url(self):
         from django.urls import reverse
         from django.utils.text import slugify
@@ -378,6 +383,17 @@ class ProductTax(models.Model):
                                             name='product_tax_in_range')]
 
 
+class ProductSaleOverride(models.Model):
+    """Exact pre-tax selling price per pack; supplier base and percentage remain distinct."""
+    product=models.OneToOneField(Product,primary_key=True,on_delete=models.CASCADE,db_constraint=False,related_name='sale_override')
+    amount=models.PositiveBigIntegerField()
+    units=models.PositiveIntegerField()
+    class Meta:
+        default_permissions=()
+        constraints=[models.CheckConstraint(condition=models.Q(amount__gt=0,amount__lte=100_000_000_000,units__gt=0),
+                                            name='valid_fixed_sale_pack')]
+
+
 class OrderAmounts(models.Model):
     """Immutable at purchase; pre-existing orders intentionally have no row."""
     order=models.OneToOneField(Order,primary_key=True,on_delete=models.DO_NOTHING,
@@ -536,6 +552,8 @@ class PriceReviewItem(models.Model):
     rank=models.PositiveSmallIntegerField()
     decision=models.CharField(max_length=16,blank=True)
     final_markup=models.DecimalField(max_digits=10,decimal_places=4,null=True)
+    fixed_before=models.PositiveBigIntegerField(null=True,editable=False)
+    final_sale=models.PositiveBigIntegerField(null=True,editable=False)
     class Meta:
         default_permissions=()
         ordering=['rank','source','label','pk']

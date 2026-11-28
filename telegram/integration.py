@@ -26,7 +26,7 @@ def lottery_notice(update_id,winner,amount):
 
 
 def review_callback(*args):
-    from portal.review_queue import telegram_action
+    from portal.telegram_reviews import telegram_action
     try:return telegram_action(*args)
     finally:close_old_connections()
 
@@ -60,7 +60,7 @@ async def admin_action(actor_id,action,ref=None):
 
 def product_pricing(product_id):
     try:
-        product = bot_products().select_related('tax_policy').filter(pk=product_id).first()
+        product = bot_products().select_related('tax_policy','sale_override').filter(pk=product_id).first()
         if product is None:
             raise BusinessError('محصول در تلگرام در دسترس نیست.')
         pricing = pricing_for(product)

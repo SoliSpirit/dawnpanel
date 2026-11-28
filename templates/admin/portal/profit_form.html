@@ -7,6 +7,7 @@
   <ul>{% for name,rate in sample %}<li>{{ name }} <small>· سود فعلی: {{ rate }}</small></li>{% endfor %}</ul>
   {% if count > 8 %}<p>۸ نمونه از {{ count|fa_number }} محصول انتخاب‌شده</p>{% endif %}
   {{ form.as_p }}
+  <p>محصولی که فروش ثابت دارد با ذخیرهٔ این درصد به قیمت‌گذاری درصدی برمی‌گردد.</p>
   <button class="button default" type="submit">ذخیرهٔ سود برای {{ count|fa_number }} محصول</button>
   <a href="{{ return_url }}">انصراف</a>
 </form>

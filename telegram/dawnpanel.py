@@ -279,9 +279,22 @@ def apply_self_profit(price):
     """سازگاری با بخش‌های قدیمی؛ سود پیش‌فرض تنظیمات عمومی را اعمال می‌کند."""
     return apply_product_profit(price, Decimal(str(get_self_profit_percent() or 0)))
 
+def fixed_product_sale(product_id):
+    conn=get_db_connection()
+    if not conn:return None
+    try:
+        cur=conn.cursor()
+        cur.execute("SELECT f.amount FROM portal_productsaleoverride f JOIN products p ON p.id=f.product_id WHERE p.id=%s AND p.price_currency='TOMAN' AND f.units=p.price_per",(product_id,))
+        row=cur.fetchone();cur.close()
+        return row[0] if row else None
+    finally:conn.close()
+
 def format_product_admin_price_lines(product):
     code, currency, amount, rate = get_product_currency(product)
     if code == 'TOMAN':
+        fixed=fixed_product_sale(product[0])
+        if fixed is not None:
+            return f"💰 قیمت پایه: {format_amount(amount)} تومان\n💵 قیمت فروش ثابت پیش از مالیات: {format_amount(fixed)} تومان\n"
         return (f"💰 قیمت پایه: {format_amount(amount)} تومان\n"
                 f"📈 سود محصول: {format_profit_percent(get_product_profit_percent(product))}%\n"
                 f"💵 قیمت فروش پیش از مالیات: {format_amount(apply_product_profit(amount, get_product_profit_percent(product)))} تومان\n")
@@ -2556,6 +2569,8 @@ def update_product(product_id, field, value):
         if field not in valid_fields:
             return False
         cursor.execute(f"UPDATE products SET {field} = %s WHERE id = %s", (value, product_id))
+        if field in ('price','price_per','price_currency','price_amount','product_profit_percent'):
+            cursor.execute("DELETE FROM portal_productsaleoverride WHERE product_id=%s",(product_id,))
         connection.commit()
         cursor.close()
         connection.close()
@@ -2579,6 +2594,7 @@ def delete_product(product_id):
         if cursor.rowcount != 1:
             connection.rollback()
             return False
+        cursor.execute("DELETE FROM portal_productsaleoverride WHERE product_id=%s",(int(product_id),))
         connection.commit()
         return True
     except Error as e:
@@ -3810,11 +3826,7 @@ def format_admin_product_details(product):
         f"📊 <b>وضعیت:</b> {status}\n\n"
         f"📝 <b>توضیحات:</b> {html.escape(str(product[3] or 'ندارد'))}\n\n"
         f"💱 <b>ارز قیمت:</b> {html.escape(str(currency_symbol))} {html.escape(str(currency_code))} — {html.escape(str(currency_name))}\n"
-        f"💵 <b>مبلغ اصلی:</b> {html.escape(format_amount(amount))} {html.escape(str(currency_symbol))}\n"
-        f"📈 <b>نرخ فروش ارز:</b> {format_amount(rate)+' تومان' if rate else 'در دسترس نیست'}\n"
-        f"💰 <b>معادل قیمت پایه:</b> {format_amount(amount*rate)+' تومان' if rate else 'در دسترس نیست'}\n"
-        f"📈 <b>سود اختصاصی محصول:</b> {format_profit_percent(get_product_profit_percent(product))}%\n"
-        f"💸 <b>قیمت فروش پیش از مالیات:</b> {format_amount(apply_product_profit(amount*rate, get_product_profit_percent(product)))+' تومان' if rate else 'در دسترس نیست'}\n\n"
+        f"{format_product_admin_price_lines(product)}\n"
         f"🔢 <b>قیمت به ازای:</b> {product[5]} عدد\n"
         f"⬇️ <b>حداقل سفارش:</b> {product[6]}\n"
         f"⬆️ <b>حداکثر سفارش:</b> {max_text}\n\n"
@@ -11897,7 +11909,7 @@ async def price_review_callback(update,context):
     except Exception:
         await query.message.reply_text('گزارش معتبر نیست یا دسترسی ندارید. گزارش جاری را در پنل ببینید.');return
     kb=payload.get('reply_markup',{}).get('inline_keyboard',[])
-    try:await query.edit_message_text(payload['text'],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(**x) for x in row] for row in kb]))
+    try:await query.edit_message_text(payload['text'],parse_mode=payload.get('parse_mode'),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(**x) for x in row] for row in kb]))
     except BadRequest as exc:
         if 'not modified' not in str(exc).lower():raise
 

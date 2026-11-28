@@ -107,8 +107,13 @@ Transient Telegram failures remain queued across restarts.
 Supplier checks never publish a price. `/admin/prices/reviews/` keeps 30 days of
 reports, showing old/new source prices, units, merchant markup and pre-tax sales.
 One row can be approved at a custom markup in the panel; bulk approval retains the
-existing rates. Telegram's private report has five items per page and supports
-single decisions and explicit whole-report confirmation. Superseded observations,
+existing pricing method. A row also accepts an exact pre-tax selling amount in
+toman per displayed pack. This does not change the supplier's observed price or
+stack a markup on the entered amount. Choosing markup pricing explicitly removes
+the fixed sale. Historical rows link to a version-checked current-price editor.
+Telegram opens on a short digest; the pending index and the full catalog open
+separately. Tap a number to compare one item's supplier and selling prices and
+approve it. Whole-report approval still has an explicit confirmation. Superseded observations,
 changed products and proposals older than 24 hours cannot overwrite newer prices.
 
 ## Website errors

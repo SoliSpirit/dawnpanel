@@ -23,6 +23,7 @@ AUDITED = {
     'source.price.recheck': ('catalog','بررسی مجدد قیمت‌های انتخاب‌شده'),
     'source.price.fetch': ('catalog','دریافت فهرست قیمت منبع'),
     'source.review.decide': ('catalog','تأیید قیمت‌های بررسی‌شده'),
+    'product.sale.fixed': ('catalog','ثبت مبلغ فروش محصول'),
     'catalog.profit.batch': ('catalog','تغییر گروهی سود محصولات'),
     'notice.settings': ('management','تغییر تنظیمات اعلان تلگرام'),
     'notice.email': ('management','تغییر تنظیمات ایمیل چت'),

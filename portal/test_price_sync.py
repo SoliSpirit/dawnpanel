@@ -146,7 +146,8 @@ class PriceSyncTests(TransactionTestCase):
     def test_frozen_report_markup_paging_and_safe_telegram_bulk_across_pages(self):
         from django.core.exceptions import PermissionDenied
         from .models import PriceReviewBatch,OrderDelivery,OperationNotice
-        from .review_queue import telegram_action,email_sheet
+        from .review_queue import email_sheet
+        from .telegram_reviews import telegram_action,telegram_digest
         self._tools_staff('change_product','change_sourceproduct')
         for i in range(14):
             p=Product.objects.create(name=f'پلن {i}',category=self.category,price=1000)
@@ -166,11 +167,85 @@ class PriceSyncTests(TransactionTestCase):
             with self.assertRaises(PermissionDenied):telegram_action(*args,cb('all'))
         args=(71,71,'private',12)
         self.assertIn('تمام صفحه‌ها',telegram_action(*args,cb('ask'))['text']);self.assertEqual(batch.items.filter(decision='applied').count(),1)
-        self.assertIn('منبع قبلی:',telegram_action(*args,f'pr:{batch.pk}:2:page:0')['text'])
+        digest=telegram_digest(batch.pk)
+        self.assertEqual(digest['parse_mode'],'HTML');self.assertIn('اولین پیشنهاد',digest['text'])
+        index=telegram_action(*args,cb('pending'))
+        self.assertIn('از ۳',index['text'])
+        entry=index['reply_markup']['inline_keyboard'][0][0]
+        card=telegram_action(*args,entry['callback_data'])
+        self.assertIn('قیمت منبع',card['text']);self.assertIn('تومان',card['text'])
+        self.assertIn('صفحهٔ ۲',telegram_action(*args,f'pr:{batch.pk}:2:page:0')['text'])
+        self.assertEqual(batch.items.filter(decision='applied').count(),1)
         telegram_action(*args,cb('all'));telegram_action(*args,cb('all'))
         self.assertEqual(batch.items.filter(decision='applied').count(),14)
         self.assertEqual(batch.items.get(pk=changed.pk).decision,'stale')
         self.assertEqual(Product.objects.get(pk=changed.product_id).price,1800)
+
+    def test_exact_pack_amount_preserves_supplier_basis_and_survives_another_review(self):
+        from .models import PriceReviewItem,ProductSaleOverride,ProductTax
+        from .pricing import pricing_for
+        self._tools_staff('change_product','change_sourceproduct')
+        self.rows[0].update(price=4_880_000,price_per=1000)
+        Product.objects.filter(pk=self.product.pk).update(price=4_560_000,price_per=1000,product_profit_percent=20)
+        ProductTax.objects.create(product=self.product,percent=10)
+        def review():
+            result=self.fetch();i=PriceReviewItem.objects.get(batch_id=result['review_batch']);return i,f'/admin/prices/reviews/{i.batch_id}/'
+        i,url=review();self.assertContains(self.client.get(url),'name="sale_price"')
+        form={'decision':'fixed','item':i.pk}
+        for invalid in ['۱۲,۳','99.5','۰','-30','۱۰۰٬۰۰۰٬۰۰۰٬۰۰۱']:
+            self.client.post(url,{**form,'sale_price':invalid})
+            self.assertFalse(ProductSaleOverride.objects.exists())
+        self.client.post(url,{**form,'sale_price':'۵٬۰۰۰٬۰۰۱'})
+        self.product.refresh_from_db();i.refresh_from_db();self.link.refresh_from_db()
+        self.assertEqual((self.product.price,self.product.product_profit_percent,self.link.last_price),(4_880_000,20,4_880_000))
+        self.assertEqual((self.product.fixed_sale,i.final_sale,pricing_for(self.product).pack),(5_000_001,5_000_001,5_000_001))
+        self.assertEqual(pricing_for(self.product).quote(1000).total,5_500_002)
+        self.rows[0]['price']=4_900_000;j,url=review();self.assertEqual(j.fixed_before,5_000_001)
+        self.client.post(url,{'decision':'all'})
+        self.product.refresh_from_db();self.assertEqual((self.product.price,pricing_for(self.product).pack),(4_900_000,5_000_001))
+        k,url=review()
+        self.client.post(url,{'decision':'one','item':k.pk,'markup':'۲۰'})
+        self.product.refresh_from_db();self.assertIsNone(self.product.fixed_sale);self.assertEqual(pricing_for(self.product).pack,5_880_000)
+
+    def test_closed_review_links_to_editable_live_price_and_checks_current_revision(self):
+        from .models import PriceReviewItem
+        self._tools_staff('change_product','change_sourceproduct')
+        result=self.fetch();row=PriceReviewItem.objects.get(batch_id=result['review_batch'])
+        self.fetch()  # later report replaces this observation
+        url=f'/admin/prices/reviews/{row.batch_id}/'
+        current=url+f'items/{row.pk}/price/'
+        self.assertContains(self.client.get(url),current)
+        self.client.post(url,{'decision':'fixed','item':row.pk,'sale_price':'35000'})
+        self.product.refresh_from_db();self.assertIsNone(self.product.fixed_sale)
+        stamp=self.client.get(current).context['stamp']
+        Product.objects.filter(pk=self.product.pk).update(price=900)
+        refused=self.client.post(current,{'sale_price':'35000','stamp':stamp})
+        self.assertContains(refused,'مهلت فرم')
+        self.product.refresh_from_db();self.assertIsNone(self.product.fixed_sale)
+        self.client.post(current,{'sale_price':'۳۵٬۰۰۰','stamp':refused.context['stamp']})
+        self.product.refresh_from_db();row.refresh_from_db()
+        self.assertEqual((self.product.fixed_sale,self.product.price,row.previous,row.final_sale),(35000,900,1000,None))
+        self.assertEqual(self.client.post(current,{'sale_price':'35001','stamp':refused.context['stamp']}).status_code,200)
+        self.product.refresh_from_db();self.assertEqual(self.product.fixed_sale,35000)
+
+    @override_settings(BOT_CONFIG={'telegram':{'admin_ids':[71]}})
+    def test_telegram_detail_escapes_product_and_confirms_only_the_selected_row(self):
+        from .models import OrderDelivery,PriceReviewItem
+        from .telegram_reviews import telegram_digest,telegram_action
+        self.product.name='<پکیج & آزمایشی>';self.product.save()
+        pk=self.fetch()['review_batch'];item=PriceReviewItem.objects.get(batch_id=pk);msg=telegram_digest(pk)
+        self.assertIn('&lt;پکیج &amp; آزمایشی&gt;',msg['text']);self.assertNotIn('صفحهٔ ۱',msg['text'])
+        OrderDelivery.objects.filter(operation__reference=str(pk),operation__topic='price_review').update(message_id=33,state='sent')
+        click=lambda data:telegram_action(71,71,'private',33,data)
+        first=click(msg['reply_markup']['inline_keyboard'][0][0]['callback_data'])
+        card=click(first['reply_markup']['inline_keyboard'][0][0]['callback_data'])
+        self.assertIn('فروش پیش از مالیات',card['text'])
+        self.assertFalse(item.decision)
+        approved=card['reply_markup']['inline_keyboard'][0][0]['callback_data']
+        self.assertLessEqual(len(approved.encode()),64)
+        self.assertIn('تأیید شد',click(approved)['text'])
+        self.assertIn('قبلاً بررسی',click(approved)['text'])
+        self.product.refresh_from_db();self.assertEqual(self.product.price,1100)
 
     def _tools_staff(self,*perms):
         editor=User.objects.create_user(username='price-tools',is_staff=True)

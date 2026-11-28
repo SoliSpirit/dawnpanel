@@ -1,0 +1,12 @@
+{% extends 'admin/base_site.html' %}{% load static ui %}
+{% block responsive %}{{ block.super }}<link rel="stylesheet" href="{% static 'operator-hub.css' %}">{% endblock %}
+{% block content %}<section class="op-hub op-live-price"><article class="op-card">
+  <header><h2>{{ p.name }}</h2><a href="{{ report_url }}">بازگشت به گزارش</a></header>
+  {% if valid %}<p>فروش فعلی برای {{ p.price_per|fa_number }} عدد: <strong>{{ old|fa_number }} تومان</strong> پیش از مالیات.</p>
+  <p>مبلغ جدید مستقیماً روی محصول ثبت می‌شود. «قیمت هنگام بررسی» در گزارش، سابقهٔ همان زمان است.</p>
+  {% if error %}<p class="errornote" role="alert">{{ error }}</p>{% endif %}
+  <form class="op-sale-form" method="post">{% csrf_token %}<input type="hidden" name="stamp" value="{{ stamp }}">
+    <label>قیمت فروش ثابت (تومان)<input name="sale_price" inputmode="numeric" dir="ltr" value="{{ entered }}" maxlength="24" required></label>
+    <button class="op-primary">ثبت قیمت فعلی</button></form>
+  {% else %}<p>این محصول قیمت ارزی یا مبنای قیمت ویژه دارد. <a href="{% url 'admin:portal_product_change' p.pk %}">تنظیمات قیمت محصول</a> را ببینید.</p>{% endif %}
+</article></section>{% endblock %}

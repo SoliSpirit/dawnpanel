@@ -101,7 +101,7 @@ def known_ai_brand(name):
 
 
 def families():
-    products = list(public_products().select_related('category','tax_policy').order_by('id'))
+    products = list(public_products().select_related('category','tax_policy','sale_override').order_by('id'))
     visuals = {v.product_id:v for v in ProductVisual.objects.filter(product_id__in=[p.pk for p in products])}
     links = {s.product_id:s for s in SourceProduct.objects.filter(product_id__in=[p.pk for p in products])}
     aliases = web_aliases(products, links)

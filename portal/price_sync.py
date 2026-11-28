@@ -5,7 +5,8 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Audit, Product, SourceProduct, SourceSyncSettings, PriceReviewBatch, PriceReviewItem, OperationNotice,OrderDelivery
+from .models import Audit, Product, ProductSaleOverride, SourceProduct, SourceSyncSettings, PriceReviewBatch, PriceReviewItem, OperationNotice,OrderDelivery
+from .pricing import MAX_TOTAL
 from .notice_topics import subscribers
 from .services import BusinessError
 from .supplier_clients import fetch_catalogue
@@ -14,17 +15,17 @@ from .source_links import product_page
 
 def price_signature(product):
     return {name: str(getattr(product, name)) for name in (
-        'price', 'price_amount', 'price_currency', 'price_per', 'product_profit_percent')}
+        'price', 'price_amount', 'price_currency', 'price_per', 'product_profit_percent')} | {'fixed_sale':product.fixed_sale}
 
 
 @transaction.atomic
-def apply_proposal(pk, actor=None, *, automatic=False, expected_observed_at=None, markup=None, review=False, telegram_admin_id=None):
+def apply_proposal(pk, actor=None, *, automatic=False, expected_observed_at=None, markup=None, fixed_sale=None, review=False, telegram_admin_id=None):
     if automatic:return False
     link = SourceProduct.objects.select_for_update().get(pk=pk)
     if expected_observed_at is not None and link.observed_at != expected_observed_at:
         raise BusinessError('قیمت پیشنهادی تغییر کرده؛ دوباره بررسی کنید.')
     if not link.available or not (link.review_status=='pending' and link.proposed_price or
-            review and markup is not None and link.review_status=='unchanged' and link.last_price):
+            review and (markup is not None or fixed_sale is not None) and link.review_status=='unchanged' and link.last_price):
         raise BusinessError('قیمت تأییدنشدهٔ معتبری برای اعمال وجود ندارد.')
     if not link.observed_at or link.observed_at < timezone.now() - timedelta(hours=24):
         raise BusinessError('قیمت پیشنهادی قدیمی است؛ دوباره دریافت کنید.')
@@ -38,17 +39,24 @@ def apply_proposal(pk, actor=None, *, automatic=False, expected_observed_at=None
         return False
     before,old_markup = product.price,product.product_profit_percent
     product.price = link.proposed_price or link.last_price
+    if fixed_sale is not None:
+        if not review or markup is not None or type(fixed_sale) is not int or not 0<fixed_sale<=MAX_TOTAL:
+            raise BusinessError('مبلغ فروش معتبر نیست.')
+        ProductSaleOverride.objects.update_or_create(product_id=product.pk,defaults={'amount':fixed_sale,'units':product.price_per})
     if markup is not None:
         if not isinstance(markup,Decimal) or not markup.is_finite() or not 0<=markup<1000000 or markup.as_tuple().exponent < -4:
             raise BusinessError('درصد سود معتبر نیست.')
         product.product_profit_percent=markup
+        ProductSaleOverride.objects.filter(product_id=product.pk).delete()
     product.save(update_fields=['price','product_profit_percent'])
     link.review_status = 'applied'
     link.proposed_price = None
     link.save(update_fields=['review_status','proposed_price'])
     Audit.objects.create(actor=actor, action='source.price.apply', object_ref=str(product.pk),
                          details={'source':link.source,'old':before,'new':product.price,'old_markup':str(old_markup),
-                                  'markup':str(product.product_profit_percent),'batch_item':review,'telegram_admin_id':telegram_admin_id})
+                                  'markup':str(product.product_profit_percent),'fixed_before':signature['fixed_sale'],
+                                  'fixed_after':fixed_sale if fixed_sale is not None else (None if markup is not None else signature['fixed_sale']),
+                                  'batch_item':review,'telegram_admin_id':telegram_admin_id})
     return True
 
 
@@ -104,7 +112,7 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
             links = list(scope.select_for_update().order_by('pk'))
             if not SourceSyncSettings.objects.select_for_update().filter(source=source,running_until=lease).exists():
                 raise BusinessError('مهلت بررسی پایان یافته است؛ دوباره تلاش کنید.')
-            products = Product.objects.in_bulk([link.product_id for link in links])
+            products = Product.objects.select_related('sale_override').in_bulk([link.product_id for link in links])
             report=batch or PriceReviewBatch.objects.create(kind='scheduled' if due_only else 'manual')
             items=[]
             for link in links:
@@ -150,7 +158,7 @@ def sync_source(source, *, due_only=False, actor=None, link_ids=None, deadline=N
                     label=product.name if product else f'محصول #{link.product_id}',observed_at=observed,
                     units=row['price_per'] if row else None,previous=previous,observed=row['price'] if row else None,
                     base=product.price if product and product.price_currency=='TOMAN' and product.price_amount is None else None,
-                    markup=product.product_profit_percent if product else None,status=status,
+                    markup=product.product_profit_percent if product else None,fixed_before=product.fixed_sale if product else None,status=status,
                     rank=0 if status=='pending' else (2 if status=='unchanged' else 1)))
             SourceProduct.objects.bulk_update(links, ['proposed_price','observed_at','updated_at','available',
                 'last_price','item_url','review_status','price_baseline'],batch_size=100)

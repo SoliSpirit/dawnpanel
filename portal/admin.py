@@ -95,6 +95,8 @@ class ProductAdmin(PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
         return 'تصویر شب دسته‌بندی نمایش داده می‌شود.'
     def save_model(self,request,obj,form,change):
         super().save_model(request,obj,form,change)
+        if change and {'price','product_profit_percent','price_per','price_amount','price_currency'}.intersection(form.changed_data):
+            ProductSaleOverride.objects.filter(product_id=obj.pk).delete()
         if 'picture' in form.cleaned_data: save_product_picture(obj,form)
         field='tax_percent'
         if field in form.cleaned_data and form.add_prefix(field) in form.data and field in form.changed_data:
@@ -118,7 +120,7 @@ class ProductAdmin(PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
         return f'{obj.tax_percent:g}٪' if obj.tax_percent else 'بدون مالیات'
     def get_queryset(self,request):
         from django.db.models import Exists,OuterRef,Q
-        return super().get_queryset(request).select_related('category','tax_policy').annotate(
+        return super().get_queryset(request).select_related('category','tax_policy','sale_override').annotate(
             _has_source=Exists(SourceProduct.objects.filter(product_id=OuterRef('pk')))
         ).alias(_web_enabled=Q(show_on_website=True) & Product.web_eligible())
     def state_block(self,obj,field):
@@ -334,6 +336,7 @@ class SourceProductAdmin(PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
         from django.db.models import OuterRef,Subquery
         return super().get_queryset(request).annotate(
             product_name=Subquery(Product.objects.filter(pk=OuterRef('product_id')).values('name')[:1]),
+            fixed_amount=Subquery(ProductSaleOverride.objects.filter(product_id=OuterRef('product_id')).values('amount')[:1]),
             profit=Subquery(Product.objects.filter(pk=OuterRef('product_id')).values('product_profit_percent')[:1]))
 
     def review_prices(self,request,queryset,action):

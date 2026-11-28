@@ -88,7 +88,8 @@ def pricing_for(product):
                 amount *= currency_rates(currency).sell
             except RateError as error:
                 raise BusinessError(str(error)) from None
-        pack = int((amount * (100 + max(Decimal(0), product.product_profit_percent)) / 100
+        fixed=product.fixed_sale
+        pack = fixed if fixed is not None else int((amount * (100 + max(Decimal(0), product.product_profit_percent)) / 100
                     ).to_integral_value(rounding=ROUND_CEILING))
     bps = int(product.tax_percent * 100)
     if pack <= 0 or not 0 <= bps <= 10_000:

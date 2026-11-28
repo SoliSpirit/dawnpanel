@@ -13,7 +13,7 @@ from django.utils.decorators import method_decorator
 from django.utils.html import format_html
 from django.views.decorators.csrf import csrf_protect
 
-from .models import Audit, Product, SourceProduct,PriceReviewBatch
+from .models import Audit, Product, ProductSaleOverride, SourceProduct,PriceReviewBatch
 from .price_sync import sync_source,finish_batch
 from django.urls import reverse
 from .pricing import BusinessError
@@ -42,6 +42,8 @@ class PriceToolsAdminMixin:
 
     @admin.display(description='سود فروش')
     def profit_label(self, obj):
+        fixed=obj.fixed_sale if self.model is Product else obj.fixed_amount
+        if fixed is not None:return f'فروش ثابت: {fa_number(fixed)} تومان'
         value = obj.product_profit_percent if self.model is Product else obj.profit
         return profit_text(value)
 
@@ -79,7 +81,7 @@ class PriceToolsAdminMixin:
             raise PermissionDenied
         ids = [r.product_id if self.model is SourceProduct else r.pk for r in selected]
         scope = product_admin.get_queryset(request).filter(pk__in=ids).order_by().values('pk')
-        products = Product.objects.filter(pk__in=scope).order_by('pk')
+        products = Product.objects.filter(pk__in=scope).select_related('sale_override').order_by('pk')
         if lock:
             products = products.select_for_update()
         products = list(products)
@@ -97,7 +99,7 @@ class PriceToolsAdminMixin:
         # Freeze the selection, mapping and currently visible percentages (including
         # "select across"). A single form field works beyond a page of checkboxes.
         payload = {'user':request.user.pk,'ids':[r.pk for r in selected],
-                   'before':[[p.pk,str(p.product_profit_percent)] for p in products]}
+                   'before':[[p.pk,str(p.product_profit_percent),p.fixed_sale] for p in products]}
         ticket = signing.dumps(payload,salt=self.opts.label_lower+'.profit',compress=True)
         form = ProfitForm(initial={'percent':format(products[0].product_profit_percent.normalize(),'f')} if len(products)==1 else {})
         return self._profit_page(request,form,ticket,products)
@@ -127,17 +129,18 @@ class PriceToolsAdminMixin:
             rows = rows.select_for_update()
         selected,products = self._scoped_products(request,rows,lock=True)
         if ([r.pk for r in selected] != token['ids']
-                or [[p.pk,str(p.product_profit_percent)] for p in products] != token['before']):
+                or [[p.pk,str(p.product_profit_percent),p.fixed_sale] for p in products] != token['before']):
             self.message_user(request,'انتخاب یا درصد سود تغییر کرده است؛ فهرست را بررسی و دوباره انتخاب کن.',messages.ERROR)
             return HttpResponseRedirect(request.get_full_path())
         form = ProfitForm(request.POST)
         if not form.is_valid():
             return self._profit_page(request,form,ticket,products)
         percent = form.cleaned_data['percent']
-        changed = [p for p in products if p.product_profit_percent!=percent]
+        changed = [p for p in products if p.product_profit_percent!=percent or p.fixed_sale is not None]
+        ProductSaleOverride.objects.filter(product_id__in=[p.pk for p in changed]).delete()
         Product.objects.filter(pk__in=[p.pk for p in changed]).update(product_profit_percent=percent)
         Audit.objects.bulk_create([Audit(actor=request.user,action='product.profit',object_ref=str(p.pk),
-            details={'old':str(p.product_profit_percent),'new':str(percent)}) for p in changed],batch_size=100)
+            details={'old':str(p.product_profit_percent),'new':str(percent),'fixed_before':p.fixed_sale}) for p in changed],batch_size=100)
         if changed:
             Audit.objects.create(actor=request.user,action='catalog.profit.batch',details={'count':len(changed)})
             from django.contrib.admin.models import CHANGE, LogEntry

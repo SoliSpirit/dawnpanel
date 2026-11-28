@@ -45,8 +45,8 @@ class DeliveryError(Exception):
 
 def operation_message(event):
     if event.topic=='price_review':
-        from .review_queue import telegram_page
-        return telegram_page(int(event.reference))
+        from .telegram_reviews import telegram_digest
+        return telegram_digest(int(event.reference))
     if event.topic in ('incoming_ticket','incoming_receipt'):
         from .native_notices import telegram_payload
         return telegram_payload(event)

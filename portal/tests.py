@@ -45,6 +45,18 @@ class SecurityAndCommerceTests(TransactionTestCase):
         self.product.product_profit_percent=Decimal('7.5')
         self.assertEqual(price_for(self.product,11)[0],119)
 
+    def test_manual_sale_is_shared_by_both_wallet_checkouts_without_double_markup(self):
+        self.product.product_profit_percent=40;self.product.save()
+        ProductSaleOverride.objects.create(product=self.product,amount=1231,units=100)
+        ProductTax.objects.create(product=self.product,percent=10)
+        quote=pricing_for(self.product).quote(100)
+        self.assertEqual((quote.subtotal,quote.total),(1231,1355))
+        web=place_order(self.account,self.product.pk,100,'test',uuid.uuid4(),1355,quote.breakdown)
+        bot,_=place_bot_order(self.otherwallet.pk,self.product.pk,100,'test',1355,quote.breakdown)
+        self.assertEqual((web.amounts.subtotal,OrderAmounts.objects.get(order_id=bot).subtotal),(1231,1231))
+        self.assertEqual(list(Ledger.objects.filter(type='withdraw').values_list('amount',flat=True)),[-1355,-1355])
+        self.assertEqual(web.cost_record.estimated,1000)
+
     def test_finance_keeps_tax_refunds_and_unknown_cost_out_of_gross_profit(self):
         self.product.product_profit_percent=20;self.product.save()
         ProductTax.objects.create(product=self.product,percent=10)
