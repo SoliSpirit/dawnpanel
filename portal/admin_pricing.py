@@ -7,17 +7,19 @@ from django.contrib import admin, messages
 from django.core import signing
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Prefetch
 from django.http import Http404, HttpResponseRedirect
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404,render
 from django.utils.decorators import method_decorator
 from django.utils.html import format_html
 from django.views.decorators.csrf import csrf_protect
 
-from .models import Audit, Product, ProductSaleOverride, SourceProduct,PriceReviewBatch
+from .models import Audit, Product, ProductSaleOverride, SourceProduct,PriceReviewBatch,PriceReviewItem
 from .price_sync import sync_source,finish_batch
 from django.urls import reverse
 from .pricing import BusinessError
 from .product_media import ProfitPercentField
+from .review_queue import allowed,decide,live_pending,reviewed_sale
 from .supplier_clients import SupplierError
 from .templatetags.ui import fa_number
 
@@ -32,6 +34,60 @@ def profit_text(value):
 
 class ProfitForm(forms.Form):
     percent = ProfitPercentField()
+
+
+class SourceApprovalMixin:
+    """A button submits one immutable report item, not a set of checked boxes or a client price."""
+    def get_queryset(self,request):
+        return super().get_queryset(request).prefetch_related(Prefetch(
+            'pricereviewitem_set',queryset=live_pending().order_by('-pk'),to_attr='pending_reviews'))
+
+    def get_list_display(self,request):
+        cols=super().get_list_display(request)
+        if '_popup' in request.GET or not allowed(request,self.admin_site,True):return cols
+
+        @admin.display(description='نتیجهٔ بررسی',ordering='review_status')
+        def approval_status(obj):
+            if obj.review_status!='pending' or not self.has_change_permission(request,obj):return self.observation(obj)
+            if not obj.pending_reviews:
+                return format_html('{}<small class="catalog-row-category">{}</small>',self.observation(obj),
+                                   'برای تأیید، ابتدا «بررسی مجدد» را بزنید.')
+            i=obj.pending_reviews[0]
+            return format_html('<div class="dp-approve-cell"><span>{}</span>'
+                               '<small>فروش پس از تأیید: <strong>{} تومان</strong> برای هر {} عدد، پیش از مالیات</small>'
+                               '<button type="submit" name="_dp_approve" value="{}" class="dp-price-button dp-approve" '
+                               'formnovalidate aria-label="تأیید و اعمال قیمت: {}">تأیید و اعمال قیمت</button></div>',
+                               obj.get_review_status_display(),fa_number(reviewed_sale(i)),fa_number(i.units),str(i.pk),i.label)
+        return [approval_status if c=='observation' else c for c in cols]
+
+    def apply_review_item(self,request,item):
+        count,_=decide(item.batch_id,item_pk=item.pk,actor=request.user,request=request,site=self.admin_site)
+        return count
+
+    @method_decorator(csrf_protect)
+    def changelist_view(self,request,extra_context=None):
+        if request.method!='POST' or '_dp_approve' not in request.POST:
+            return super().changelist_view(request,extra_context)
+        if '_popup' in request.GET or not allowed(request,self.admin_site,True):raise PermissionDenied
+        values=request.POST.getlist('_dp_approve')
+        if len(values)!=1:raise Http404
+        value=values[0]
+        if not (0<len(value)<=19 and value.isascii() and value.isdecimal() and 0<int(value)<2**63):raise Http404
+        item=get_object_or_404(PriceReviewItem,pk=int(value),batch__ready=True,status='pending')
+        if self.apply_review_item(request,item):
+            self.message_user(request,f'قیمت «{item.label}» تأیید شد. فروش هر {fa_number(item.units)} عدد: '
+                                      f'{fa_number(reviewed_sale(item))} تومان پیش از مالیات.',messages.SUCCESS)
+        else:
+            self.message_user(request,'قیمت ثبت نشد؛ این پیشنهاد قبلاً بررسی شده یا تغییر کرده است. '
+                                      'اگر هنوز منتظر تأیید است، «بررسی مجدد» را بزنید.',messages.WARNING)
+        # Removing the last pending row from the last page must not drop the user's filters.
+        from django.contrib.admin.views.main import IncorrectLookupParameters,PAGE_VAR
+        if PAGE_VAR in request.GET:
+            try:self.get_changelist_instance(request)
+            except IncorrectLookupParameters:
+                params=request.GET.copy();params.pop(PAGE_VAR)
+                return HttpResponseRedirect(request.path+('?'+params.urlencode() if params else ''))
+        return HttpResponseRedirect(request.get_full_path())
 
 
 class PriceToolsAdminMixin:

@@ -115,6 +115,10 @@ Telegram opens on a short digest; the pending index and the full catalog open
 separately. Tap a number to compare one item's supplier and selling prices and
 approve it. Whole-report approval still has an explicit confirmation. Superseded observations,
 changed products and proposals older than 24 hours cannot overwrite newer prices.
+«صفحهٔ منبع» opens the supplier's current public product or service page beside the
+observed price, in the current-price editor and on the Telegram detail card. The
+digest links its first example and the emailed CSV includes a per-row URL.
+Premstore variation links keep their plan parameters when supplied.
 
 ## Website errors
 

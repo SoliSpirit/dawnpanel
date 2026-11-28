@@ -58,7 +58,9 @@ def digest(batch, notice=''):
         lines+=['','<b>اولین پیشنهاد</b>',name(i,64),
                 f'هر {money(i.units)} عدد · تومان، پیش از مالیات',
                 f'فروش هنگام بررسی: {money(i.sale_before)}',f'فروش پیشنهادی: <b>{money(i.sale_after)}</b>']
-        keys.append([button(batch,'pending',f'بررسی {fa_number(n)} پیشنهاد')])
+        actions=[button(batch,'pending',f'بررسی {fa_number(n)} پیشنهاد')]
+        if i.source_page:actions.append({'text':'منبع اولین پیشنهاد','url':i.source_page})
+        keys.append(actions)
     if notice:lines+=['',notice]
     nav=[button(batch,'items','همهٔ محصولات')]
     if n:nav.append(button(batch,'ask','تأیید همه…'))
@@ -102,8 +104,12 @@ def detail_card(batch,pk,page,pending):
     keys=[]
     if i.status=='pending' and i.editable:
         keys.append([button(batch,'approvep' if pending else 'approvea','تأیید همین پیشنهاد',page=page,item=i.pk)])
-    keys.extend([[web(batch,i,editable=i.editable)],[button(batch,'pending' if pending else 'items','فهرست محصولات',page=page),
-                                                        button(batch,'home','خلاصهٔ گزارش')]])
+    links=[]
+    if i.source_page:links.append({'text':'صفحهٔ منبع','url':i.source_page})
+    else:lines.append('لینک صفحهٔ منبع در دسترس نیست.')
+    links.append(web(batch,i,editable=i.editable))
+    keys.extend([links,[button(batch,'pending' if pending else 'items','فهرست محصولات',page=page),
+                        button(batch,'home','خلاصهٔ گزارش')]])
     return packet(lines,keys)
 
 

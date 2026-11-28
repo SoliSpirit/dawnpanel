@@ -353,6 +353,7 @@ class PriceSyncTests(TransactionTestCase):
             secure=Client(enforce_csrf_checks=True);secure.force_login(user)
             self.assertEqual(secure.post(url,{'_dp_recheck':'results'}).status_code,403)
             self.assertEqual(secure.post(url,{'_dp_profit':self.link.pk}).status_code,403)
+            self.assertEqual(secure.post(url,{'_dp_approve':1}).status_code,403)
             fetch.assert_not_called()
 
     def add_family_plan(self):
@@ -566,6 +567,7 @@ class PriceSyncTests(TransactionTestCase):
         self.assertTrue(response.content.startswith(b'\xff\xd8'))
 
     def test_admin_permissions_and_confirmation(self):
+        from .models import PriceReviewItem
         self.fetch()
         user=User.objects.create_user(username='source-test-admin',is_staff=True)
         user.user_permissions.add(Permission.objects.get(codename='change_sourceproduct',content_type__app_label='portal'))
@@ -584,6 +586,48 @@ class PriceSyncTests(TransactionTestCase):
         self.assertEqual(response.status_code,302)
         self.product.refresh_from_db()
         self.assertEqual(self.product.price,1100)
+        self.assertEqual(PriceReviewItem.objects.get(link=self.link).decision,'applied')
+
+    def test_pending_list_button_commits_only_its_review_once_and_keeps_the_fixed_sale(self):
+        from .models import Audit,PriceReviewItem,ProductSaleOverride
+        self._tools_staff('change_product','change_sourceproduct')
+        ProductSaleOverride.objects.create(product=self.product,units=1,amount=1651)
+        other=Product.objects.create(name='Other plan',category=self.category,price=2400)
+        other_link=SourceProduct.objects.create(source='premstore',external_id='12',product_id=other.pk,last_price=2400)
+        self.rows.append(dict(self.rows[0],external_id='12',price=3000))
+        result=self.fetch();rows=PriceReviewItem.objects.filter(batch_id=result['review_batch'])
+        row=rows.get(link=self.link);url='/admin/portal/sourceproduct/?review_status__exact=pending'
+        page=self.client.get(url);self.assertContains(page,'name="_dp_approve"',count=2)
+        self.assertContains(page,'۱٬۶۵۱ تومان')
+        # Checked boxes and the bulk dropdown must not change a single-button submission.
+        data={'_dp_approve':str(row.pk),'action':'approve_prices','_selected_action':str(other_link.pk)}
+        for _ in range(2):self.assertRedirects(self.client.post(url,data),url,fetch_redirect_response=False)
+        self.product.refresh_from_db();self.link.refresh_from_db();other.refresh_from_db();row.refresh_from_db()
+        self.assertEqual((self.link.review_status,self.product.price,self.product.fixed_sale,row.decision,row.final_sale),
+                         ('applied',1100,1651,'applied',1651))
+        self.assertEqual((other.price,rows.get(link=other_link).decision),(2400,''))
+        self.assertContains(self.client.get(url),'name="_dp_approve"',count=1)
+        self.assertEqual(Audit.objects.filter(action='source.price.apply').count(),1)
+
+    def test_pending_list_cannot_apply_a_newer_observation_or_a_changed_product_from_an_old_button(self):
+        from .models import Audit,PriceReviewItem
+        user=self._tools_staff('view_product','view_sourceproduct')
+        one=self.fetch()['review_batch']
+        row=PriceReviewItem.objects.get(batch_id=one);url='/admin/portal/sourceproduct/?review_status__exact=pending'
+        self.assertNotContains(self.client.get(url),'name="_dp_approve"')
+        self.assertEqual(self.client.post(url,{'_dp_approve':row.pk}).status_code,404)
+        user.user_permissions.add(*Permission.objects.filter(content_type__app_label='portal',codename__in=['change_product','change_sourceproduct']))
+        self.rows[0]['price']=1250
+        two=self.fetch()['review_batch'];fresh=PriceReviewItem.objects.get(batch_id=two)
+        self.client.post(url,{'_dp_approve':row.pk})
+        self.link.refresh_from_db();self.product.refresh_from_db()
+        self.assertEqual((self.product.price,self.link.review_status,self.link.proposed_price),(1000,'pending',1250))
+        # A manual price edit after the page loaded must also win.
+        Product.objects.filter(pk=self.product.pk).update(price=1234)
+        self.client.post(url,{'_dp_approve':fresh.pk})
+        self.product.refresh_from_db();fresh.refresh_from_db()
+        self.assertEqual((self.product.price,fresh.decision),(1234,'stale'))
+        self.assertFalse(Audit.objects.filter(action='source.price.apply').exists())
 
     def test_inline_monitoring_respects_permissions_and_price_approval(self):
         self.fetch()

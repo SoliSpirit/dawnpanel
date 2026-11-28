@@ -13,6 +13,7 @@ from django.db.models import F
 from django.shortcuts import get_object_or_404,redirect,render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.encoding import iri_to_uri
 from django.views.decorators.http import require_GET,require_http_methods
 
 from .models import Audit,PriceReviewBatch,PriceReviewItem,Product,ProductSaleOverride,SourceProduct
@@ -30,25 +31,37 @@ def batch_url(pk):
     return 'https://dawnpanel.ir'+reverse('admin:price_review',args=[int(pk)])
 
 
+def source_page(item,link):
+    # The report prices are historical; open the current public page for the same mapping.
+    if (item.source,item.product_id)!=(link.source,link.product_id):return ''
+    return iri_to_uri(link.evidence_url)
+
+
+def reviewed_sale(i):
+    if i.status not in ('pending','unchanged'):return None
+    if i.final_sale is not None:return i.final_sale
+    if i.fixed_before is not None:return i.fixed_before
+    return sale(i.observed,i.final_markup if i.final_markup is not None else i.markup)
+
+
 def display_row(i):
     stale=(not i.decision and i.status in ('pending','unchanged') and
            (i.link.observed_at!=i.observed_at or i.link.review_status!=i.status or i.observed_at<timezone.now()-timedelta(days=1)))
     i.current_label=LABEL.get(i.decision or ('stale' if stale else i.status),i.status)
     i.source_label=NAMES.get(i.source,i.source)
+    i.source_page=source_page(i,i.link)
     i.sale_before=i.fixed_before if i.fixed_before is not None else sale(i.base,i.markup)
     i.percent_sale=sale(i.observed,i.markup)
-    i.sale_after=None
-    if i.status in ('pending','unchanged'):
-        if i.final_sale is not None:i.sale_after=i.final_sale
-        elif i.fixed_before is not None:i.sale_after=i.fixed_before
-        else:i.sale_after=sale(i.observed,i.final_markup if i.final_markup is not None else i.markup)
+    i.sale_after=reviewed_sale(i)
     i.editable=not i.decision and not stale and i.status in ('pending','unchanged')
     return i
 
 
-def live_pending(batch):
-    return batch.items.filter(status='pending',decision='',link__review_status='pending',observed_at=F('link__observed_at'),
-                              observed_at__gte=timezone.now()-timedelta(days=1))
+def live_pending(batch=None):
+    rows=batch.items if batch is not None else PriceReviewItem.objects
+    return rows.filter(batch__ready=True,status='pending',decision='',link__review_status='pending',link__available=True,
+                       source=F('link__source'),product_id=F('link__product_id'),observed=F('link__proposed_price'),
+                       observed_at=F('link__observed_at'),observed_at__gte=timezone.now()-timedelta(days=1))
 
 
 def sale(base,markup):
@@ -72,13 +85,13 @@ def toman_input(value):
 
 def email_sheet(pk):
     data=io.StringIO();w=csv.writer(data)
-    w.writerow(['محصول','منبع','تعداد مبنا','قیمت قبلی منبع','قیمت جدید منبع','فروش هنگام بررسی','فروش پیشنهادی پیش از مالیات','وضعیت'])
+    w.writerow(['محصول','منبع','تعداد مبنا','قیمت قبلی منبع','قیمت جدید منبع','فروش هنگام بررسی','فروش پیشنهادی پیش از مالیات','وضعیت','لینک صفحهٔ منبع'])
     rows=PriceReviewItem.objects.filter(batch_id=int(pk),batch__ready=True).select_related('link')
     if not rows.exists():return None
     for i in rows.iterator():
         display_row(i);label=' '.join(i.label.split())
         if label.startswith(('=','+','-','@')):label="'"+label
-        w.writerow([label,i.source_label,i.units,i.previous,i.observed,i.sale_before,i.sale_after,i.current_label])
+        w.writerow([label,i.source_label,i.units,i.previous,i.observed,i.sale_before,i.sale_after,i.current_label,i.source_page])
     return (f'prices-{int(pk)}.csv','\ufeff'+data.getvalue(),'text/csv')
 
 
@@ -108,7 +121,9 @@ def decide(batch_pk,*,item_pk=None,markup=None,fixed_sale=None,actor=None,telegr
     count=stale=0
     for i in items:
         link=links.get(i.link_id)
-        valid=(link and link.product_id==i.product_id and i.product_id in products and link.observed_at==i.observed_at
+        valid=(link and link.available and link.source==i.source and link.product_id==i.product_id
+               and (link.proposed_price if i.status=='pending' else link.last_price)==i.observed
+               and i.product_id in products and link.observed_at==i.observed_at
                and link.review_status==i.status and i.observed_at>=timezone.now()-timedelta(hours=24))
         if valid and i.status=='unchanged' and fixed_sale is None and (markup is None or markup==i.markup and i.fixed_before is None):continue
         if valid:
@@ -216,4 +231,5 @@ def current_price(request,site,pk,item_pk):
                                      details={'old':old,'new':amount,'units':p.price_per,'report':pk})
             messages.success(request,f'فروش فعلی «{p.name}»: {fa_number(amount)} تومان.');return redirect(url)
     return render(request,'admin/portal/current_sale.html',{**site.each_context(request),'title':'ویرایش قیمت فعلی محصول',
-        'p':p,'old':old,'entered':entered,'valid':valid,'stamp':signing.dumps(sig,salt=salt),'report_url':url,'error':error})
+        'p':p,'old':old,'entered':entered,'valid':valid,'stamp':signing.dumps(sig,salt=salt),'report_url':url,
+        'source_page':source_page(row,link),'error':error})

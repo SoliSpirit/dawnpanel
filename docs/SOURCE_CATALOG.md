@@ -126,13 +126,15 @@ ON. Product managers can review proposals; senior managers can configure schedul
 Actions additionally require product-change permission and normal admin CSRF.
 
 1. Select a source in settings and use "دریافت قیمت‌ها اکنون".
-2. Review pending proposals, select up to 50, then confirm apply or reject on
-   the confirmation screen. Prices older than 24h cannot be applied.
+2. On the pending list, **تأیید و اعمال قیمت** applies the displayed proposal
+   for that one product. The preview is per pack, before tax; clicking preserves
+   its fixed selling price or existing markup and records the decision in its report.
+   For several products select up to 50, then confirm the bulk action.
+   Prices older than 24h cannot be applied; use **بررسی مجدد** to get a fresh proposal.
 3. Turn scheduling on and set the interval (minimum 15 minutes).
-4. Leaving approval on means scheduled checks only propose prices.
-5. Turning approval off permits automatic application within the configured
-   percentage-change bound (default 25%). Larger changes stay pending.
-6. Disable synchronization on an individual source-product row to manage its
+4. Scheduled checks only propose prices; even older approval/threshold settings
+   do not apply selling prices without an admin decision.
+5. Disable synchronization on an individual source-product row to manage its
    price/availability manually. Manual product editing remains in Product admin.
 
 The source price replaces only `Product.price`; existing profit percentage stays

@@ -6,7 +6,7 @@ from django.utils.html import format_html
 from django.urls import reverse
 from .services import BusinessError
 from .admin_states import StateListMixin
-from .admin_pricing import PriceToolsAdminMixin
+from .admin_pricing import PriceToolsAdminMixin,SourceApprovalMixin
 from .admin_fx import CurrencyRatesAdminMixin
 from . import admin_operations
 
@@ -263,9 +263,9 @@ class SourceSyncSettingsAdmin(StateListMixin,AuditedAdmin):
 
 
 @admin.register(SourceProduct)
-class SourceProductAdmin(PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
+class SourceProductAdmin(SourceApprovalMixin,PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
     state_fields=('sync_enabled',)
-    list_hint='روی لینک زیر قیمت بزن تا صفحهٔ منبع را ببینی. برای بررسی مجدد یا تنظیم سود چند محصول، ردیف‌ها را انتخاب کن.'
+    list_hint='برای ثبت قیمت، «تأیید و اعمال قیمت» همان محصول را بزن. لینک زیر قیمت منبع، صفحهٔ تأمین‌کننده را باز می‌کند. برای تأیید چند محصول، ردیف‌ها را انتخاب کن و از منوی اقدام «بررسی و تأیید قیمت‌های انتخاب‌شده» را بزن.'
     state_labels={'sync_enabled':'پایش خودکار'}
     list_display=['product_label','source_item','supplier_price','observation','profit_label','sync_enabled','check_time']
     list_display_links=('source_item',)  # product_label already links to the product editor.
@@ -343,7 +343,7 @@ class SourceProductAdmin(PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
         from django.contrib import messages
         from django.shortcuts import render
         from django.utils.dateparse import parse_datetime
-        from .price_sync import apply_proposal,reject_proposal
+        from .price_sync import reject_proposal
         rows=list(queryset.order_by('pk')[:51])
         if len(rows)>50:
             self.message_user(request,'هر بار حداکثر ۵۰ محصول انتخاب کنید.',level=messages.ERROR)
@@ -359,7 +359,9 @@ class SourceProductAdmin(PriceToolsAdminMixin,StateListMixin,AuditedAdmin):
                 expected=parse_datetime(request.POST.get('observed_'+str(row.pk),''))
                 if expected is None:raise ValueError()
                 if action=='approve_prices':
-                    count+=bool(apply_proposal(row.pk,request.user,expected_observed_at=expected))
+                    item=next((i for i in row.pending_reviews if i.observed_at==expected),None)
+                    if not item:raise ValueError()
+                    count+=self.apply_review_item(request,item)
                 else:
                     reject_proposal(row.pk,request.user,expected_observed_at=expected)
                     count+=1

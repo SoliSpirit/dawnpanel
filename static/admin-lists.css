@@ -41,6 +41,7 @@
 .dp-list-meta strong {font-size:14px}.dp-list-meta>span {display:inline-flex;align-items:center;gap:5px}
 .dp-price-button,.dp-profit-value {box-sizing:border-box;min-height:44px;cursor:pointer;font:inherit;font-size:12px;color:var(--dp-accent);background:var(--dp-surface);border:1px solid var(--dp-line);border-radius:8px;padding:6px 10px}
 .dp-price-button {white-space:nowrap}
+.dp-approve-cell {display:grid;justify-items:start;gap:4px}.dp-approve-cell small {color:var(--dp-muted)}.dp-approve-cell .dp-approve {white-space:normal;background:var(--dp-accent);color:var(--dp-surface);font-weight:650}
 .dp-profit-value {background:transparent;border:0;padding:4px;text-decoration:underline;text-underline-offset:4px}
 .dp-price-all {display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 16px 10px}.dp-price-all small,.dp-profit-form small {color:var(--dp-muted)}
 .dp-state-list .dp-source-page {text-decoration:underline;text-underline-offset:3px}
@@ -108,6 +109,7 @@
   .dp-state-list #result_list.dp-card-mode tbody tr {position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px;border:1px solid var(--dp-line);border-radius:12px;background:var(--dp-surface)}
   .dp-state-list #changelist #result_list.dp-card-mode tbody :is(td,th) {display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;min-width:0;padding:0;border:0;overflow-wrap:anywhere;white-space:normal}
   #result_list.dp-card-mode .dp-card-title {grid-column:1/-1;order:-1}
+  #result_list.dp-card-mode .field-approval_status:has(.dp-approve-cell) {grid-column:1/-1}
   .dp-state-list #changelist #result_list.dp-has-actions .dp-card-title {padding-inline-start:38px;min-height:32px;justify-content:center}
   .dp-state-list #changelist #result_list.dp-has-actions .action-checkbox {position:absolute;inset-inline-start:4px;inset-block-start:4px;padding:9px}
   #result_list.dp-has-actions .action-checkbox input {width:24px;height:24px;margin:0;cursor:pointer}
